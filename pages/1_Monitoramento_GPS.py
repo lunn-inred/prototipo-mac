@@ -72,6 +72,7 @@ def evolution_chart(variable: str) -> go.Figure:
 
 
 st.subheader("Evolução de carga e intensidade")
+selected_variables = st.multiselect("Variáveis", VARIABLES)
 
 if not selected_variables:
     st.info("Selecione ao menos uma variável.")
