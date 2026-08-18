@@ -123,19 +123,18 @@ A página apresenta:
 - SJ na última coleta;
 - quantidade de coletas com alguma medição válida.
 
-O texto exibido abaixo de CMJ e SJ representa a diferença para a coleta válida
-anterior. Por exemplo:
+O texto exibido abaixo de CMJ e SJ representa o desvio padrão populacional dos
+valores das coletas válidas dentro dos filtros ativos. Por exemplo:
 
 ```text
-+0,1 cm vs. coleta anterior
+Desvio padrão: 0,1 cm
 ```
 
-indica que o valor da coleta mais recente foi 0,1 cm maior que o da coleta
-anterior.
+indica que a dispersão dos valores em relação à média é de 0,1 cm.
 
-Quando um atleta está selecionado, são comparadas as duas últimas coletas desse
-atleta. Na visão geral ou por posição, são comparadas as médias das duas últimas
-datas. Nesse último caso, os atletas presentes em cada data podem ser diferentes.
+Quando um atleta está selecionado, o cálculo considera a série de coletas desse
+atleta. Na visão geral ou por posição, considera a série das médias por data. Com
+apenas uma coleta válida, o desvio padrão exibido é 0,0 cm.
 
 ### Gráficos
 
@@ -172,6 +171,8 @@ a fonte atual ainda não contém dados suficientes para:
 - `cmj1`, `cmj2` e `cmj3` não são consumidos pela página.
 - `sj1`, `sj2` e `sj3` não são consumidos pela página.
 - `sj`, `sj_1` e `sj_2` estão vazios e não são consultados.
+
+### Instruções SQL
 
 ## Monitoramento de GPS
 

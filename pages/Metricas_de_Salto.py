@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import timedelta
+from statistics import pstdev
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -38,22 +39,21 @@ def records_by_date(
     return dates, [value for value in values if value is not None]
 
 
-def latest_value_and_delta(
+def latest_value_and_standard_deviation(
     records: list[dict[str, object]], metric: str
 ) -> tuple[float | None, float | None]:
     _, values = records_by_date(records, metric)
     if not values:
         return None, None
-    delta = values[-1] - values[-2] if len(values) > 1 else None
-    return values[-1], delta
+    return values[-1], pstdev(values)
 
 
 def metric_text(value: float | None) -> str:
     return f"{value:.1f} cm" if value is not None else "Sem dados"
 
 
-def delta_text(value: float | None) -> str | None:
-    return f"{value:+.1f} cm vs. coleta anterior" if value is not None else None
+def standard_deviation_text(value: float | None) -> str | None:
+    return f"± {value:.1f} cm" if value is not None else None
 
 
 def add_average_trace(
@@ -145,8 +145,12 @@ if not filtered_records:
     st.warning("Não há coletas para os filtros selecionados.")
     st.stop()
 
-cmj_value, cmj_delta = latest_value_and_delta(filtered_records, "cmj")
-sj_value, sj_delta = latest_value_and_delta(filtered_records, "sj")
+cmj_value, cmj_standard_deviation = latest_value_and_standard_deviation(
+    filtered_records, "cmj"
+)
+sj_value, sj_standard_deviation = latest_value_and_standard_deviation(
+    filtered_records, "sj"
+)
 valid_collections = sum(
     recorded_best(record, "cmj") is not None
     or recorded_best(record, "sj") is not None
@@ -154,8 +158,18 @@ valid_collections = sum(
 )
 
 metrics = st.columns(3)
-metrics[0].metric("CMJ na última coleta", metric_text(cmj_value), delta_text(cmj_delta))
-metrics[1].metric("SJ na última coleta", metric_text(sj_value), delta_text(sj_delta))
+metrics[0].metric(
+    "CMJ na última coleta",
+    metric_text(cmj_value),
+    standard_deviation_text(cmj_standard_deviation),
+    delta_color="off",
+)
+metrics[1].metric(
+    "SJ na última coleta",
+    metric_text(sj_value),
+    standard_deviation_text(sj_standard_deviation),
+    delta_color="off",
+)
 metrics[2].metric("Coletas com medição", valid_collections)
 
 
