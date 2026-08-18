@@ -29,18 +29,6 @@ No Windows PowerShell, a ativação do ambiente pode ser feita com:
 .venv\Scripts\Activate.ps1
 ```
 
-Preencha o arquivo `.env` com as credenciais disponíveis em **Supabase > Project
-Settings > Database**:
-
-```text
-SUPABASE_DB_HOST
-SUPABASE_DB_PORT
-SUPABASE_DB_NAME
-SUPABASE_DB_USER
-SUPABASE_DB_PASSWORD
-SUPABASE_DB_SSLMODE
-SUPABASE_DB_SCHEMA
-```
 
 O `.env` contém dados sensíveis e está ignorado pelo Git. O arquivo
 `.env.example` contém somente o modelo versionável.
