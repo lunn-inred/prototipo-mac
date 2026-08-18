@@ -89,18 +89,32 @@ positions = sorted(
 )
 
 filters = st.columns(3)
+with filters[1]:
+    selected_position = st.selectbox(
+        "Posição",
+        [None, *positions],
+        format_func=lambda value: value or "Todas as posições",
+    )
+
+available_athlete_ids = sorted(
+    {
+        int(record["id_atleta"])
+        for record in all_records
+        if selected_position is None or record["posicao"] == selected_position
+    },
+    key=athlete_names.get,
+)
+
 with filters[0]:
     selected_athlete = st.selectbox(
         "Atleta",
-        [None, *sorted(athlete_names)],
+        [None, *available_athlete_ids],
         format_func=lambda athlete_id: (
             "Todos os atletas"
             if athlete_id is None
             else athlete_names[athlete_id]
         ),
     )
-with filters[1]:
-    selected_position = st.selectbox("Posição", [None, *positions], format_func=lambda value: value or "Todas as posições")
 with filters[2]:
     selected_period = st.selectbox("Período de referência", list(PERIODS), index=2)
 
@@ -147,7 +161,12 @@ metrics[2].metric("Coletas com medição", valid_collections)
 
 def comparison_chart() -> go.Figure:
     figure = go.Figure()
-    scopes = [("Seleção", filtered_records)]
+    selection_label = (
+        athlete_names[selected_athlete]
+        if selected_athlete is not None
+        else selected_position or "Todos os atletas"
+    )
+    scopes = [(selection_label, filtered_records)]
 
     reference_position = selected_position
     if selected_athlete is not None and reference_position is None:
