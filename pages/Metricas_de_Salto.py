@@ -1,86 +1,251 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import timedelta
+
 import plotly.graph_objects as go
 import streamlit as st
 
+from jump_data import average, load_jump_records, recorded_best
 
-st.set_page_config(page_title="MAC Performance | Análise de Salto", page_icon="🔷", layout="wide")
 
-ATHLETES = [
-    "Todos os atletas", "#1 Diego", "#2 Wesley", "#3 Gabriel", "#4 Lucão",
-    "#5 Felipe", "#6 Rafael", "#7 Douglas", "#8 JP", "#9 Marquinhos",
-    "#10 Luan", "#11 Kauan", "#12 Rafa GK", "#13 Bruno", "#14 Caio",
-    "#15 Matheus", "#16 PH", "#17 Enzo", "#18 Vini", "#19 Samuca",
-    "#20 Thiaguinho", "#21 Otávio", "#22 Igor",
-]
-POSITIONS = ["Todas as posições", "Goleiro", "Zagueiro", "Lateral", "Volante", "Meio-campo", "Atacante"]
-PERIODS = ["Últimos 7 dias", "Últimos 30 dias", "Últimos 90 dias", "Todo o histórico"]
+st.set_page_config(
+    page_title="MAC Performance | Métricas de Salto",
+    page_icon="🔷",
+    layout="wide",
+)
+
+
+PERIODS = {
+    "Últimos 7 dias": 7,
+    "Últimos 30 dias": 30,
+    "Últimos 90 dias": 90,
+    "Todo o histórico": None,
+}
+
+
+def records_by_date(
+    records: list[dict[str, object]], metric: str
+) -> tuple[list[object], list[float]]:
+    grouped: dict[object, list[float]] = defaultdict(list)
+    for record in records:
+        value = recorded_best(record, metric)
+        if value is not None:
+            grouped[record["data_coleta"]].append(value)
+
+    dates = sorted(grouped)
+    values = [average(grouped[date]) for date in dates]
+    return dates, [value for value in values if value is not None]
+
+
+def latest_value_and_delta(
+    records: list[dict[str, object]], metric: str
+) -> tuple[float | None, float | None]:
+    _, values = records_by_date(records, metric)
+    if not values:
+        return None, None
+    delta = values[-1] - values[-2] if len(values) > 1 else None
+    return values[-1], delta
+
+
+def metric_text(value: float | None) -> str:
+    return f"{value:.1f} cm" if value is not None else "Sem dados"
+
+
+def delta_text(value: float | None) -> str | None:
+    return f"{value:+.1f} cm vs. coleta anterior" if value is not None else None
+
+
+def add_average_trace(
+    figure: go.Figure,
+    records: list[dict[str, object]],
+    name: str,
+    *,
+    mode: str = "lines",
+) -> None:
+    dates, values = records_by_date(records, "cmj")
+    if dates:
+        figure.add_trace(go.Scatter(x=dates, y=values, name=name, mode=mode))
+
 
 st.title("Métricas de Salto")
 
+try:
+    all_records = load_jump_records()
+except Exception as error:
+    st.error(f"Não foi possível carregar os dados de salto: {error}")
+    st.stop()
+
+if not all_records:
+    st.warning("A view de saltos não retornou registros.")
+    st.stop()
+
+athlete_names = {
+    int(record["id_atleta"]): str(record["atleta"])
+    for record in all_records
+}
+positions = sorted(
+    {str(record["posicao"]) for record in all_records if record["posicao"]}
+)
+
 filters = st.columns(3)
 with filters[0]:
-    athlete = st.selectbox("Atleta", ATHLETES)
+    selected_athlete = st.selectbox(
+        "Atleta",
+        [None, *sorted(athlete_names)],
+        format_func=lambda athlete_id: (
+            "Todos os atletas"
+            if athlete_id is None
+            else athlete_names[athlete_id]
+        ),
+    )
 with filters[1]:
-    position = st.selectbox("Posição", POSITIONS)
+    selected_position = st.selectbox("Posição", [None, *positions], format_func=lambda value: value or "Todas as posições")
 with filters[2]:
-    period = st.selectbox("Período de referência", PERIODS, index=2)
+    selected_period = st.selectbox("Período de referência", list(PERIODS), index=2)
 
-is_all = athlete == "Todos os atletas"
-selected_name = athlete.split(" ", 1)[1] if not is_all else ""
-selected_position = "Goleiro" if athlete in ("#1 Diego", "#12 Rafa GK") else (position if position != "Todas as posições" else "posição")
+latest_date = max(record["data_coleta"] for record in all_records)
+period_days = PERIODS[selected_period]
+cutoff_date = latest_date - timedelta(days=period_days - 1) if period_days else None
+period_records = [
+    record
+    for record in all_records
+    if cutoff_date is None or record["data_coleta"] >= cutoff_date
+]
+position_records = [
+    record
+    for record in period_records
+    if selected_position is None or record["posicao"] == selected_position
+]
+filtered_records = [
+    record
+    for record in position_records
+    if selected_athlete is None or record["id_atleta"] == selected_athlete
+]
 
-metric_values = (
-    [("CMJ médio", "46.1 cm", "+ 2.3"), ("Assimetria", "4.5 %", "+ 2.7"), ("RSI", "0.00", "+ 0.22")]
-    if is_all
-    else [("Último CMJ", "44.6 cm", "+ 1.7"), ("Assimetria", "5.9 %", "+ 3.0"), ("RSI", "0.00", "+ 0.53")]
+st.caption(
+    f"Fonte: public.vw_medidas_saltos · períodos calculados a partir da coleta mais recente ({latest_date:%d/%m/%Y})."
 )
-for column, (label, value, delta) in zip(st.columns(3), metric_values):
-    column.metric(label, value, delta)
+
+if not filtered_records:
+    st.warning("Não há coletas para os filtros selecionados.")
+    st.stop()
+
+cmj_value, cmj_delta = latest_value_and_delta(filtered_records, "cmj")
+sj_value, sj_delta = latest_value_and_delta(filtered_records, "sj")
+valid_collections = sum(
+    recorded_best(record, "cmj") is not None
+    or recorded_best(record, "sj") is not None
+    for record in filtered_records
+)
+
+metrics = st.columns(3)
+metrics[0].metric("CMJ na última coleta", metric_text(cmj_value), delta_text(cmj_delta))
+metrics[1].metric("SJ na última coleta", metric_text(sj_value), delta_text(sj_delta))
+metrics[2].metric("Coletas com medição", valid_collections)
 
 
-def radar_chart(individual: bool) -> go.Figure:
-    categories = ["CMJ (altura)", "SJ (altura)", "Potência pico", "RSI (reatividade)", "Simetria L/R"]
-    team = [78, 81, 80, 50, 96]
-    position_avg = [76, 84, 78, 53, 94]
-    player = [80, 88, 84, 50, 92]
+def comparison_chart() -> go.Figure:
     figure = go.Figure()
-    if individual:
-        figure.add_trace(go.Scatterpolar(r=player + [player[0]], theta=categories + [categories[0]], name=selected_name, fill="toself"))
-        figure.add_trace(go.Scatterpolar(r=position_avg + [position_avg[0]], theta=categories + [categories[0]], name=f"Média {selected_position}"))
-    else:
-        figure.add_trace(go.Scatterpolar(r=position_avg + [position_avg[0]], theta=categories + [categories[0]], name="Média elenco por posição"))
-    figure.add_trace(go.Scatterpolar(r=team + [team[0]], theta=categories + [categories[0]], name="Média do elenco"))
+    scopes = [("Seleção", filtered_records)]
+
+    reference_position = selected_position
+    if selected_athlete is not None and reference_position is None:
+        reference_position = next(
+            (
+                str(record["posicao"])
+                for record in all_records
+                if record["id_atleta"] == selected_athlete and record["posicao"]
+            ),
+            None,
+        )
+    if reference_position:
+        scopes.append(
+            (
+                f"Média {reference_position}",
+                [
+                    record
+                    for record in period_records
+                    if record["posicao"] == reference_position
+                ],
+            )
+        )
+    scopes.append(("Média do elenco", period_records))
+
+    for scope_name, scope_records in scopes:
+        cmj_average = average(
+            [recorded_best(record, "cmj") for record in scope_records]
+        )
+        sj_average = average(
+            [recorded_best(record, "sj") for record in scope_records]
+        )
+        if cmj_average is None and sj_average is None:
+            continue
+        figure.add_trace(
+            go.Bar(
+                name=scope_name,
+                x=["CMJ", "SJ"],
+                y=[cmj_average, sj_average],
+            )
+        )
     figure.update_layout(
+        barmode="group",
         height=420,
-        paper_bgcolor="rgba(0, 0, 0, 0)",
-        polar={
-            "bgcolor": "rgba(0, 0, 0, 0)",
-            "radialaxis": {"range": [0, 100]},
-        },
+        yaxis_title="Altura (cm)",
     )
     return figure
 
 
-def line_chart(individual: bool) -> go.Figure:
-    labels = ["Rodada 1", "Treino 1", "Rodada 2", "Treino 2", "Rodada 3", "Treino 3", "Rodada 4", "Treino 4", "Rodada 5", "Rodada 6"]
-    team = [42.0, 42.3, 41.6, 40.7, 41.9, 41.8, 42.1, 41.2, 42.2, 41.7]
-    position_values = [42.0, 42.1, 41.5, 40.6, 41.8, 41.7, 42.0, 41.1, 42.0, 41.6]
-    player = [45.5, 41.3, 43.8, 45.0, 42.4, 46.3, 45.5, 45.6, 42.0, 44.6]
+def evolution_chart() -> go.Figure:
     figure = go.Figure()
-    if individual:
-        figure.add_trace(go.Scatter(x=labels, y=player, name=selected_name, mode="lines+markers"))
-        figure.add_trace(go.Scatter(x=labels, y=position_values, name=f"Média {selected_position}", mode="lines"))
-    else:
-        figure.add_trace(go.Scatter(x=labels, y=position_values, name="Média posição", mode="lines"))
-    figure.add_trace(go.Scatter(x=labels, y=team, name="Média do elenco", mode="lines"))
-    figure.update_layout(height=420, hovermode="x unified")
-    figure.update_yaxes(range=[0, 64], tickvals=[0, 15, 30, 45, 60], ticktext=["0 cm", "15 cm", "30 cm", "45 cm", "60 cm"])
+    if selected_athlete is not None:
+        add_average_trace(
+            figure,
+            filtered_records,
+            athlete_names[selected_athlete],
+            mode="lines+markers",
+        )
+
+    reference_position = selected_position
+    if selected_athlete is not None and reference_position is None:
+        reference_position = next(
+            (
+                str(record["posicao"])
+                for record in all_records
+                if record["id_atleta"] == selected_athlete and record["posicao"]
+            ),
+            None,
+        )
+    if reference_position:
+        add_average_trace(
+            figure,
+            [
+                record
+                for record in period_records
+                if record["posicao"] == reference_position
+            ],
+            f"Média {reference_position}",
+        )
+
+    add_average_trace(figure, period_records, "Média do elenco")
+    figure.update_layout(
+        height=420,
+        hovermode="x unified",
+        yaxis_title="CMJ (cm)",
+        xaxis_title="Data da coleta",
+    )
     return figure
 
 
 charts = st.columns(2)
 with charts[0]:
-    st.subheader("Perfil biomecânico de salto")
-    st.plotly_chart(radar_chart(not is_all), width="stretch")
+    st.subheader("Comparativo de alturas médias")
+    st.plotly_chart(comparison_chart(), width="stretch")
 with charts[1]:
     st.subheader("Evolução do CMJ")
-    st.plotly_chart(line_chart(not is_all), width="stretch")
+    st.plotly_chart(evolution_chart(), width="stretch")
+
+st.caption(
+    "O radar biomecânico depende de potência de pico, RSI e dados bilaterais "
+    "para assimetria/simetria, que ainda não estão disponíveis."
+)
