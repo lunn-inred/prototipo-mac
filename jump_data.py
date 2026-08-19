@@ -14,7 +14,6 @@ def load_jump_records() -> list[dict[str, object]]:
     """Carrega a view de saltos usando exclusivamente a conexão read-only."""
     query = """
         SELECT
-            id_atleta,
             atleta,
             posicao,
             grupo,
@@ -22,7 +21,7 @@ def load_jump_records() -> list[dict[str, object]]:
             maior_cmj,
             maior_sj
         FROM public.vw_medidas_saltos
-        ORDER BY data_coleta, id_atleta
+        ORDER BY data_coleta, atleta
     """
     with database_connection() as connection:
         with connection.cursor() as cursor:

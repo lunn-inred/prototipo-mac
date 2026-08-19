@@ -7,6 +7,7 @@ saltos e GPS e utiliza Plotly para a construção dos gráficos.
 ## Sumário
 
 - [Como executar](#como-executar)
+- [Deploy no Streamlit Community Cloud](#deploy-no-streamlit-community-cloud)
 - [Monitoramento de Salto](#monitoramento-de-salto)
   - [Consulta SQL](#consulta-sql)
   - [Gráfico comparativo de alturas médias](#gráfico-comparativo-de-alturas-médias)
@@ -22,7 +23,7 @@ configuração:
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-cp .env.example .env
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 ```
 
 No Windows PowerShell, a ativação do ambiente pode ser feita com:
@@ -32,8 +33,9 @@ No Windows PowerShell, a ativação do ambiente pode ser feita com:
 ```
 
 
-O `.env` contém dados sensíveis e está ignorado pelo Git. O arquivo
-`.env.example` contém somente o modelo versionável.
+Preencha `.streamlit/secrets.toml` com as credenciais do Supabase. Esse arquivo
+contém dados sensíveis e está ignorado pelo Git; somente o modelo
+`.streamlit/secrets.toml.example` é versionado.
 
 Execute o protótipo com:
 
@@ -45,6 +47,37 @@ O módulo `database.py` centraliza a conexão com o PostgreSQL do Supabase. As
 conexões abertas pelo protótipo são configuradas e verificadas como somente
 leitura antes de serem disponibilizadas às páginas.
 
+## Deploy no Streamlit Community Cloud
+
+O repositório já contém o arquivo `requirements.txt` e utiliza `app.py` como
+ponto de entrada. No Streamlit Community Cloud, preencha o deploy com:
+
+```text
+Repository: owner/nome-do-repositorio
+Branch: main
+Main file path: app.py
+```
+
+Antes de publicar, abra **Advanced settings** e cole no campo **Secrets**:
+
+```toml
+SUPABASE_DB_HOST = "host-do-supabase"
+SUPABASE_DB_PORT = "5432"
+SUPABASE_DB_NAME = "postgres"
+SUPABASE_DB_USER = "usuario-do-supabase"
+SUPABASE_DB_PASSWORD = "senha-do-supabase"
+SUPABASE_DB_SSLMODE = "require"
+```
+
+As mesmas chaves são lidas diretamente por `database.py` nos dois ambientes. No
+desenvolvimento local, ficam em `.streamlit/secrets.toml`; no Community Cloud,
+ficam no campo **Secrets** das configurações da aplicação. Nunca envie o arquivo
+local com valores reais ao repositório.
+
+Após cadastrar os Secrets, clique em **Deploy**. Para disponibilizar o painel
+somente à equipe e ao cliente, mantenha a aplicação privada e adicione os
+e-mails deles em **App settings > Sharing**.
+
 ## Monitoramento de Salto
 
 A página `pages/Metricas_de_Salto.py` utiliza dados reais da view
@@ -55,7 +88,6 @@ em cache no Streamlit por cinco minutos.
 
 ```sql
 SELECT
-    id_atleta,
     atleta,
     posicao,
     grupo,
@@ -63,7 +95,7 @@ SELECT
     maior_cmj,
     maior_sj
 FROM public.vw_medidas_saltos
-ORDER BY data_coleta, id_atleta;
+ORDER BY data_coleta, atleta;
 ```
 
 Os valores de `maior_cmj` e `maior_sj` são medidos em centímetros. Valores

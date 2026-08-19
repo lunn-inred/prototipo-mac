@@ -81,7 +81,7 @@ if not all_records:
     st.stop()
 
 athlete_names = {
-    int(record["id_atleta"]): str(record["atleta"])
+    str(record["atleta"]): str(record["atleta"])
     for record in all_records
 }
 positions = sorted(
@@ -98,7 +98,7 @@ with filters[1]:
 
 available_athlete_ids = sorted(
     {
-        int(record["id_atleta"])
+        str(record["atleta"])
         for record in all_records
         if selected_position is None or record["posicao"] == selected_position
     },
@@ -134,7 +134,7 @@ position_records = [
 filtered_records = [
     record
     for record in position_records
-    if selected_athlete is None or record["id_atleta"] == selected_athlete
+    if selected_athlete is None or record["atleta"] == selected_athlete
 ]
 
 st.caption(
@@ -188,7 +188,7 @@ def comparison_chart() -> go.Figure:
             (
                 str(record["posicao"])
                 for record in all_records
-                if record["id_atleta"] == selected_athlete and record["posicao"]
+                if record["atleta"] == selected_athlete and record["posicao"]
             ),
             None,
         )
@@ -245,7 +245,7 @@ def evolution_chart() -> go.Figure:
             (
                 str(record["posicao"])
                 for record in all_records
-                if record["id_atleta"] == selected_athlete and record["posicao"]
+                if record["atleta"] == selected_athlete and record["posicao"]
             ),
             None,
         )
