@@ -243,18 +243,14 @@ valid_collections = sum(
 )
 
 metrics = st.columns(3)
-metrics[0].metric(
-    "CMJ na última coleta",
-    metric_text(cmj_value),
-    standard_deviation_text(cmj_standard_deviation),
-    delta_color="off",
-)
-metrics[1].metric(
-    "SJ na última coleta",
-    metric_text(sj_value),
-    standard_deviation_text(sj_standard_deviation),
-    delta_color="off",
-)
+with metrics[0]:
+    st.metric("CMJ na última coleta", metric_text(cmj_value))
+    if cmj_standard_deviation is not None:
+        st.caption(standard_deviation_text(cmj_standard_deviation))
+with metrics[1]:
+    st.metric("SJ na última coleta", metric_text(sj_value))
+    if sj_standard_deviation is not None:
+        st.caption(standard_deviation_text(sj_standard_deviation))
 metrics[2].metric("Coletas com medição", valid_collections)
 
 
