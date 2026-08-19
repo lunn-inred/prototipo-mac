@@ -198,6 +198,8 @@ Cada linha retornada pela view conta como um registro.
 
 ## Gráfico comparativo de alturas médias
 
+O gráfico é exibido somente quando um atleta específico está selecionado.
+
 Compara CMJ e SJ usando todos os registros válidos do período em cada escopo. A
 média de cada barra é calculada por:
 
@@ -225,6 +227,8 @@ Exibe a média de CMJ e SJ de todos os jogadores e de todas as posições no
 período. Os filtros de atleta e posição não são aplicados a essa série.
 
 ## Gráfico de evolução do CMJ
+
+O gráfico é exibido somente quando um atleta específico está selecionado.
 
 Agrupa os registros por `data_coleta` e apresenta, em ordem cronológica, a média
 dos valores válidos de `maior_cmj` em cada data.

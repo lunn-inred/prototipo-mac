@@ -270,15 +270,16 @@ def evolution_chart() -> go.Figure:
     return figure
 
 
-charts = st.columns(2)
-with charts[0]:
-    st.subheader("Comparativo de alturas médias")
-    st.plotly_chart(comparison_chart(), width="stretch")
-with charts[1]:
-    st.subheader("Evolução do CMJ")
-    st.plotly_chart(evolution_chart(), width="stretch")
+if selected_athlete is not None:
+    charts = st.columns(2)
+    with charts[0]:
+        st.subheader("Comparativo de alturas médias")
+        st.plotly_chart(comparison_chart(), width="stretch")
+    with charts[1]:
+        st.subheader("Evolução do CMJ")
+        st.plotly_chart(evolution_chart(), width="stretch")
 
-st.caption(
-    "O radar biomecânico depende de potência de pico, RSI e dados bilaterais "
-    "para assimetria/simetria, que ainda não estão disponíveis."
-)
+    st.caption(
+        "O radar biomecânico depende de potência de pico, RSI e dados bilaterais "
+        "para assimetria/simetria, que ainda não estão disponíveis."
+    )
