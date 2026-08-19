@@ -11,7 +11,7 @@ navigation = st.navigation(
         ),
         st.Page(
             "pages/Metricas_de_Salto.py",
-            title="Métricas de salto",
+            title="Métricas de Salto",
             icon="📈",
         ),
     ]

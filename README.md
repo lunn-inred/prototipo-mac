@@ -10,8 +10,8 @@ saltos e GPS e utiliza Plotly para a construção dos gráficos.
 - [Deploy no Streamlit Community Cloud](#deploy-no-streamlit-community-cloud)
 - [Monitoramento de Salto](#monitoramento-de-salto)
   - [Consulta SQL](#consulta-sql)
-  - [Gráfico comparativo de alturas médias](#gráfico-comparativo-de-alturas-médias)
-  - [Gráfico de evolução do CMJ](#gráfico-de-evolução-do-cmj)
+  - [Gráfico de evolução de CMJ ou SJ](#gráfico-de-evolução-de-cmj-ou-sj)
+  - [Radar temporal de saltos](#radar-temporal-de-saltos)
 - [Monitoramento de GPS](#monitoramento-de-gps)
 
 ## Como executar
@@ -138,6 +138,10 @@ CMJ da data = soma dos valores válidos de maior_cmj na data
 CMJ na última coleta = CMJ da data válida mais recente
 ```
 
+Quando `Todos os atletas` está selecionado, o indicador recebe o título
+**Média do CMJ na última coleta**. A média considera todos os atletas da posição
+selecionada ou, sem filtro de posição, todo o elenco.
+
 ### Índice de CMJ na última coleta (±)
 
 Exibe o desvio padrão populacional da série de CMJ por data dentro dos filtros
@@ -168,6 +172,10 @@ SJ da data = soma dos valores válidos de maior_sj na data
 SJ na última coleta = SJ da data válida mais recente
 ```
 
+Quando `Todos os atletas` está selecionado, o indicador recebe o título
+**Média do SJ na última coleta**. A média considera todos os atletas da posição
+selecionada ou, sem filtro de posição, todo o elenco.
+
 ### Índice de SJ na última coleta (±)
 
 Exibe o desvio padrão populacional da série de SJ por data dentro dos filtros
@@ -196,66 +204,89 @@ coletas com medição = quantidade de registros em que
 
 Cada linha retornada pela view conta como um registro.
 
-## Gráfico comparativo de alturas médias
+## Gráfico de evolução de CMJ ou SJ
 
-Compara CMJ e SJ usando todos os registros válidos do período em cada escopo. A
-média de cada barra é calculada por:
+O gráfico é exibido somente quando um atleta específico está selecionado.
 
-```text
-média da métrica = soma dos valores válidos da métrica
-                   -------------------------------------
-                   quantidade de valores válidos
-```
+O usuário escolhe a métrica `CMJ` ou `SJ`. O gráfico agrupa os registros por
+`data_coleta` e apresenta, em ordem cronológica, a média dos valores válidos de
+`maior_cmj` ou `maior_sj` em cada data.
 
-### Seleção atual
+O usuário pode escolher entre três tipos de visualização:
 
-Exibe a média de CMJ e SJ dos registros que atendem simultaneamente aos filtros
-de atleta, posição e período. A série recebe o nome do atleta selecionado, da
-posição selecionada ou `Todos os atletas`.
+- **Gráfico de linha:** apresenta a evolução das três séries ao longo das datas;
+- **Gráfico de barras:** compara as três séries por data usando barras agrupadas;
+- **Box plot:** resume a distribuição dos valores por data de cada série no
+  período, exibindo mediana, quartis, média e pontos individuais.
 
-### Média {Posição}
+As três opções usam as mesmas séries descritas abaixo.
 
-Exibe a média de CMJ e SJ de todos os registros dos jogadores da posição de
-referência no período. Quando um jogador é selecionado sem um filtro explícito
-de posição, a posição desse jogador é usada como referência.
-
-### Média do elenco
-
-Exibe a média de CMJ e SJ de todos os jogadores e de todas as posições no
-período. Os filtros de atleta e posição não são aplicados a essa série.
-
-## Gráfico de evolução do CMJ
-
-Agrupa os registros por `data_coleta` e apresenta, em ordem cronológica, a média
-dos valores válidos de `maior_cmj` em cada data.
+O desvio padrão populacional do atleta no período também é apresentado no
+gráfico. Na visualização de linha, uma área sombreada acompanha o atleta entre os
+limites `valor − DP` e `valor + DP` da métrica escolhida. Na visualização de
+barras, ele aparece como uma barra de erro `± DP` em cada valor do atleta. No box
+plot, um losango indica a média do atleta e a barra vertical representa
+`média ± DP`. As séries da posição e do elenco não recebem barras ou faixas de
+desvio padrão.
 
 ### {Jogador}
 
-Quando um jogador é selecionado, exibe o CMJ desse jogador ao longo do tempo. Se
-existir mais de um registro do jogador na mesma data, o ponto representa a média
-desses registros.
+Quando um jogador é selecionado, exibe o CMJ ou SJ desse jogador ao longo do
+tempo. Se existir mais de um registro do jogador na mesma data, o ponto
+representa a média desses registros.
 
 ### Média {Posição}
 
-Exibe, ao longo do tempo, a média do CMJ dos jogadores da posição de referência
-em cada data. Quando um jogador é selecionado sem filtro explícito de posição, a
-posição dele é usada como referência.
+Exibe, ao longo do tempo, a média da métrica escolhida para os jogadores da
+posição de referência em cada data. Quando um jogador é selecionado sem filtro
+explícito de posição, a posição dele é usada como referência.
 
 ```text
-média da posição na data = soma dos CMJs válidos da posição na data
-                           ------------------------------------------
-                           quantidade de CMJs válidos da posição na data
+média da posição na data = soma dos valores válidos da posição na data
+                           ---------------------------------------------
+                           quantidade de valores válidos na data
 ```
 
 ### Média do elenco
 
-Exibe, ao longo do tempo, a média do CMJ de todos os jogadores de todas as
-posições em cada data. Somente o filtro de período é aplicado a essa série.
+Exibe, ao longo do tempo, a média da métrica escolhida para todos os jogadores
+de todas as posições em cada data. Somente o filtro de período é aplicado a essa
+série.
 
 ```text
-média do elenco na data = soma dos CMJs válidos do elenco na data
-                          -----------------------------------------
-                          quantidade de CMJs válidos do elenco na data
+média do elenco na data = soma dos valores válidos do elenco na data
+                          --------------------------------------------
+                          quantidade de valores válidos na data
 ```
+
+## Radar temporal de saltos
+
+O radar é exibido somente quando um atleta específico está selecionado. O
+usuário escolhe entre `CMJ` e `SJ`, e cada eixo representa uma das cinco últimas
+datas válidas do atleta para a métrica escolhida.
+
+O radar usa sempre as cinco últimas datas disponíveis no histórico do atleta e,
+por isso, não é limitado pelo filtro de período da página. Quando existem menos
+de cinco datas válidas, são apresentadas apenas as datas disponíveis.
+
+### {Jogador}
+
+Apresenta o valor médio da métrica escolhida para o atleta em cada uma das cinco
+datas. Se houver mais de um registro na mesma data, utiliza a média dos valores
+válidos.
+
+### Média {Posição}
+
+Apresenta a média da métrica para todos os jogadores da posição do atleta nas
+mesmas cinco datas usadas como eixos do radar.
+
+### Média do elenco
+
+Apresenta a média da métrica para todos os jogadores de todas as posições nas
+mesmas cinco datas usadas como eixos do radar.
+
+Essa é uma representação temporal provisória. O radar biomecânico definitivo
+ainda depende de potência de pico, RSI e dados bilaterais para cálculo de
+assimetria e simetria.
 
 ## Monitoramento de GPS
