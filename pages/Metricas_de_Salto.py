@@ -60,10 +60,11 @@ def add_evolution_trace(
     records: list[dict[str, object]],
     name: str,
     *,
+    metric: str,
     chart_type: str,
     highlight: bool = False,
 ) -> None:
-    dates, values = records_by_date(records, "cmj")
+    dates, values = records_by_date(records, metric)
     if not dates:
         return
 
@@ -113,9 +114,10 @@ def add_athlete_deviation(
     figure: go.Figure,
     records: list[dict[str, object]],
     name: str,
+    metric: str,
     chart_type: str,
 ) -> None:
-    dates, values = records_by_date(records, "cmj")
+    dates, values = records_by_date(records, metric)
     if not dates or chart_type == "Gráfico de barras":
         return
 
@@ -320,13 +322,14 @@ def comparison_chart() -> go.Figure:
     return figure
 
 
-def evolution_chart(chart_type: str) -> go.Figure:
+def evolution_chart(metric: str, chart_type: str) -> go.Figure:
     figure = go.Figure()
     if selected_athlete is not None:
         add_evolution_trace(
             figure,
             filtered_records,
             athlete_names[selected_athlete],
+            metric=metric,
             chart_type=chart_type,
             highlight=True,
         )
@@ -350,6 +353,7 @@ def evolution_chart(chart_type: str) -> go.Figure:
                 if record["posicao"] == reference_position
             ],
             f"Média {reference_position}",
+            metric=metric,
             chart_type=chart_type,
         )
 
@@ -357,6 +361,7 @@ def evolution_chart(chart_type: str) -> go.Figure:
         figure,
         period_records,
         "Média do elenco",
+        metric=metric,
         chart_type=chart_type,
     )
     if selected_athlete is not None:
@@ -364,12 +369,13 @@ def evolution_chart(chart_type: str) -> go.Figure:
             figure,
             filtered_records,
             athlete_names[selected_athlete],
+            metric,
             chart_type,
         )
     figure.update_layout(
         height=420,
         hovermode="x unified" if chart_type != "Box plot" else "closest",
-        yaxis_title="CMJ (cm)",
+        yaxis_title=f"{metric.upper()} (cm)",
         xaxis_title=(
             "Distribuição por série"
             if chart_type == "Box plot"
@@ -386,13 +392,17 @@ if selected_athlete is not None:
         st.subheader("Comparativo de alturas médias")
         st.plotly_chart(comparison_chart(), width="stretch")
     with charts[1]:
-        st.subheader("Evolução do CMJ")
-        evolution_chart_type = st.selectbox(
-            "Tipo de gráfico",
-            ["Gráfico de linha", "Gráfico de barras", "Box plot"],
-        )
+        evolution_controls = st.columns(2)
+        with evolution_controls[0]:
+            evolution_metric = st.selectbox("Métrica", ["CMJ", "SJ"])
+        with evolution_controls[1]:
+            evolution_chart_type = st.selectbox(
+                "Tipo de gráfico",
+                ["Gráfico de linha", "Gráfico de barras", "Box plot"],
+            )
+        st.subheader(f"Evolução do {evolution_metric}")
         st.plotly_chart(
-            evolution_chart(evolution_chart_type),
+            evolution_chart(evolution_metric.lower(), evolution_chart_type),
             width="stretch",
         )
 

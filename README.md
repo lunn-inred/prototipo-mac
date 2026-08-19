@@ -11,7 +11,7 @@ saltos e GPS e utiliza Plotly para a construção dos gráficos.
 - [Monitoramento de Salto](#monitoramento-de-salto)
   - [Consulta SQL](#consulta-sql)
   - [Gráfico comparativo de alturas médias](#gráfico-comparativo-de-alturas-médias)
-  - [Gráfico de evolução do CMJ](#gráfico-de-evolução-do-cmj)
+  - [Gráfico de evolução de CMJ ou SJ](#gráfico-de-evolução-de-cmj-ou-sj)
 - [Monitoramento de GPS](#monitoramento-de-gps)
 
 ## Como executar
@@ -234,12 +234,13 @@ de posição, a posição desse jogador é usada como referência.
 Exibe a média de CMJ e SJ de todos os jogadores e de todas as posições no
 período. Os filtros de atleta e posição não são aplicados a essa série.
 
-## Gráfico de evolução do CMJ
+## Gráfico de evolução de CMJ ou SJ
 
 O gráfico é exibido somente quando um atleta específico está selecionado.
 
-Agrupa os registros por `data_coleta` e apresenta, em ordem cronológica, a média
-dos valores válidos de `maior_cmj` em cada data.
+O usuário escolhe a métrica `CMJ` ou `SJ`. O gráfico agrupa os registros por
+`data_coleta` e apresenta, em ordem cronológica, a média dos valores válidos de
+`maior_cmj` ou `maior_sj` em cada data.
 
 O usuário pode escolher entre três tipos de visualização:
 
@@ -252,38 +253,40 @@ As três opções usam as mesmas séries descritas abaixo.
 
 O desvio padrão populacional do atleta no período também é apresentado no
 gráfico. Na visualização de linha, uma área sombreada acompanha o atleta entre os
-limites `CMJ − DP` e `CMJ + DP`. Na visualização de barras, ele aparece como uma
-barra de erro `± DP` em cada valor do atleta. No box plot, um losango indica a
-média do atleta e a barra vertical representa `média ± DP`. As séries da posição
-e do elenco não recebem barras ou faixas de desvio padrão.
+limites `valor − DP` e `valor + DP` da métrica escolhida. Na visualização de
+barras, ele aparece como uma barra de erro `± DP` em cada valor do atleta. No box
+plot, um losango indica a média do atleta e a barra vertical representa
+`média ± DP`. As séries da posição e do elenco não recebem barras ou faixas de
+desvio padrão.
 
 ### {Jogador}
 
-Quando um jogador é selecionado, exibe o CMJ desse jogador ao longo do tempo. Se
-existir mais de um registro do jogador na mesma data, o ponto representa a média
-desses registros.
+Quando um jogador é selecionado, exibe o CMJ ou SJ desse jogador ao longo do
+tempo. Se existir mais de um registro do jogador na mesma data, o ponto
+representa a média desses registros.
 
 ### Média {Posição}
 
-Exibe, ao longo do tempo, a média do CMJ dos jogadores da posição de referência
-em cada data. Quando um jogador é selecionado sem filtro explícito de posição, a
-posição dele é usada como referência.
+Exibe, ao longo do tempo, a média da métrica escolhida para os jogadores da
+posição de referência em cada data. Quando um jogador é selecionado sem filtro
+explícito de posição, a posição dele é usada como referência.
 
 ```text
-média da posição na data = soma dos CMJs válidos da posição na data
-                           ------------------------------------------
-                           quantidade de CMJs válidos da posição na data
+média da posição na data = soma dos valores válidos da posição na data
+                           ---------------------------------------------
+                           quantidade de valores válidos na data
 ```
 
 ### Média do elenco
 
-Exibe, ao longo do tempo, a média do CMJ de todos os jogadores de todas as
-posições em cada data. Somente o filtro de período é aplicado a essa série.
+Exibe, ao longo do tempo, a média da métrica escolhida para todos os jogadores
+de todas as posições em cada data. Somente o filtro de período é aplicado a essa
+série.
 
 ```text
-média do elenco na data = soma dos CMJs válidos do elenco na data
-                          -----------------------------------------
-                          quantidade de CMJs válidos do elenco na data
+média do elenco na data = soma dos valores válidos do elenco na data
+                          --------------------------------------------
+                          quantidade de valores válidos na data
 ```
 
 ## Monitoramento de GPS
