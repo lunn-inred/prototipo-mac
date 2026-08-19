@@ -10,8 +10,8 @@ saltos e GPS e utiliza Plotly para a construção dos gráficos.
 - [Deploy no Streamlit Community Cloud](#deploy-no-streamlit-community-cloud)
 - [Monitoramento de Salto](#monitoramento-de-salto)
   - [Consulta SQL](#consulta-sql)
-  - [Gráfico comparativo de alturas médias](#gráfico-comparativo-de-alturas-médias)
   - [Gráfico de evolução de CMJ ou SJ](#gráfico-de-evolução-de-cmj-ou-sj)
+  - [Radar temporal de saltos](#radar-temporal-de-saltos)
 - [Monitoramento de GPS](#monitoramento-de-gps)
 
 ## Como executar
@@ -204,36 +204,6 @@ coletas com medição = quantidade de registros em que
 
 Cada linha retornada pela view conta como um registro.
 
-## Gráfico comparativo de alturas médias
-
-O gráfico é exibido somente quando um atleta específico está selecionado.
-
-Compara CMJ e SJ usando todos os registros válidos do período em cada escopo. A
-média de cada barra é calculada por:
-
-```text
-média da métrica = soma dos valores válidos da métrica
-                   -------------------------------------
-                   quantidade de valores válidos
-```
-
-### Seleção atual
-
-Exibe a média de CMJ e SJ dos registros que atendem simultaneamente aos filtros
-de atleta, posição e período. A série recebe o nome do atleta selecionado, da
-posição selecionada ou `Todos os atletas`.
-
-### Média {Posição}
-
-Exibe a média de CMJ e SJ de todos os registros dos jogadores da posição de
-referência no período. Quando um jogador é selecionado sem um filtro explícito
-de posição, a posição desse jogador é usada como referência.
-
-### Média do elenco
-
-Exibe a média de CMJ e SJ de todos os jogadores e de todas as posições no
-período. Os filtros de atleta e posição não são aplicados a essa série.
-
 ## Gráfico de evolução de CMJ ou SJ
 
 O gráfico é exibido somente quando um atleta específico está selecionado.
@@ -288,5 +258,35 @@ média do elenco na data = soma dos valores válidos do elenco na data
                           --------------------------------------------
                           quantidade de valores válidos na data
 ```
+
+## Radar temporal de saltos
+
+O radar é exibido somente quando um atleta específico está selecionado. O
+usuário escolhe entre `CMJ` e `SJ`, e cada eixo representa uma das cinco últimas
+datas válidas do atleta para a métrica escolhida.
+
+O radar usa sempre as cinco últimas datas disponíveis no histórico do atleta e,
+por isso, não é limitado pelo filtro de período da página. Quando existem menos
+de cinco datas válidas, são apresentadas apenas as datas disponíveis.
+
+### {Jogador}
+
+Apresenta o valor médio da métrica escolhida para o atleta em cada uma das cinco
+datas. Se houver mais de um registro na mesma data, utiliza a média dos valores
+válidos.
+
+### Média {Posição}
+
+Apresenta a média da métrica para todos os jogadores da posição do atleta nas
+mesmas cinco datas usadas como eixos do radar.
+
+### Média do elenco
+
+Apresenta a média da métrica para todos os jogadores de todas as posições nas
+mesmas cinco datas usadas como eixos do radar.
+
+Essa é uma representação temporal provisória. O radar biomecânico definitivo
+ainda depende de potência de pico, RSI e dados bilaterais para cálculo de
+assimetria e simetria.
 
 ## Monitoramento de GPS

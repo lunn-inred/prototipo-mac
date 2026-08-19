@@ -24,6 +24,7 @@ PERIODS = {
     "Todo o histórico": None,
 }
 
+
 def records_by_date(
     records: list[dict[str, object]], metric: str
 ) -> tuple[list[object], list[float]]:
@@ -266,62 +267,6 @@ with metrics[1]:
 metrics[2].metric("Coletas com medição", valid_collections)
 
 
-def comparison_chart() -> go.Figure:
-    figure = go.Figure()
-    selection_label = (
-        athlete_names[selected_athlete]
-        if selected_athlete is not None
-        else selected_position or "Todos os atletas"
-    )
-    scopes = [(selection_label, filtered_records)]
-
-    reference_position = selected_position
-    if selected_athlete is not None and reference_position is None:
-        reference_position = next(
-            (
-                str(record["posicao"])
-                for record in all_records
-                if record["atleta"] == selected_athlete and record["posicao"]
-            ),
-            None,
-        )
-    if reference_position:
-        scopes.append(
-            (
-                f"Média {reference_position}",
-                [
-                    record
-                    for record in period_records
-                    if record["posicao"] == reference_position
-                ],
-            )
-        )
-    scopes.append(("Média do elenco", period_records))
-
-    for scope_name, scope_records in scopes:
-        cmj_average = average(
-            [recorded_best(record, "cmj") for record in scope_records]
-        )
-        sj_average = average(
-            [recorded_best(record, "sj") for record in scope_records]
-        )
-        if cmj_average is None and sj_average is None:
-            continue
-        figure.add_trace(
-            go.Bar(
-                name=scope_name,
-                x=["CMJ", "SJ"],
-                y=[cmj_average, sj_average],
-            )
-        )
-    figure.update_layout(
-        barmode="group",
-        height=420,
-        yaxis_title="Altura (cm)",
-    )
-    return figure
-
-
 def evolution_chart(metric: str, chart_type: str) -> go.Figure:
     figure = go.Figure()
     if selected_athlete is not None:
@@ -386,11 +331,92 @@ def evolution_chart(metric: str, chart_type: str) -> go.Figure:
     return figure
 
 
+def radar_chart(metric: str) -> go.Figure | None:
+    athlete_records = [
+        record
+        for record in all_records
+        if record["atleta"] == selected_athlete
+    ]
+    athlete_dates, _ = records_by_date(athlete_records, metric)
+    radar_dates = athlete_dates[-5:]
+    if not radar_dates:
+        return None
+
+    reference_position = selected_position or next(
+        (
+            str(record["posicao"])
+            for record in athlete_records
+            if record["posicao"]
+        ),
+        None,
+    )
+    scopes = [(athlete_names[selected_athlete], athlete_records)]
+    if reference_position:
+        scopes.append(
+            (
+                f"Média {reference_position}",
+                [
+                    record
+                    for record in all_records
+                    if record["posicao"] == reference_position
+                ],
+            )
+        )
+    scopes.append(("Média do elenco", all_records))
+
+    date_labels = [date.strftime("%d/%m/%Y") for date in radar_dates]
+    figure = go.Figure()
+    for scope_name, scope_records in scopes:
+        dates, values = records_by_date(scope_records, metric)
+        values_by_date = dict(zip(dates, values))
+        radar_values = [values_by_date.get(date) for date in radar_dates]
+        if not any(value is not None for value in radar_values):
+            continue
+        figure.add_trace(
+            go.Scatterpolar(
+                r=[*radar_values, radar_values[0]],
+                theta=[*date_labels, date_labels[0]],
+                name=scope_name,
+                mode="lines+markers",
+                fill="toself",
+                opacity=0.65,
+            )
+        )
+
+    figure.update_layout(
+        height=520,
+        paper_bgcolor="rgba(0, 0, 0, 0)",
+        plot_bgcolor="rgba(0, 0, 0, 0)",
+        font={"color": "#FAFAFA"},
+        polar={
+            "bgcolor": "rgba(0, 0, 0, 0)",
+            "radialaxis": {
+                "visible": True,
+                "title": {"text": f"{metric.upper()} (cm)"},
+                "gridcolor": "rgba(250, 250, 250, 0.20)",
+                "linecolor": "rgba(250, 250, 250, 0.35)",
+                "tickfont": {"color": "#FAFAFA"},
+            },
+            "angularaxis": {
+                "gridcolor": "rgba(250, 250, 250, 0.20)",
+                "linecolor": "rgba(250, 250, 250, 0.35)",
+                "tickfont": {"color": "#FAFAFA"},
+            },
+        },
+    )
+    return figure
+
+
 if selected_athlete is not None:
     charts = st.columns(2)
     with charts[0]:
-        st.subheader("Comparativo de alturas médias")
-        st.plotly_chart(comparison_chart(), width="stretch")
+        radar_metric = st.selectbox("Métrica do radar", ["CMJ", "SJ"])
+        st.subheader("Radar temporal de saltos")
+        radar_figure = radar_chart(radar_metric.lower())
+        if radar_figure is None:
+            st.info(f"O atleta não possui coletas válidas de {radar_metric}.")
+        else:
+            st.plotly_chart(radar_figure, width="stretch")
     with charts[1]:
         evolution_controls = st.columns(2)
         with evolution_controls[0]:
@@ -405,8 +431,3 @@ if selected_athlete is not None:
             evolution_chart(evolution_metric.lower(), evolution_chart_type),
             width="stretch",
         )
-
-    st.caption(
-        "O radar biomecânico depende de potência de pico, RSI e dados bilaterais "
-        "para assimetria/simetria, que ainda não estão disponíveis."
-    )
