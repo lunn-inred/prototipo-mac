@@ -233,6 +233,15 @@ O gráfico é exibido somente quando um atleta específico está selecionado.
 Agrupa os registros por `data_coleta` e apresenta, em ordem cronológica, a média
 dos valores válidos de `maior_cmj` em cada data.
 
+O usuário pode escolher entre três tipos de visualização:
+
+- **Gráfico de linha:** apresenta a evolução das três séries ao longo das datas;
+- **Gráfico de barras:** compara as três séries por data usando barras agrupadas;
+- **Box plot:** resume a distribuição dos valores por data de cada série no
+  período, exibindo mediana, quartis, média e pontos individuais.
+
+As três opções usam as mesmas séries descritas abaixo.
+
 ### {Jogador}
 
 Quando um jogador é selecionado, exibe o CMJ desse jogador ao longo do tempo. Se

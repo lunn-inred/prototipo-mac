@@ -56,16 +56,40 @@ def standard_deviation_text(value: float | None) -> str | None:
     return f"± {value:.1f} cm" if value is not None else None
 
 
-def add_average_trace(
+def add_evolution_trace(
     figure: go.Figure,
     records: list[dict[str, object]],
     name: str,
     *,
-    mode: str = "lines",
+    chart_type: str,
+    highlight: bool = False,
 ) -> None:
     dates, values = records_by_date(records, "cmj")
-    if dates:
-        figure.add_trace(go.Scatter(x=dates, y=values, name=name, mode=mode))
+    if not dates:
+        return
+
+    if chart_type == "Gráfico de linha":
+        figure.add_trace(
+            go.Scatter(
+                x=dates,
+                y=values,
+                name=name,
+                mode="lines+markers" if highlight else "lines",
+            )
+        )
+    elif chart_type == "Gráfico de barras":
+        figure.add_trace(go.Bar(x=dates, y=values, name=name))
+    else:
+        figure.add_trace(
+            go.Box(
+                y=values,
+                name=name,
+                boxmean=True,
+                boxpoints="all",
+                jitter=0.2,
+                pointpos=0,
+            )
+        )
 
 
 st.title("Métricas de Salto")
@@ -229,14 +253,15 @@ def comparison_chart() -> go.Figure:
     return figure
 
 
-def evolution_chart() -> go.Figure:
+def evolution_chart(chart_type: str) -> go.Figure:
     figure = go.Figure()
     if selected_athlete is not None:
-        add_average_trace(
+        add_evolution_trace(
             figure,
             filtered_records,
             athlete_names[selected_athlete],
-            mode="lines+markers",
+            chart_type=chart_type,
+            highlight=True,
         )
 
     reference_position = selected_position
@@ -250,7 +275,7 @@ def evolution_chart() -> go.Figure:
             None,
         )
     if reference_position:
-        add_average_trace(
+        add_evolution_trace(
             figure,
             [
                 record
@@ -258,14 +283,25 @@ def evolution_chart() -> go.Figure:
                 if record["posicao"] == reference_position
             ],
             f"Média {reference_position}",
+            chart_type=chart_type,
         )
 
-    add_average_trace(figure, period_records, "Média do elenco")
+    add_evolution_trace(
+        figure,
+        period_records,
+        "Média do elenco",
+        chart_type=chart_type,
+    )
     figure.update_layout(
         height=420,
-        hovermode="x unified",
+        hovermode="x unified" if chart_type != "Box plot" else "closest",
         yaxis_title="CMJ (cm)",
-        xaxis_title="Data da coleta",
+        xaxis_title=(
+            "Distribuição por série"
+            if chart_type == "Box plot"
+            else "Data da coleta"
+        ),
+        barmode="group",
     )
     return figure
 
@@ -277,7 +313,14 @@ if selected_athlete is not None:
         st.plotly_chart(comparison_chart(), width="stretch")
     with charts[1]:
         st.subheader("Evolução do CMJ")
-        st.plotly_chart(evolution_chart(), width="stretch")
+        evolution_chart_type = st.selectbox(
+            "Tipo de gráfico",
+            ["Gráfico de linha", "Gráfico de barras", "Box plot"],
+        )
+        st.plotly_chart(
+            evolution_chart(evolution_chart_type),
+            width="stretch",
+        )
 
     st.caption(
         "O radar biomecânico depende de potência de pico, RSI e dados bilaterais "
