@@ -2,22 +2,16 @@
 
 from __future__ import annotations
 
-import os
 from contextlib import contextmanager
 from typing import Iterator
 
 import psycopg2
-from dotenv import load_dotenv
+import streamlit as st
 from psycopg2.extensions import connection
 
 
-load_dotenv()
-
-DB_SCHEMA = os.getenv("SUPABASE_DB_SCHEMA", "public")
-
-
 def database_config() -> dict[str, object]:
-    """Carrega e valida as credenciais locais sem expor seus valores."""
+    """Carrega e valida as credenciais sem expor seus valores."""
     variables = {
         "host": "SUPABASE_DB_HOST",
         "port": "SUPABASE_DB_PORT",
@@ -25,15 +19,19 @@ def database_config() -> dict[str, object]:
         "user": "SUPABASE_DB_USER",
         "password": "SUPABASE_DB_PASSWORD",
     }
-    missing = [env_name for env_name in variables.values() if not os.getenv(env_name)]
+    missing = [
+        secret_name
+        for secret_name in variables.values()
+        if not st.secrets.get(secret_name)
+    ]
     if missing:
         raise RuntimeError(
-            "Configuração do banco incompleta no arquivo .env: "
+            "Configuração do banco incompleta nos Secrets do Streamlit: "
             + ", ".join(missing)
         )
 
-    config = {key: os.environ[env_name] for key, env_name in variables.items()}
-    config["sslmode"] = os.getenv("SUPABASE_DB_SSLMODE", "require")
+    config = {key: st.secrets[secret_name] for key, secret_name in variables.items()}
+    config["sslmode"] = st.secrets.get("SUPABASE_DB_SSLMODE", "require")
     config["connect_timeout"] = 15
     config["application_name"] = "mac_streamlit_prototype"
     config["options"] = "-c default_transaction_read_only=on"
