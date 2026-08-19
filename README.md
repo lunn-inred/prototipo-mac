@@ -138,6 +138,10 @@ CMJ da data = soma dos valores válidos de maior_cmj na data
 CMJ na última coleta = CMJ da data válida mais recente
 ```
 
+Quando `Todos os atletas` está selecionado, o indicador recebe o título
+**Média do CMJ na última coleta**. A média considera todos os atletas da posição
+selecionada ou, sem filtro de posição, todo o elenco.
+
 ### Índice de CMJ na última coleta (±)
 
 Exibe o desvio padrão populacional da série de CMJ por data dentro dos filtros
@@ -167,6 +171,10 @@ SJ da data = soma dos valores válidos de maior_sj na data
 
 SJ na última coleta = SJ da data válida mais recente
 ```
+
+Quando `Todos os atletas` está selecionado, o indicador recebe o título
+**Média do SJ na última coleta**. A média considera todos os atletas da posição
+selecionada ou, sem filtro de posição, todo o elenco.
 
 ### Índice de SJ na última coleta (±)
 

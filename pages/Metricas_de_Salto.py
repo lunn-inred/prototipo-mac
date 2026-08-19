@@ -243,12 +243,22 @@ valid_collections = sum(
 )
 
 metrics = st.columns(3)
+cmj_metric_label = (
+    "Média do CMJ na última coleta"
+    if selected_athlete is None
+    else "CMJ na última coleta"
+)
+sj_metric_label = (
+    "Média do SJ na última coleta"
+    if selected_athlete is None
+    else "SJ na última coleta"
+)
 with metrics[0]:
-    st.metric("CMJ na última coleta", metric_text(cmj_value))
+    st.metric(cmj_metric_label, metric_text(cmj_value))
     if cmj_standard_deviation is not None:
         st.caption(standard_deviation_text(cmj_standard_deviation))
 with metrics[1]:
-    st.metric("SJ na última coleta", metric_text(sj_value))
+    st.metric(sj_metric_label, metric_text(sj_value))
     if sj_standard_deviation is not None:
         st.caption(standard_deviation_text(sj_standard_deviation))
 metrics[2].metric("Coletas com medição", valid_collections)
