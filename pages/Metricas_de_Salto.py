@@ -24,7 +24,6 @@ PERIODS = {
     "Todo o histórico": None,
 }
 
-
 def records_by_date(
     records: list[dict[str, object]], metric: str
 ) -> tuple[list[object], list[float]]:
@@ -68,6 +67,17 @@ def add_evolution_trace(
     if not dates:
         return
 
+    standard_deviation = pstdev(values) if highlight else None
+    error_bar = (
+        {
+            "type": "constant",
+            "value": standard_deviation,
+            "visible": True,
+        }
+        if standard_deviation is not None
+        else None
+    )
+
     if chart_type == "Gráfico de linha":
         figure.add_trace(
             go.Scatter(
@@ -78,7 +88,14 @@ def add_evolution_trace(
             )
         )
     elif chart_type == "Gráfico de barras":
-        figure.add_trace(go.Bar(x=dates, y=values, name=name))
+        figure.add_trace(
+            go.Bar(
+                x=dates,
+                y=values,
+                name=name,
+                error_y=error_bar,
+            )
+        )
     else:
         figure.add_trace(
             go.Box(
@@ -88,6 +105,50 @@ def add_evolution_trace(
                 boxpoints="all",
                 jitter=0.2,
                 pointpos=0,
+            )
+        )
+
+
+def add_athlete_deviation(
+    figure: go.Figure,
+    records: list[dict[str, object]],
+    name: str,
+    chart_type: str,
+) -> None:
+    dates, values = records_by_date(records, "cmj")
+    if not dates or chart_type == "Gráfico de barras":
+        return
+
+    standard_deviation = pstdev(values)
+    if chart_type == "Gráfico de linha":
+        lower_limit = [value - standard_deviation for value in values]
+        upper_limit = [value + standard_deviation for value in values]
+        figure.add_trace(
+            go.Scatter(
+                x=[*dates, *reversed(dates)],
+                y=[*upper_limit, *reversed(lower_limit)],
+                name=f"Faixa ± DP — {name}",
+                mode="lines",
+                line={"width": 0},
+                fill="toself",
+                opacity=0.18,
+                hoverinfo="skip",
+                zorder=-1,
+            )
+        )
+    else:
+        figure.add_trace(
+            go.Scatter(
+                x=[name],
+                y=[average(values)],
+                name=f"Média ± DP — {name}",
+                mode="markers",
+                marker={"symbol": "diamond", "size": 10},
+                error_y={
+                    "type": "constant",
+                    "value": standard_deviation,
+                    "visible": True,
+                },
             )
         )
 
@@ -292,6 +353,13 @@ def evolution_chart(chart_type: str) -> go.Figure:
         "Média do elenco",
         chart_type=chart_type,
     )
+    if selected_athlete is not None:
+        add_athlete_deviation(
+            figure,
+            filtered_records,
+            athlete_names[selected_athlete],
+            chart_type,
+        )
     figure.update_layout(
         height=420,
         hovermode="x unified" if chart_type != "Box plot" else "closest",

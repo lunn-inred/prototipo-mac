@@ -242,6 +242,13 @@ O usuário pode escolher entre três tipos de visualização:
 
 As três opções usam as mesmas séries descritas abaixo.
 
+O desvio padrão populacional do atleta no período também é apresentado no
+gráfico. Na visualização de linha, uma área sombreada acompanha o atleta entre os
+limites `CMJ − DP` e `CMJ + DP`. Na visualização de barras, ele aparece como uma
+barra de erro `± DP` em cada valor do atleta. No box plot, um losango indica a
+média do atleta e a barra vertical representa `média ± DP`. As séries da posição
+e do elenco não recebem barras ou faixas de desvio padrão.
+
 ### {Jogador}
 
 Quando um jogador é selecionado, exibe o CMJ desse jogador ao longo do tempo. Se
