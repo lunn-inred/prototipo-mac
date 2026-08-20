@@ -1,3 +1,5 @@
+from statistics import pstdev
+
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -32,14 +34,6 @@ is_all = athlete == "Todos os atletas"
 name = athlete.split(" ", 1)[1] if not is_all else "Média do grupo"
 role = "Goleiro" if athlete in ("#1 Diego", "#12 Rafa GK") else (position if position != "Todas as posições" else "posição")
 
-metric_data = (
-    [("Distância total", "9.9 km", "+ 1.0"), ("Alta intensidade — HSR (> 20 km/h)", "591 m", "+ 124"), ("Distância em sprint (> 25 km/h)", "288 m", "+ 62"), ("Acelerações / Desacelerações", "30 / 37", "eventos na última sessão")]
-    if is_all
-    else [("Distância total", "8.5 km", "+ 0.8"), ("Alta intensidade — HSR (> 20 km/h)", "570 m", "+ 124"), ("Distância em sprint (> 25 km/h)", "149 m", "+ 45"), ("Acelerações / Desacelerações", "46 / 31", "eventos na última sessão")]
-)
-for column, (label, value, delta) in zip(st.columns(4), metric_data):
-    column.metric(label, value, delta)
-
 labels = ["Rodada 1", "Treino 1", "Rodada 2", "Treino 2", "Rodada 3", "Treino 3", "Rodada 4", "Treino 4", "Rodada 5", "Rodada 6"]
 series = {
     "Distância total (km)": ([8.3, 8.3, 8.0, 8.2, 9.8, 8.2, 10.3, 10.1, 8.5, 8.5], [0, 3, 6, 9, 12], "km"),
@@ -50,6 +44,45 @@ series = {
     "Desacelerações (n)": ([28, 35, 24, 38, 34, 29, 37, 21, 40, 31], [0, 10, 20, 30, 40], "n"),
     "Player load (u.a.)": ([510, 570, 460, 630, 590, 480, 610, 420, 575, 550], [0, 200, 400, 600, 800], "u.a."),
 }
+
+
+def series_standard_deviation(variable: str) -> float:
+    values, _, _ = series[variable]
+    return pstdev(values)
+
+
+metric_values = (
+    ["9.9 km", "591 m", "288 m", "30 / 37"]
+    if is_all
+    else ["8.5 km", "570 m", "149 m", "46 / 31"]
+)
+metric_data = [
+    (
+        "Distância total",
+        metric_values[0],
+        f"± {series_standard_deviation('Distância total (km)'):.1f} km",
+    ),
+    (
+        "Alta intensidade — HSR (> 20 km/h)",
+        metric_values[1],
+        f"± {series_standard_deviation('HSR — alta velocidade (m)'):.1f} m",
+    ),
+    (
+        "Distância em sprint (> 25 km/h)",
+        metric_values[2],
+        f"± {series_standard_deviation('Distância em sprint (m)'):.1f} m",
+    ),
+    (
+        "Acelerações / Desacelerações",
+        metric_values[3],
+        "eventos na última sessão",
+    ),
+]
+
+for column, (label, value, standard_deviation) in zip(st.columns(4), metric_data):
+    with column:
+        st.metric(label, value)
+        st.caption(standard_deviation)
 
 
 def evolution_chart(variable: str) -> go.Figure:
