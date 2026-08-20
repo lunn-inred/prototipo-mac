@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from statistics import pstdev
 
 import plotly.graph_objects as go
@@ -15,14 +15,6 @@ st.set_page_config(
     page_icon="🔷",
     layout="wide",
 )
-
-
-PERIODS = {
-    "Últimos 7 dias": 7,
-    "Últimos 30 dias": 30,
-    "Últimos 90 dias": 90,
-    "Todo o histórico": None,
-}
 
 
 def records_by_date(
@@ -39,13 +31,17 @@ def records_by_date(
     return dates, [value for value in values if value is not None]
 
 
-def latest_value_and_standard_deviation(
+def average_and_standard_deviation(
     records: list[dict[str, object]], metric: str
 ) -> tuple[float | None, float | None]:
-    _, values = records_by_date(records, metric)
+    values = [
+        value
+        for record in records
+        if (value := recorded_best(record, metric)) is not None
+    ]
     if not values:
         return None, None
-    return values[-1], pstdev(values)
+    return average(values), pstdev(values)
 
 
 def metric_text(value: float | None) -> str:
@@ -69,17 +65,6 @@ def add_evolution_trace(
     if not dates:
         return
 
-    standard_deviation = pstdev(values) if highlight else None
-    error_bar = (
-        {
-            "type": "constant",
-            "value": standard_deviation,
-            "visible": True,
-        }
-        if standard_deviation is not None
-        else None
-    )
-
     if chart_type == "Gráfico de linha":
         figure.add_trace(
             go.Scatter(
@@ -87,15 +72,6 @@ def add_evolution_trace(
                 y=values,
                 name=name,
                 mode="lines+markers" if highlight else "lines",
-            )
-        )
-    elif chart_type == "Gráfico de barras":
-        figure.add_trace(
-            go.Bar(
-                x=dates,
-                y=values,
-                name=name,
-                error_y=error_bar,
             )
         )
     else:
@@ -119,7 +95,7 @@ def add_athlete_deviation(
     chart_type: str,
 ) -> None:
     dates, values = records_by_date(records, metric)
-    if not dates or chart_type == "Gráfico de barras":
+    if not dates:
         return
 
     standard_deviation = pstdev(values)
@@ -184,7 +160,7 @@ with filters[1]:
         format_func=lambda value: value or "Todas as posições",
     )
 
-available_athlete_ids = sorted(
+available_athletes = sorted(
     {
         str(record["atleta"])
         for record in all_records
@@ -194,25 +170,34 @@ available_athlete_ids = sorted(
 )
 
 with filters[0]:
-    selected_athlete = st.selectbox(
-        "Atleta",
-        [None, *available_athlete_ids],
-        format_func=lambda athlete_id: (
-            "Todos os atletas"
-            if athlete_id is None
-            else athlete_names[athlete_id]
-        ),
+    selected_athletes = st.multiselect(
+        "Atletas",
+        available_athletes,
+        placeholder="Todos os atletas",
     )
+analysis_athletes = selected_athletes or (
+    available_athletes if selected_position else []
+)
 with filters[2]:
-    selected_period = st.selectbox("Período de referência", list(PERIODS), index=2)
+    today = date.today()
+    analysis_period = st.date_input(
+        "Período de análise",
+        value=(today - timedelta(days=30), today),
+    )
 
-latest_date = max(record["data_coleta"] for record in all_records)
-period_days = PERIODS[selected_period]
-cutoff_date = latest_date - timedelta(days=period_days - 1) if period_days else None
+if len(analysis_period) != 2:
+    st.info("Selecione as datas inicial e final do período de análise.")
+    st.stop()
+
+start_date, end_date = analysis_period
+if start_date > end_date:
+    st.error("A data inicial deve ser anterior ou igual à data final.")
+    st.stop()
+
 period_records = [
     record
     for record in all_records
-    if cutoff_date is None or record["data_coleta"] >= cutoff_date
+    if start_date <= record["data_coleta"] <= end_date
 ]
 position_records = [
     record
@@ -222,21 +207,18 @@ position_records = [
 filtered_records = [
     record
     for record in position_records
-    if selected_athlete is None or record["atleta"] == selected_athlete
+    if not selected_athletes or record["atleta"] in selected_athletes
 ]
 
-st.caption(
-    f"Fonte: public.vw_medidas_saltos · períodos calculados a partir da coleta mais recente ({latest_date:%d/%m/%Y})."
-)
 
 if not filtered_records:
     st.warning("Não há coletas para os filtros selecionados.")
     st.stop()
 
-cmj_value, cmj_standard_deviation = latest_value_and_standard_deviation(
+cmj_value, cmj_standard_deviation = average_and_standard_deviation(
     filtered_records, "cmj"
 )
-sj_value, sj_standard_deviation = latest_value_and_standard_deviation(
+sj_value, sj_standard_deviation = average_and_standard_deviation(
     filtered_records, "sj"
 )
 valid_collections = sum(
@@ -246,22 +228,12 @@ valid_collections = sum(
 )
 
 metrics = st.columns(3)
-cmj_metric_label = (
-    "Média do CMJ na última coleta"
-    if selected_athlete is None
-    else "CMJ na última coleta"
-)
-sj_metric_label = (
-    "Média do SJ na última coleta"
-    if selected_athlete is None
-    else "SJ na última coleta"
-)
 with metrics[0]:
-    st.metric(cmj_metric_label, metric_text(cmj_value))
+    st.metric("Média do CMJ", metric_text(cmj_value))
     if cmj_standard_deviation is not None:
         st.caption(standard_deviation_text(cmj_standard_deviation))
 with metrics[1]:
-    st.metric(sj_metric_label, metric_text(sj_value))
+    st.metric("Média do SJ", metric_text(sj_value))
     if sj_standard_deviation is not None:
         st.caption(standard_deviation_text(sj_standard_deviation))
 metrics[2].metric("Coletas com medição", valid_collections)
@@ -269,27 +241,35 @@ metrics[2].metric("Coletas com medição", valid_collections)
 
 def evolution_chart(metric: str, chart_type: str) -> go.Figure:
     figure = go.Figure()
-    if selected_athlete is not None:
+    athlete_record_groups: list[tuple[str, list[dict[str, object]]]] = []
+    for athlete in analysis_athletes:
+        athlete_records = [
+            record
+            for record in filtered_records
+            if record["atleta"] == athlete
+        ]
+        athlete_record_groups.append((athlete, athlete_records))
         add_evolution_trace(
             figure,
-            filtered_records,
-            athlete_names[selected_athlete],
+            athlete_records,
+            athlete_names[athlete],
             metric=metric,
             chart_type=chart_type,
             highlight=True,
         )
 
-    reference_position = selected_position
-    if selected_athlete is not None and reference_position is None:
-        reference_position = next(
-            (
+    reference_positions = (
+        [selected_position]
+        if selected_position
+        else sorted(
+            {
                 str(record["posicao"])
                 for record in all_records
-                if record["atleta"] == selected_athlete and record["posicao"]
-            ),
-            None,
+                if record["atleta"] in analysis_athletes and record["posicao"]
+            }
         )
-    if reference_position:
+    )
+    for reference_position in reference_positions:
         add_evolution_trace(
             figure,
             [
@@ -309,11 +289,11 @@ def evolution_chart(metric: str, chart_type: str) -> go.Figure:
         metric=metric,
         chart_type=chart_type,
     )
-    if selected_athlete is not None:
+    for athlete, athlete_records in athlete_record_groups:
         add_athlete_deviation(
             figure,
-            filtered_records,
-            athlete_names[selected_athlete],
+            athlete_records,
+            athlete_names[athlete],
             metric,
             chart_type,
         )
@@ -331,58 +311,7 @@ def evolution_chart(metric: str, chart_type: str) -> go.Figure:
     return figure
 
 
-def radar_chart(metric: str) -> go.Figure | None:
-    athlete_records = [
-        record
-        for record in all_records
-        if record["atleta"] == selected_athlete
-    ]
-    athlete_dates, _ = records_by_date(athlete_records, metric)
-    radar_dates = athlete_dates[-5:]
-    if not radar_dates:
-        return None
-
-    reference_position = selected_position or next(
-        (
-            str(record["posicao"])
-            for record in athlete_records
-            if record["posicao"]
-        ),
-        None,
-    )
-    scopes = [(athlete_names[selected_athlete], athlete_records)]
-    if reference_position:
-        scopes.append(
-            (
-                f"Média {reference_position}",
-                [
-                    record
-                    for record in all_records
-                    if record["posicao"] == reference_position
-                ],
-            )
-        )
-    scopes.append(("Média do elenco", all_records))
-
-    date_labels = [date.strftime("%d/%m/%Y") for date in radar_dates]
-    figure = go.Figure()
-    for scope_name, scope_records in scopes:
-        dates, values = records_by_date(scope_records, metric)
-        values_by_date = dict(zip(dates, values))
-        radar_values = [values_by_date.get(date) for date in radar_dates]
-        if not any(value is not None for value in radar_values):
-            continue
-        figure.add_trace(
-            go.Scatterpolar(
-                r=[*radar_values, radar_values[0]],
-                theta=[*date_labels, date_labels[0]],
-                name=scope_name,
-                mode="lines+markers",
-                fill="toself",
-                opacity=0.65,
-            )
-        )
-
+def configure_radar_layout(figure: go.Figure, metric: str) -> go.Figure:
     figure.update_layout(
         height=520,
         paper_bgcolor="rgba(0, 0, 0, 0)",
@@ -407,27 +336,151 @@ def radar_chart(metric: str) -> go.Figure | None:
     return figure
 
 
-if selected_athlete is not None:
-    charts = st.columns(2)
-    with charts[0]:
-        radar_metric = st.selectbox("Métrica do radar", ["CMJ", "SJ"])
-        st.subheader("Radar temporal de saltos")
-        radar_figure = radar_chart(radar_metric.lower())
-        if radar_figure is None:
-            st.info(f"O atleta não possui coletas válidas de {radar_metric}.")
-        else:
-            st.plotly_chart(radar_figure, width="stretch")
-    with charts[1]:
-        evolution_controls = st.columns(2)
-        with evolution_controls[0]:
-            evolution_metric = st.selectbox("Métrica", ["CMJ", "SJ"])
-        with evolution_controls[1]:
-            evolution_chart_type = st.selectbox(
-                "Tipo de gráfico",
-                ["Gráfico de linha", "Gráfico de barras", "Box plot"],
+def temporal_radar_chart(metric: str) -> go.Figure | None:
+    history_records = [
+        record
+        for record in all_records
+        if record["data_coleta"] <= end_date
+        and record["atleta"] in analysis_athletes
+    ]
+    available_dates, _ = records_by_date(history_records, metric)
+    radar_dates = available_dates[-5:]
+    if not radar_dates:
+        return None
+
+    scopes: list[tuple[str, list[dict[str, object]]]] = []
+    for athlete in analysis_athletes:
+        scopes.append(
+            (
+                athlete_names[athlete],
+                [
+                    record
+                    for record in history_records
+                    if record["atleta"] == athlete
+                ],
             )
-        st.subheader(f"Evolução do {evolution_metric}")
-        st.plotly_chart(
-            evolution_chart(evolution_metric.lower(), evolution_chart_type),
-            width="stretch",
         )
+
+    reference_positions = (
+        [selected_position]
+        if selected_position
+        else sorted(
+            {
+                str(record["posicao"])
+                for record in all_records
+                if record["atleta"] in analysis_athletes and record["posicao"]
+            }
+        )
+    )
+    for reference_position in reference_positions:
+        scopes.append(
+            (
+                f"Média {reference_position}",
+                [
+                    record
+                    for record in all_records
+                    if record["data_coleta"] <= end_date
+                    and record["posicao"] == reference_position
+                ],
+            )
+        )
+    scopes.append(
+        (
+            "Média do elenco",
+            [
+                record
+                for record in all_records
+                if record["data_coleta"] <= end_date
+            ],
+        )
+    )
+
+    date_labels = [radar_date.strftime("%d/%m/%Y") for radar_date in radar_dates]
+    figure = go.Figure()
+    for scope_name, scope_records in scopes:
+        dates, values = records_by_date(scope_records, metric)
+        values_by_date = dict(zip(dates, values))
+        radar_values = [values_by_date.get(radar_date) for radar_date in radar_dates]
+        if not any(value is not None for value in radar_values):
+            continue
+        figure.add_trace(
+            go.Scatterpolar(
+                r=[*radar_values, radar_values[0]],
+                theta=[*date_labels, date_labels[0]],
+                name=scope_name,
+                mode="lines+markers",
+                fill="toself",
+                opacity=0.65,
+            )
+        )
+
+    return configure_radar_layout(figure, metric)
+
+
+def athlete_radar_chart(metric: str) -> go.Figure | None:
+    athlete_labels: list[str] = []
+    radar_values: list[float] = []
+    for athlete in analysis_athletes:
+        athlete_average = average(
+            [
+                recorded_best(record, metric)
+                for record in filtered_records
+                if record["atleta"] == athlete
+            ]
+        )
+        if athlete_average is not None:
+            athlete_labels.append(athlete_names[athlete])
+            radar_values.append(athlete_average)
+
+    if len(radar_values) < 3:
+        return None
+
+    figure = go.Figure(
+        go.Scatterpolar(
+            r=[*radar_values, radar_values[0]],
+            theta=[*athlete_labels, athlete_labels[0]],
+            name=f"Média do {metric.upper()}",
+            mode="lines+markers",
+            fill="toself",
+            opacity=0.65,
+        )
+    )
+
+    return configure_radar_layout(figure, metric)
+
+
+if analysis_athletes:
+    selected_metric = st.selectbox("Métrica dos gráficos", ["CMJ", "SJ"])
+
+    st.subheader(f"Evolução do {selected_metric}")
+    st.plotly_chart(
+        evolution_chart(selected_metric.lower(), "Gráfico de linha"),
+        width="stretch",
+    )
+
+    st.subheader(f"Distribuição do {selected_metric}")
+    st.plotly_chart(
+        evolution_chart(selected_metric.lower(), "Box plot"),
+        width="stretch",
+    )
+
+    radars = st.columns(2)
+    with radars[0]:
+        st.subheader(f"Últimas cinco datas de {selected_metric}")
+        temporal_radar = temporal_radar_chart(selected_metric.lower())
+        if temporal_radar is None:
+            st.info(f"Não há dados válidos de {selected_metric} até {end_date:%d/%m/%Y}.")
+        else:
+            st.plotly_chart(temporal_radar, width="stretch")
+
+    if len(analysis_athletes) >= 3:
+        with radars[1]:
+            st.subheader(f"Comparativo de {selected_metric} por atleta")
+            athlete_radar = athlete_radar_chart(selected_metric.lower())
+            if athlete_radar is None:
+                st.info(
+                    f"São necessários pelo menos três atletas com dados válidos "
+                    f"de {selected_metric} no período."
+                )
+            else:
+                st.plotly_chart(athlete_radar, width="stretch")
