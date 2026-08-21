@@ -188,6 +188,27 @@ coletas com medição = quantidade de registros em que
 
 Cada linha retornada pela view conta como um registro.
 
+### Tabela comparativa por jogador
+
+A tabela resume média e desvio padrão populacional de CMJ e SJ por jogador no
+período filtrado. A coluna **Análise** compara cada atleta com os jogadores da
+mesma posição usando um z-score combinado:
+
+```text
+z da métrica = (média do jogador - média da posição) / DP da posição
+z combinado  = média dos z-scores disponíveis de CMJ e SJ
+```
+
+A referência da posição é calculada sobre as médias individuais, garantindo
+que todos os atletas tenham o mesmo peso mesmo quando possuem quantidades
+diferentes de coletas. O resultado é classificado como **Acima da média** para
+`z >= 0,5`, **Na média** entre `-0,5` e `0,5`, e **Abaixo da média** para
+`z <= -0,5`.
+
+Quando somente CMJ ou SJ possui referência válida, a análise utiliza essa única
+métrica. Posições com menos de dois atletas válidos ou sem variação recebem a
+indicação **Dados insuficientes**.
+
 ## Gráfico de evolução de CMJ ou SJ
 
 Os gráficos são exibidos quando pelo menos um atleta está selecionado. Um único
