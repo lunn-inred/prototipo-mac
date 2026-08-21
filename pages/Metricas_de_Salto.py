@@ -455,10 +455,7 @@ if analysis_athletes:
 
 
 st.subheader("Comparativo por jogador")
-st.caption(
-    "A análise combina os escores padronizados de CMJ e SJ em relação aos "
-    "jogadores da mesma posição."
-)
+
 st.dataframe(
     comparison_table,
     width="stretch",
