@@ -120,11 +120,12 @@ selecionar o grupo completo de jogadores daquela posição: os gráficos e o rad
 usam todos eles quando nenhum atleta específico é marcado. Caso sejam marcados
 atletas no componente múltiplo, somente esse subconjunto da posição é analisado.
 
-#### Período de análise
+#### Período de referência
 
-Permite escolher diretamente as datas inicial e final. As duas datas são
-incluídas na análise. Por padrão, a data final é o dia atual e a data inicial é
-30 dias antes.
+Permite analisar os últimos 7, 30 ou 90 dias, ou todo o histórico disponível.
+Assim como na página de GPS, o período padrão é **Últimos 90 dias**. Nos períodos
+em dias, a data atual está incluída na contagem. A opção **Todo o histórico** usa
+como limites a primeira e a última data existentes na view.
 
 ### Média do CMJ
 

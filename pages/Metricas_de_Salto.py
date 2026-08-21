@@ -16,6 +16,13 @@ st.set_page_config(
     layout="wide",
 )
 
+PERIODS = {
+    "Últimos 7 dias": 7,
+    "Últimos 30 dias": 30,
+    "Últimos 90 dias": 90,
+    "Todo o histórico": None,
+}
+
 
 def records_by_date(
     records: list[dict[str, object]], metric: str
@@ -179,20 +186,19 @@ analysis_athletes = selected_athletes or (
     available_athletes if selected_position else []
 )
 with filters[2]:
-    today = date.today()
-    analysis_period = st.date_input(
-        "Período de análise",
-        value=(today - timedelta(days=30), today),
+    selected_period = st.selectbox(
+        "Período de referência",
+        list(PERIODS),
+        index=2,
     )
 
-if len(analysis_period) != 2:
-    st.info("Selecione as datas inicial e final do período de análise.")
-    st.stop()
-
-start_date, end_date = analysis_period
-if start_date > end_date:
-    st.error("A data inicial deve ser anterior ou igual à data final.")
-    st.stop()
+period_days = PERIODS[selected_period]
+if period_days is None:
+    start_date = min(record["data_coleta"] for record in all_records)
+    end_date = max(record["data_coleta"] for record in all_records)
+else:
+    end_date = date.today()
+    start_date = end_date - timedelta(days=period_days - 1)
 
 period_records = [
     record
