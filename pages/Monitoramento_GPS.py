@@ -141,6 +141,34 @@ def add_average_trace(
     )
 
 
+def add_athlete_deviation(
+    figure: go.Figure,
+    records: list[dict[str, object]],
+    athlete: str,
+    metric: str,
+) -> None:
+    dates, values = records_by_date(records, metric)
+    if not dates:
+        return
+
+    standard_deviation = pstdev(values)
+    lower_limit = [value - standard_deviation for value in values]
+    upper_limit = [value + standard_deviation for value in values]
+    figure.add_trace(
+        go.Scatter(
+            x=[*dates, *reversed(dates)],
+            y=[*upper_limit, *reversed(lower_limit)],
+            name=f"Faixa ± DP — {athlete}",
+            mode="lines",
+            line={"width": 0},
+            fill="toself",
+            opacity=0.18,
+            hoverinfo="skip",
+            zorder=-1,
+        )
+    )
+
+
 st.title("Monitoramento GPS")
 
 try:
@@ -265,6 +293,12 @@ def evolution_chart(metric: str) -> go.Figure:
                 f"Média {reference_position}",
                 metric,
             )
+        add_athlete_deviation(
+            figure,
+            athlete_records,
+            selected_athlete,
+            metric,
+        )
     elif selected_position is not None:
         add_average_trace(
             figure,

@@ -282,7 +282,10 @@ presentes na view:
 Os filtros de atleta, posição e período são aplicados aos registros da view. A
 posição também limita as opções do seletor de atleta. Os cartões apresentam a
 média e o desvio padrão populacional dos registros filtrados, e os gráficos
-agrupam os valores por data de coleta.
+agrupam os valores por data de coleta. Quando um atleta é selecionado, uma faixa
+sombreada representa `valor − DP` a `valor + DP`, usando o desvio padrão
+populacional da série do jogador no período. As médias da posição e do elenco
+não recebem essa faixa.
 
 Foram removidos os componentes de distância em sprint, acelerações e
 desacelerações separadas, player load total e zonas de velocidade, pois essas
