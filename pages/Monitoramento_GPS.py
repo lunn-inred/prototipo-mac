@@ -39,7 +39,7 @@ METRICS = {
         "unit": "km",
         "factor": 1.0,
     },
-    "HSR — alta velocidade (m)": {
+    "Distância em alta velocidade — HSR (m)": {
         "column": "high_speed_distance",
         "unit": "m",
         "factor": 1000.0,
@@ -245,7 +245,10 @@ if not filtered_records:
     st.warning("Não há medições de GPS para os filtros selecionados.")
     st.stop()
 
-card_metrics = ["Distância total (km)", "HSR — alta velocidade (m)"]
+card_metrics = [
+    "Distância total (km)",
+    "Distância em alta velocidade — HSR (m)",
+]
 for column, metric in zip(st.columns(len(card_metrics)), card_metrics):
     value, deviation = average_and_standard_deviation(filtered_records, metric)
     unit = str(METRICS[metric]["unit"])
