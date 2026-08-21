@@ -7,7 +7,13 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from data_filters import render_data_filters
-from jump_data import average, load_jump_records, recorded_best
+from jump_data import (
+    average,
+    build_jump_comparison,
+    load_jump_records,
+    metric_summary,
+    recorded_best,
+)
 
 
 st.set_page_config(
@@ -33,14 +39,7 @@ def records_by_date(
 def average_and_standard_deviation(
     records: list[dict[str, object]], metric: str
 ) -> tuple[float | None, float | None]:
-    values = [
-        value
-        for record in records
-        if (value := recorded_best(record, metric)) is not None
-    ]
-    if not values:
-        return None, None
-    return average(values), pstdev(values)
+    return metric_summary(records, metric)
 
 
 def metric_text(value: float | None) -> str:
@@ -189,6 +188,24 @@ with metrics[2]:
     with st.container(border=True):
         st.metric("Coletas com medição", valid_collections)
 
+
+def table_metric_text(value: object) -> str:
+    return f"{float(value):.1f} cm" if value is not None else "—"
+
+
+comparison_rows = build_jump_comparison(filtered_records, position_records)
+comparison_table = [
+    {
+        "Jogador": row["athlete"],
+        "Posição": row["position"],
+        "Média CMJ": table_metric_text(row["cmj_mean"]),
+        "Desvio padrão CMJ": table_metric_text(row["cmj_deviation"]),
+        "Média SJ": table_metric_text(row["sj_mean"]),
+        "Desvio padrão SJ": table_metric_text(row["sj_deviation"]),
+        "Análise": row["analysis"],
+    }
+    for row in comparison_rows
+]
 
 def evolution_chart(metric: str, chart_type: str) -> go.Figure:
     figure = go.Figure()
@@ -435,3 +452,24 @@ if analysis_athletes:
                 )
             else:
                 st.plotly_chart(athlete_radar, width="stretch")
+
+
+st.subheader("Comparativo por jogador")
+st.caption(
+    "A análise combina os escores padronizados de CMJ e SJ em relação aos "
+    "jogadores da mesma posição."
+)
+st.dataframe(
+    comparison_table,
+    width="stretch",
+    hide_index=True,
+    column_config={
+        "Jogador": st.column_config.TextColumn(width="medium"),
+        "Posição": st.column_config.TextColumn(width="small"),
+        "Média CMJ": st.column_config.TextColumn(width="small"),
+        "Desvio padrão CMJ": st.column_config.TextColumn(width="medium"),
+        "Média SJ": st.column_config.TextColumn(width="small"),
+        "Desvio padrão SJ": st.column_config.TextColumn(width="medium"),
+        "Análise": st.column_config.TextColumn(width="large"),
+    },
+)
