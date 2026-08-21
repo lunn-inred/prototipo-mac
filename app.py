@@ -1,5 +1,9 @@
 import streamlit as st
 
+from ui import apply_global_style
+
+
+apply_global_style()
 
 navigation = st.navigation(
     [

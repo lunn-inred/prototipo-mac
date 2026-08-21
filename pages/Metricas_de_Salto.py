@@ -235,14 +235,18 @@ valid_collections = sum(
 
 metrics = st.columns(3)
 with metrics[0]:
-    st.metric("Média do CMJ", metric_text(cmj_value))
-    if cmj_standard_deviation is not None:
-        st.caption(standard_deviation_text(cmj_standard_deviation))
+    with st.container(border=True):
+        st.metric("Média do CMJ", metric_text(cmj_value))
+        if cmj_standard_deviation is not None:
+            st.caption(standard_deviation_text(cmj_standard_deviation))
 with metrics[1]:
-    st.metric("Média do SJ", metric_text(sj_value))
-    if sj_standard_deviation is not None:
-        st.caption(standard_deviation_text(sj_standard_deviation))
-metrics[2].metric("Coletas com medição", valid_collections)
+    with st.container(border=True):
+        st.metric("Média do SJ", metric_text(sj_value))
+        if sj_standard_deviation is not None:
+            st.caption(standard_deviation_text(sj_standard_deviation))
+with metrics[2]:
+    with st.container(border=True):
+        st.metric("Coletas com medição", valid_collections)
 
 
 def evolution_chart(metric: str, chart_type: str) -> go.Figure:
@@ -322,20 +326,20 @@ def configure_radar_layout(figure: go.Figure, metric: str) -> go.Figure:
         height=520,
         paper_bgcolor="rgba(0, 0, 0, 0)",
         plot_bgcolor="rgba(0, 0, 0, 0)",
-        font={"color": "#FAFAFA"},
+        font={"color": "#111827"},
         polar={
             "bgcolor": "rgba(0, 0, 0, 0)",
             "radialaxis": {
                 "visible": True,
                 "title": {"text": f"{metric.upper()} (cm)"},
-                "gridcolor": "rgba(250, 250, 250, 0.20)",
-                "linecolor": "rgba(250, 250, 250, 0.35)",
-                "tickfont": {"color": "#FAFAFA"},
+                "gridcolor": "rgba(100, 116, 139, 0.24)",
+                "linecolor": "rgba(100, 116, 139, 0.40)",
+                "tickfont": {"color": "#64748b"},
             },
             "angularaxis": {
-                "gridcolor": "rgba(250, 250, 250, 0.20)",
-                "linecolor": "rgba(250, 250, 250, 0.35)",
-                "tickfont": {"color": "#FAFAFA"},
+                "gridcolor": "rgba(100, 116, 139, 0.24)",
+                "linecolor": "rgba(100, 116, 139, 0.40)",
+                "tickfont": {"color": "#475569"},
             },
         },
     )

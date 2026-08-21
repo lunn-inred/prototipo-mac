@@ -253,9 +253,13 @@ for column, metric in zip(st.columns(len(card_metrics)), card_metrics):
     value, deviation = average_and_standard_deviation(filtered_records, metric)
     unit = str(METRICS[metric]["unit"])
     with column:
-        st.metric(f"Média de {metric.rsplit(' (', 1)[0]}", formatted_value(value, unit))
-        if deviation is not None:
-            st.caption(f"± {deviation:.1f} {unit}")
+        with st.container(border=True):
+            st.metric(
+                f"Média de {metric.rsplit(' (', 1)[0]}",
+                formatted_value(value, unit),
+            )
+            if deviation is not None:
+                st.caption(f"± {deviation:.1f} {unit}")
 
 
 def evolution_chart(metric: str) -> go.Figure:

@@ -48,6 +48,12 @@ O módulo `database.py` centraliza a conexão com o PostgreSQL do Supabase. As
 conexões abertas pelo protótipo são configuradas e verificadas como somente
 leitura antes de serem disponibilizadas às páginas.
 
+### Logo
+
+Para exibir a identidade do MAC na barra lateral, coloque a imagem PNG em
+`assets/logo_mac.png`. O arquivo é carregado automaticamente quando existe; sua
+ausência não impede a execução do protótipo.
+
 ## Deploy no Streamlit Community Cloud
 
 O repositório já contém o arquivo `requirements.txt` e utiliza `app.py` como
