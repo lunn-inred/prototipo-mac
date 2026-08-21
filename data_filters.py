@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from unicodedata import combining, normalize
 
 import streamlit as st
 
@@ -14,6 +15,12 @@ PERIODS = {
     "Últimos 90 dias": 90,
     "Todo o histórico": None,
 }
+
+
+def alphabetical_key(value: str) -> str:
+    """Normaliza textos para uma ordenação alfabética sem acentos ou caixa."""
+    normalized = normalize("NFKD", value.strip().casefold())
+    return "".join(character for character in normalized if not combining(character))
 
 
 @dataclass
@@ -31,7 +38,8 @@ class FilteredRecords:
 def render_data_filters(records: list[dict[str, object]]) -> FilteredRecords:
     """Renderiza atleta, posição e período e retorna os recortes resultantes."""
     positions = sorted(
-        {str(record["posicao"]) for record in records if record["posicao"]}
+        {str(record["posicao"]) for record in records if record["posicao"]},
+        key=alphabetical_key,
     )
 
     filters = st.columns(3)
@@ -47,7 +55,8 @@ def render_data_filters(records: list[dict[str, object]]) -> FilteredRecords:
             str(record["atleta"])
             for record in records
             if selected_position is None or record["posicao"] == selected_position
-        }
+        },
+        key=alphabetical_key,
     )
     with filters[0]:
         selected_athletes = st.multiselect(
