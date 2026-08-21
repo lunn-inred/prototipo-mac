@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
 from statistics import pstdev
 
 import plotly.graph_objects as go
 import streamlit as st
 
+from data_filters import render_data_filters
 from gps_data import average, load_gps_records, numeric_value
 
 
@@ -15,13 +15,6 @@ st.set_page_config(
     page_icon="📍",
     layout="wide",
 )
-
-PERIODS = {
-    "Últimos 7 dias": 7,
-    "Últimos 30 dias": 30,
-    "Últimos 90 dias": 90,
-    "Todo o histórico": None,
-}
 
 METRICS = {
     "Esforços de aceleração/desaceleração (n)": {
@@ -181,61 +174,11 @@ if not all_records:
     st.warning("A view de GPS não retornou registros.")
     st.stop()
 
-positions = sorted(
-    {str(record["posicao"]) for record in all_records if record["posicao"]}
-)
-
-filters = st.columns(3)
-with filters[1]:
-    selected_position = st.selectbox(
-        "Posição",
-        [None, *positions],
-        format_func=lambda value: value or "Todas as posições",
-    )
-
-available_athletes = sorted(
-    {
-        str(record["atleta"])
-        for record in all_records
-        if selected_position is None or record["posicao"] == selected_position
-    }
-)
-with filters[0]:
-    selected_athlete = st.selectbox(
-        "Atleta",
-        [None, *available_athletes],
-        format_func=lambda value: value or "Todos os atletas",
-    )
-with filters[2]:
-    selected_period = st.selectbox(
-        "Período de referência",
-        list(PERIODS),
-        index=2,
-    )
-
-period_days = PERIODS[selected_period]
-if period_days is None:
-    start_date = min(record["data_coleta"] for record in all_records)
-    end_date = max(record["data_coleta"] for record in all_records)
-else:
-    end_date = date.today()
-    start_date = end_date - timedelta(days=period_days - 1)
-
-period_records = [
-    record
-    for record in all_records
-    if start_date <= record["data_coleta"] <= end_date
-]
-position_records = [
-    record
-    for record in period_records
-    if selected_position is None or record["posicao"] == selected_position
-]
-filtered_records = [
-    record
-    for record in position_records
-    if selected_athlete is None or record["atleta"] == selected_athlete
-]
+filters = render_data_filters(all_records)
+selected_position = filters.selected_position
+analysis_athletes = filters.analysis_athletes
+period_records = filters.period_records
+filtered_records = filters.filtered_records
 
 st.caption(
     "Fonte: public.vw_medidas_gps · HSR convertido de quilômetros para metros."
@@ -264,55 +207,43 @@ for column, metric in zip(st.columns(len(card_metrics)), card_metrics):
 
 def evolution_chart(metric: str) -> go.Figure:
     figure = go.Figure()
-    if selected_athlete is not None:
+    athlete_record_groups: list[tuple[str, list[dict[str, object]]]] = []
+    for athlete in analysis_athletes:
         athlete_records = [
             record
             for record in filtered_records
-            if record["atleta"] == selected_athlete
+            if record["atleta"] == athlete
         ]
+        athlete_record_groups.append((athlete, athlete_records))
         add_average_trace(
             figure,
             athlete_records,
-            selected_athlete,
+            athlete,
             metric,
             highlight=True,
         )
 
-        reference_positions = (
-            [selected_position]
-            if selected_position
-            else sorted(
-                {
-                    str(record["posicao"])
-                    for record in all_records
-                    if record["atleta"] == selected_athlete and record["posicao"]
-                }
-            )
+    reference_positions = (
+        [selected_position]
+        if selected_position
+        else sorted(
+            {
+                str(record["posicao"])
+                for record in all_records
+                if record["atleta"] in analysis_athletes and record["posicao"]
+            }
         )
-        for reference_position in reference_positions:
-            add_average_trace(
-                figure,
-                [
-                    record
-                    for record in period_records
-                    if record["posicao"] == reference_position
-                ],
-                f"Média {reference_position}",
-                metric,
-            )
-        add_athlete_deviation(
-            figure,
-            athlete_records,
-            selected_athlete,
-            metric,
-        )
-    elif selected_position is not None:
+    )
+    for reference_position in reference_positions:
         add_average_trace(
             figure,
-            position_records,
-            f"Média {selected_position}",
+            [
+                record
+                for record in period_records
+                if record["posicao"] == reference_position
+            ],
+            f"Média {reference_position}",
             metric,
-            highlight=True,
         )
 
     add_average_trace(
@@ -320,8 +251,15 @@ def evolution_chart(metric: str) -> go.Figure:
         period_records,
         "Média do elenco",
         metric,
-        highlight=selected_athlete is None and selected_position is None,
+        highlight=not analysis_athletes,
     )
+    for athlete, athlete_records in athlete_record_groups:
+        add_athlete_deviation(
+            figure,
+            athlete_records,
+            athlete,
+            metric,
+        )
     figure.update_layout(
         height=380,
         hovermode="x unified",

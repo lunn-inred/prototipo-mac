@@ -285,11 +285,11 @@ presentes na view:
 - `player_load_per_minute`;
 - `sprint_efforts`: número de sprints.
 
-Os filtros de atleta, posição e período são aplicados aos registros da view. A
-posição também limita as opções do seletor de atleta. Os cartões apresentam a
-média e o desvio padrão populacional dos registros filtrados, e os gráficos
-agrupam os valores por data de coleta. Quando um atleta é selecionado, uma faixa
-sombreada representa `valor − DP` a `valor + DP`, usando o desvio padrão
+Os filtros de atletas, posição e período são compartilhados com a página de
+saltos. A posição limita as opções do seletor múltiplo de atletas. Os cartões
+apresentam a média e o desvio padrão populacional dos registros filtrados, e os
+gráficos agrupam os valores por data de coleta. Para cada atleta analisado, uma
+faixa sombreada representa `valor − DP` a `valor + DP`, usando o desvio padrão
 populacional da série do jogador no período. As médias da posição e do elenco
 não recebem essa faixa.
 

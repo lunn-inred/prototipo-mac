@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
 from statistics import pstdev
 
 import plotly.graph_objects as go
 import streamlit as st
 
+from data_filters import render_data_filters
 from jump_data import average, load_jump_records, recorded_best
 
 
@@ -15,14 +15,6 @@ st.set_page_config(
     page_icon="🔷",
     layout="wide",
 )
-
-PERIODS = {
-    "Últimos 7 dias": 7,
-    "Últimos 30 dias": 30,
-    "Últimos 90 dias": 90,
-    "Todo o histórico": None,
-}
-
 
 def records_by_date(
     records: list[dict[str, object]], metric: str
@@ -155,66 +147,15 @@ athlete_names = {
     str(record["atleta"]): str(record["atleta"])
     for record in all_records
 }
-positions = sorted(
-    {str(record["posicao"]) for record in all_records if record["posicao"]}
-)
-
-filters = st.columns(3)
-with filters[1]:
-    selected_position = st.selectbox(
-        "Posição",
-        [None, *positions],
-        format_func=lambda value: value or "Todas as posições",
-    )
-
-available_athletes = sorted(
-    {
-        str(record["atleta"])
-        for record in all_records
-        if selected_position is None or record["posicao"] == selected_position
-    },
-    key=athlete_names.get,
-)
-
-with filters[0]:
-    selected_athletes = st.multiselect(
-        "Atletas",
-        available_athletes,
-        placeholder="Todos os atletas",
-    )
-analysis_athletes = selected_athletes or (
-    available_athletes if selected_position else []
-)
-with filters[2]:
-    selected_period = st.selectbox(
-        "Período de referência",
-        list(PERIODS),
-        index=2,
-    )
-
-period_days = PERIODS[selected_period]
-if period_days is None:
-    start_date = min(record["data_coleta"] for record in all_records)
-    end_date = max(record["data_coleta"] for record in all_records)
-else:
-    end_date = date.today()
-    start_date = end_date - timedelta(days=period_days - 1)
-
-period_records = [
-    record
-    for record in all_records
-    if start_date <= record["data_coleta"] <= end_date
-]
-position_records = [
-    record
-    for record in period_records
-    if selected_position is None or record["posicao"] == selected_position
-]
-filtered_records = [
-    record
-    for record in position_records
-    if not selected_athletes or record["atleta"] in selected_athletes
-]
+filters = render_data_filters(all_records)
+selected_position = filters.selected_position
+selected_athletes = filters.selected_athletes
+analysis_athletes = filters.analysis_athletes
+start_date = filters.start_date
+end_date = filters.end_date
+period_records = filters.period_records
+position_records = filters.position_records
+filtered_records = filters.filtered_records
 
 
 if not filtered_records:
