@@ -261,3 +261,29 @@ Caso menos de três atletas selecionados possuam dados válidos para a métrica 
 período, o radar é substituído por uma mensagem informativa.
 
 ## Monitoramento de GPS
+
+A página `pages/Monitoramento_GPS.py` utiliza dados reais da view
+`public.vw_medidas_gps`, carregados por `gps_data.py` e mantidos em cache por
+cinco minutos. O seletor dos gráficos disponibiliza todas as medidas numéricas
+presentes na view:
+
+- `accel_de_cel_efforts`;
+- `accel_de_cel_efforts_per_minute`;
+- `distance_km`: distância total em quilômetros;
+- `high_speed_distance`: distância HSR, convertida de quilômetros para metros;
+- `high_speed_efforts`;
+- `max_acceleration`;
+- `max_deceleration`;
+- `maximum_velocity_km_h`;
+- `meterage_per_minute`;
+- `player_load_per_minute`;
+- `sprint_efforts`: número de sprints.
+
+Os filtros de atleta, posição e período são aplicados aos registros da view. A
+posição também limita as opções do seletor de atleta. Os cartões apresentam a
+média e o desvio padrão populacional dos registros filtrados, e os gráficos
+agrupam os valores por data de coleta.
+
+Foram removidos os componentes de distância em sprint, acelerações e
+desacelerações separadas, player load total e zonas de velocidade, pois essas
+métricas não estão disponíveis na view no formato exigido pelo protótipo.

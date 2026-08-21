@@ -1,122 +1,305 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import date, timedelta
 from statistics import pstdev
 
 import plotly.graph_objects as go
 import streamlit as st
 
+from gps_data import average, load_gps_records, numeric_value
 
-st.set_page_config(page_title="MAC Performance | Monitoramento GPS", page_icon="📍", layout="wide")
 
-ATHLETES = [
-    "Todos os atletas", "#1 Diego", "#2 Wesley", "#3 Gabriel", "#4 Lucão",
-    "#5 Felipe", "#6 Rafael", "#7 Douglas", "#8 JP", "#9 Marquinhos",
-    "#10 Luan", "#11 Kauan", "#12 Rafa GK", "#13 Bruno", "#14 Caio",
-    "#15 Matheus", "#16 PH", "#17 Enzo", "#18 Vini", "#19 Samuca",
-    "#20 Thiaguinho", "#21 Otávio", "#22 Igor",
-]
-POSITIONS = ["Todas as posições", "Goleiro", "Zagueiro", "Lateral", "Volante", "Meio-campo", "Atacante"]
-PERIODS = ["Últimos 7 dias", "Últimos 30 dias", "Últimos 90 dias", "Todo o histórico"]
-VARIABLES = [
-    "Distância total (km)", "HSR — alta velocidade (m)", "Distância em sprint (m)",
-    "Número de sprints (n)", "Acelerações (n)", "Desacelerações (n)", "Player load (u.a.)",
-]
+st.set_page_config(
+    page_title="MAC Performance | Monitoramento GPS",
+    page_icon="📍",
+    layout="wide",
+)
 
-st.title("Monitoramento GPS")
+PERIODS = {
+    "Últimos 7 dias": 7,
+    "Últimos 30 dias": 30,
+    "Últimos 90 dias": 90,
+    "Todo o histórico": None,
+}
 
-filters = st.columns(3)
-with filters[0]:
-    athlete = st.selectbox("Atleta", ATHLETES)
-with filters[1]:
-    position = st.selectbox("Posição", POSITIONS)
-with filters[2]:
-    period = st.selectbox("Período de referência", PERIODS, index=2)
-
-is_all = athlete == "Todos os atletas"
-name = athlete.split(" ", 1)[1] if not is_all else "Média do grupo"
-role = "Goleiro" if athlete in ("#1 Diego", "#12 Rafa GK") else (position if position != "Todas as posições" else "posição")
-
-labels = ["Rodada 1", "Treino 1", "Rodada 2", "Treino 2", "Rodada 3", "Treino 3", "Rodada 4", "Treino 4", "Rodada 5", "Rodada 6"]
-series = {
-    "Distância total (km)": ([8.3, 8.3, 8.0, 8.2, 9.8, 8.2, 10.3, 10.1, 8.5, 8.5], [0, 3, 6, 9, 12], "km"),
-    "HSR — alta velocidade (m)": ([630, 720, 460, 800, 680, 540, 510, 350, 620, 570], [0, 200, 400, 600, 800], "m"),
-    "Distância em sprint (m)": ([170, 205, 110, 260, 195, 145, 180, 92, 205, 149], [0, 75, 150, 225, 300], "m"),
-    "Número de sprints (n)": ([14, 17, 10, 21, 18, 12, 16, 9, 19, 15], [0, 6, 12, 18, 24], "n"),
-    "Acelerações (n)": ([38, 42, 31, 49, 45, 36, 44, 29, 51, 46], [0, 15, 30, 45, 60], "n"),
-    "Desacelerações (n)": ([28, 35, 24, 38, 34, 29, 37, 21, 40, 31], [0, 10, 20, 30, 40], "n"),
-    "Player load (u.a.)": ([510, 570, 460, 630, 590, 480, 610, 420, 575, 550], [0, 200, 400, 600, 800], "u.a."),
+METRICS = {
+    "Esforços de aceleração/desaceleração (n)": {
+        "column": "accel_de_cel_efforts",
+        "unit": "eventos",
+        "factor": 1.0,
+    },
+    "Esforços de aceleração/desaceleração por minuto": {
+        "column": "accel_de_cel_efforts_per_minute",
+        "unit": "eventos/min",
+        "factor": 1.0,
+    },
+    "Distância total (km)": {
+        "column": "distance_km",
+        "unit": "km",
+        "factor": 1.0,
+    },
+    "HSR — alta velocidade (m)": {
+        "column": "high_speed_distance",
+        "unit": "m",
+        "factor": 1000.0,
+    },
+    "Esforços em alta velocidade (n)": {
+        "column": "high_speed_efforts",
+        "unit": "eventos",
+        "factor": 1.0,
+    },
+    "Aceleração máxima": {
+        "column": "max_acceleration",
+        "unit": "m/s²",
+        "factor": 1.0,
+    },
+    "Desaceleração máxima": {
+        "column": "max_deceleration",
+        "unit": "m/s²",
+        "factor": 1.0,
+    },
+    "Velocidade máxima": {
+        "column": "maximum_velocity_km_h",
+        "unit": "km/h",
+        "factor": 1.0,
+    },
+    "Metragem por minuto": {
+        "column": "meterage_per_minute",
+        "unit": "m/min",
+        "factor": 1.0,
+    },
+    "Player load por minuto": {
+        "column": "player_load_per_minute",
+        "unit": "u.a./min",
+        "factor": 1.0,
+    },
+    "Número de sprints (n)": {
+        "column": "sprint_efforts",
+        "unit": "n",
+        "factor": 1.0,
+    },
 }
 
 
-def series_standard_deviation(variable: str) -> float:
-    values, _, _ = series[variable]
-    return pstdev(values)
+def metric_value(record: dict[str, object], metric: str) -> float | None:
+    definition = METRICS[metric]
+    value = numeric_value(record, str(definition["column"]))
+    return None if value is None else value * float(definition["factor"])
 
 
-metric_values = (
-    ["9.9 km", "591 m", "288 m", "30 / 37"]
-    if is_all
-    else ["8.5 km", "570 m", "149 m", "46 / 31"]
+def records_by_date(
+    records: list[dict[str, object]], metric: str
+) -> tuple[list[object], list[float]]:
+    grouped: dict[object, list[float]] = defaultdict(list)
+    for record in records:
+        value = metric_value(record, metric)
+        if value is not None:
+            grouped[record["data_coleta"]].append(value)
+
+    dates = sorted(grouped)
+    return dates, [average(grouped[collection_date]) for collection_date in dates]
+
+
+def average_and_standard_deviation(
+    records: list[dict[str, object]], metric: str
+) -> tuple[float | None, float | None]:
+    values = [
+        value
+        for record in records
+        if (value := metric_value(record, metric)) is not None
+    ]
+    if not values:
+        return None, None
+    return average(values), pstdev(values)
+
+
+def formatted_value(value: float | None, unit: str) -> str:
+    if value is None:
+        return "Sem dados"
+    return f"{value:.1f} {unit}"
+
+
+def add_average_trace(
+    figure: go.Figure,
+    records: list[dict[str, object]],
+    name: str,
+    metric: str,
+    *,
+    highlight: bool = False,
+) -> None:
+    dates, values = records_by_date(records, metric)
+    if not dates:
+        return
+    figure.add_trace(
+        go.Scatter(
+            x=dates,
+            y=values,
+            name=name,
+            mode="lines+markers" if highlight else "lines",
+        )
+    )
+
+
+st.title("Monitoramento GPS")
+
+try:
+    all_records = load_gps_records()
+except Exception as error:
+    st.error(f"Não foi possível carregar os dados de GPS: {error}")
+    st.stop()
+
+if not all_records:
+    st.warning("A view de GPS não retornou registros.")
+    st.stop()
+
+positions = sorted(
+    {str(record["posicao"]) for record in all_records if record["posicao"]}
 )
-metric_data = [
-    (
-        "Distância total",
-        metric_values[0],
-        f"± {series_standard_deviation('Distância total (km)'):.1f} km",
-    ),
-    (
-        "Alta intensidade — HSR (> 20 km/h)",
-        metric_values[1],
-        f"± {series_standard_deviation('HSR — alta velocidade (m)'):.1f} m",
-    ),
-    (
-        "Distância em sprint (> 25 km/h)",
-        metric_values[2],
-        f"± {series_standard_deviation('Distância em sprint (m)'):.1f} m",
-    ),
-    (
-        "Acelerações / Desacelerações",
-        metric_values[3],
-        "eventos na última sessão",
-    ),
+
+filters = st.columns(3)
+with filters[1]:
+    selected_position = st.selectbox(
+        "Posição",
+        [None, *positions],
+        format_func=lambda value: value or "Todas as posições",
+    )
+
+available_athletes = sorted(
+    {
+        str(record["atleta"])
+        for record in all_records
+        if selected_position is None or record["posicao"] == selected_position
+    }
+)
+with filters[0]:
+    selected_athlete = st.selectbox(
+        "Atleta",
+        [None, *available_athletes],
+        format_func=lambda value: value or "Todos os atletas",
+    )
+with filters[2]:
+    selected_period = st.selectbox(
+        "Período de referência",
+        list(PERIODS),
+        index=2,
+    )
+
+period_days = PERIODS[selected_period]
+if period_days is None:
+    start_date = min(record["data_coleta"] for record in all_records)
+    end_date = max(record["data_coleta"] for record in all_records)
+else:
+    end_date = date.today()
+    start_date = end_date - timedelta(days=period_days - 1)
+
+period_records = [
+    record
+    for record in all_records
+    if start_date <= record["data_coleta"] <= end_date
+]
+position_records = [
+    record
+    for record in period_records
+    if selected_position is None or record["posicao"] == selected_position
+]
+filtered_records = [
+    record
+    for record in position_records
+    if selected_athlete is None or record["atleta"] == selected_athlete
 ]
 
-for column, (label, value, standard_deviation) in zip(st.columns(4), metric_data):
+st.caption(
+    "Fonte: public.vw_medidas_gps · HSR convertido de quilômetros para metros."
+)
+
+if not filtered_records:
+    st.warning("Não há medições de GPS para os filtros selecionados.")
+    st.stop()
+
+card_metrics = ["Distância total (km)", "HSR — alta velocidade (m)"]
+for column, metric in zip(st.columns(len(card_metrics)), card_metrics):
+    value, deviation = average_and_standard_deviation(filtered_records, metric)
+    unit = str(METRICS[metric]["unit"])
     with column:
-        st.metric(label, value)
-        st.caption(standard_deviation)
+        st.metric(f"Média de {metric.rsplit(' (', 1)[0]}", formatted_value(value, unit))
+        if deviation is not None:
+            st.caption(f"± {deviation:.1f} {unit}")
 
 
-def evolution_chart(variable: str) -> go.Figure:
-    player_values, ticks, unit = series[variable]
-    role_factors = [1.12, 0.94, 1.09, 0.81, 1.02, 1.10, 0.98, 0.92, 1.07, 0.96]
-    team_factors = [1.07, 1.02, 0.99, 1.06, 1.08, 1.05, 1.03, 0.98, 1.02, 1.01]
-    avg_role = [round(value * factor, 1) for value, factor in zip(player_values, role_factors)]
-    average = sum(player_values) / len(player_values)
-    avg_team = [round(average * factor, 1) for factor in team_factors]
+def evolution_chart(metric: str) -> go.Figure:
     figure = go.Figure()
-    if not is_all:
-        figure.add_trace(go.Scatter(x=labels, y=player_values, name=name, mode="lines+markers"))
-        figure.add_trace(go.Scatter(x=labels, y=avg_role, name=f"Média {role}", mode="lines"))
-    else:
-        figure.add_trace(go.Scatter(x=labels, y=avg_role, name="Média por posição", mode="lines"))
-    figure.add_trace(go.Scatter(x=labels, y=avg_team, name="Média do elenco", mode="lines"))
-    figure.update_layout(height=320, hovermode="x unified")
-    figure.update_yaxes(range=[ticks[0], ticks[-1]], tickvals=ticks, ticksuffix=f" {unit}" if unit == "km" else "")
+    if selected_athlete is not None:
+        athlete_records = [
+            record
+            for record in filtered_records
+            if record["atleta"] == selected_athlete
+        ]
+        add_average_trace(
+            figure,
+            athlete_records,
+            selected_athlete,
+            metric,
+            highlight=True,
+        )
+
+        reference_positions = (
+            [selected_position]
+            if selected_position
+            else sorted(
+                {
+                    str(record["posicao"])
+                    for record in all_records
+                    if record["atleta"] == selected_athlete and record["posicao"]
+                }
+            )
+        )
+        for reference_position in reference_positions:
+            add_average_trace(
+                figure,
+                [
+                    record
+                    for record in period_records
+                    if record["posicao"] == reference_position
+                ],
+                f"Média {reference_position}",
+                metric,
+            )
+    elif selected_position is not None:
+        add_average_trace(
+            figure,
+            position_records,
+            f"Média {selected_position}",
+            metric,
+            highlight=True,
+        )
+
+    add_average_trace(
+        figure,
+        period_records,
+        "Média do elenco",
+        metric,
+        highlight=selected_athlete is None and selected_position is None,
+    )
+    figure.update_layout(
+        height=380,
+        hovermode="x unified",
+        xaxis_title="Data da coleta",
+        yaxis_title=metric,
+    )
     return figure
 
 
 st.subheader("Evolução de carga e intensidade")
-selected_variables = st.multiselect("Variáveis", VARIABLES)
+selected_variables = st.multiselect("Variáveis", list(METRICS))
 
 if not selected_variables:
     st.info("Selecione ao menos uma variável.")
 else:
     for variable in selected_variables:
         st.markdown(f"#### {variable}")
-        st.plotly_chart(evolution_chart(variable), width="stretch", key=f"gps_{variable}")
-
-st.subheader("Distribuição de zonas de velocidade")
-zone_values = [3200, 2580, 1660, 630, 260] if is_all else [3120, 2550, 1620, 650, 250]
-zone_figure = go.Figure(go.Bar(x=["Z1", "Z2", "Z3", "Z4", "Z5"], y=zone_values, name="Metros percorridos"))
-zone_figure.update_layout(height=340)
-zone_figure.update_yaxes(range=[0, 3400], tickvals=[0, 850, 1700, 2550, 3400])
-st.plotly_chart(zone_figure, width="stretch")
+        chart = evolution_chart(variable)
+        if not chart.data:
+            st.info(f"Não há dados de {variable} para os filtros selecionados.")
+        else:
+            st.plotly_chart(chart, width="stretch", key=f"gps_{variable}")
