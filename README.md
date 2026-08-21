@@ -203,7 +203,8 @@ A referência da posição é calculada sobre as médias individuais, garantindo
 que todos os atletas tenham o mesmo peso mesmo quando possuem quantidades
 diferentes de coletas. O resultado é classificado como **Acima da média** para
 `z >= 0,5`, **Na média** entre `-0,5` e `0,5`, e **Abaixo da média** para
-`z <= -0,5`.
+`z <= -0,5`. A célula de análise recebe fundo verde, amarelo ou vermelho,
+respectivamente. Casos com dados insuficientes recebem fundo cinza.
 
 Quando somente CMJ ou SJ possui referência válida, a análise utiliza essa única
 métrica. Posições com menos de dois atletas válidos ou sem variação recebem a

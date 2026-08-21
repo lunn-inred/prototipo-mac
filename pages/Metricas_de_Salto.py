@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from statistics import pstdev
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -206,6 +207,24 @@ comparison_table = [
     }
     for row in comparison_rows
 ]
+
+
+def analysis_cell_style(value: object) -> str:
+    analysis = str(value)
+    if analysis.startswith("Acima da média"):
+        return "background-color: #dcfce7; color: #166534; font-weight: 600"
+    if analysis.startswith("Na média"):
+        return "background-color: #fef3c7; color: #92400e; font-weight: 600"
+    if analysis.startswith("Abaixo da média"):
+        return "background-color: #fee2e2; color: #991b1b; font-weight: 600"
+    return "background-color: #f1f5f9; color: #475569; font-weight: 600"
+
+
+comparison_dataframe = pd.DataFrame(comparison_table)
+styled_comparison_table = comparison_dataframe.style.map(
+    analysis_cell_style,
+    subset=["Análise"],
+)
 
 def evolution_chart(metric: str, chart_type: str) -> go.Figure:
     figure = go.Figure()
@@ -457,7 +476,7 @@ if analysis_athletes:
 st.subheader("Comparativo por jogador")
 
 st.dataframe(
-    comparison_table,
+    styled_comparison_table,
     width="stretch",
     hide_index=True,
     column_config={

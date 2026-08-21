@@ -119,13 +119,13 @@ def _position_metric_reference(
 
 def _analysis_label(score: float | None) -> tuple[int, str]:
     if score is None:
-        return 3, "⚪ Dados insuficientes"
+        return 3, "Dados insuficientes"
     formatted_score = f"{score:+.2f}".replace(".", ",")
     if score >= 0.5:
-        return 0, f"🟢 Acima da média ({formatted_score} DP)"
+        return 0, f"Acima da média ({formatted_score} DP)"
     if score <= -0.5:
-        return 2, f"🔴 Abaixo da média ({formatted_score} DP)"
-    return 1, f"🟡 Na média ({formatted_score} DP)"
+        return 2, f"Abaixo da média ({formatted_score} DP)"
+    return 1, f"Na média ({formatted_score} DP)"
 
 
 def build_jump_comparison(
