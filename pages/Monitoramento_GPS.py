@@ -8,6 +8,7 @@ import streamlit as st
 
 from data_filters import render_data_filters
 from gps_data import average, load_gps_records, numeric_value
+from gps_import_ui import render_gps_import
 
 
 st.set_page_config(
@@ -163,6 +164,7 @@ def add_athlete_deviation(
 
 
 st.title("Monitoramento GPS")
+render_gps_import()
 
 try:
     all_records = load_gps_records()

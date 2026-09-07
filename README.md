@@ -290,6 +290,33 @@ período, o radar é substituído por uma mensagem informativa.
 
 ## Monitoramento de GPS
 
+### Extração de relatórios GPS
+
+O botão **Adicionar novos arquivos**, no topo da página **Monitoramento GPS**,
+permite enviar um ou vários relatórios PDF diretamente pelo navegador. Para cada
+relatório, o extrator renderiza e analisa por OCR as duas últimas páginas (ou a
+única página disponível), mostra uma prévia das tabelas reconhecidas e permite
+corrigir os valores diretamente em uma grade editável. Apenas a coluna de origem
+`_arquivo` fica bloqueada; página, tabela e linha não aparecem na grade nem nos
+CSVs. Os CSVs individuais e o consolidado são gerados com os
+dados já revisados, em UTF-8 com BOM e usando ponto e vírgula como separador para
+facilitar a abertura no Excel.
+
+O processamento requer as bibliotecas Python declaradas em `requirements.txt` e
+o executável Tesseract com o idioma português. No Streamlit Community Cloud, os
+pacotes de sistema necessários estão declarados em `packages.txt`. Em uma
+instalação local no Windows, instale o Tesseract, inclua o executável no `PATH` e
+confirme com:
+
+```powershell
+tesseract --list-langs
+```
+
+O idioma `por` deve aparecer na lista; se ele não estiver disponível, o extrator
+usa `eng` como alternativa. A operação não grava no Supabase: ela produz os CSVs
+para conferência, enquanto o painel continua consultando a view somente leitura
+`public.vw_medidas_gps`.
+
 A página `pages/Monitoramento_GPS.py` utiliza dados reais da view
 `public.vw_medidas_gps`, carregados por `gps_data.py` e mantidos em cache por
 cinco minutos. O seletor dos gráficos disponibiliza todas as medidas numéricas
