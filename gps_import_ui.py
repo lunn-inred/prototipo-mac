@@ -20,6 +20,7 @@ def render_gps_import() -> None:
         st.session_state["gps_extraction_open"] = not st.session_state[
             "gps_extraction_open"
         ]
+        st.rerun()
 
     if not st.session_state["gps_extraction_open"]:
         return
