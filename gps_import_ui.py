@@ -188,19 +188,10 @@ def render_gps_import() -> None:
                     {"arquivo": document["arquivo"], "linhas": edited_rows}
                 )
 
-                filename = str(document["arquivo"]).rsplit(".", 1)[0] + ".csv"
-                st.download_button(
-                    "Baixar CSV revisado deste relatório",
-                    data=csv_bytes(edited_rows),
-                    file_name=filename,
-                    mime="text/csv",
-                    key=f"gps_download_{revision}_{document_index}",
-                )
-
         consolidated_rows = [row for rows in edited_documents for row in rows]
         if consolidated_rows:
             st.download_button(
-                "Baixar CSV consolidado revisado",
+                "Baixar CSV",
                 data=csv_bytes(consolidated_rows),
                 file_name="tabelas_gps_consolidadas.csv",
                 mime="text/csv",

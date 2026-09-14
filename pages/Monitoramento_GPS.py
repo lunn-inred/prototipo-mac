@@ -6,7 +6,7 @@ from statistics import pstdev
 import plotly.graph_objects as go
 import streamlit as st
 
-from data_filters import render_data_filters
+from data_filters import alphabetical_key, render_data_filters
 from gps_data import average, load_gps_records, numeric_value
 from gps_import_ui import render_gps_import
 
@@ -272,7 +272,10 @@ def evolution_chart(metric: str) -> go.Figure:
 
 
 st.subheader("Evolução de carga e intensidade")
-selected_variables = st.multiselect("Variáveis", list(METRICS))
+selected_variables = st.multiselect(
+    "Variáveis",
+    sorted(METRICS, key=alphabetical_key),
+)
 
 if not selected_variables:
     st.info("Selecione ao menos uma variável.")

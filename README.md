@@ -297,10 +297,9 @@ permite enviar um ou vários relatórios PDF diretamente pelo navegador. Para ca
 relatório, o extrator renderiza e analisa por OCR as duas últimas páginas (ou a
 única página disponível), mostra uma prévia das tabelas reconhecidas e permite
 corrigir os valores diretamente em uma grade editável. Apenas a coluna de origem
-`_arquivo` fica bloqueada; página, tabela e linha não aparecem na grade nem nos
-CSVs. Os CSVs individuais e o consolidado são gerados com os
-dados já revisados, em UTF-8 com BOM e usando ponto e vírgula como separador para
-facilitar a abertura no Excel.
+`_arquivo` fica bloqueada; página, tabela e linha não aparecem na grade nem no
+CSV. Um único CSV consolidado é gerado com os dados já revisados, em UTF-8 com
+BOM e usando ponto e vírgula como separador para facilitar a abertura no Excel.
 
 O processamento requer as bibliotecas Python declaradas em `requirements.txt` e
 o executável Tesseract com o idioma português. No Streamlit Community Cloud, os
