@@ -14,6 +14,7 @@ saltos e GPS e utiliza Plotly para a construção dos gráficos.
   - [Radar das últimas cinco datas](#radar-das-últimas-cinco-datas)
   - [Radar comparativo por atleta](#radar-comparativo-por-atleta)
 - [Monitoramento de GPS](#monitoramento-de-gps)
+- [Termografia](#termografia)
 
 ## Como executar
 
@@ -372,3 +373,14 @@ não recebem essa faixa.
 Foram removidos os componentes de distância em sprint, acelerações e
 desacelerações separadas, player load total e zonas de velocidade, pois essas
 métricas não estão disponíveis na view no formato exigido pelo protótipo.
+
+## Termografia
+
+A página `pages/Termografia.py` inicia o fluxo de análise pela imagem. Ela aceita
+uma termografia em PNG ou JPEG de até 20 MB e utiliza `streamlit-cropper` para
+selecionar separadamente a perna esquerda e a perna direita.
+
+Cada seleção precisa ser confirmada. A imagem recortada e suas coordenadas são
+mantidas apenas no `session_state` do Streamlit para uso futuro nos cálculos;
+nesta etapa, nada é gravado no banco ou no sistema de arquivos. Ao enviar outra
+imagem, os recortes anteriores são descartados automaticamente.

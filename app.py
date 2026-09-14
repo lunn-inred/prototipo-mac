@@ -18,6 +18,11 @@ navigation = st.navigation(
             title="Métricas de Salto",
             icon="📈",
         ),
+        st.Page(
+            "pages/Termografia.py",
+            title="Termografia",
+            icon="🌡️",
+        ),
     ]
 )
 

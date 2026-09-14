@@ -167,6 +167,10 @@ def apply_global_style() -> None:
             overflow: hidden;
         }
 
+        .st-key-thermography_editor {
+            max-width: 1180px;
+        }
+
         [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
             background: var(--mac-blue);
         }
