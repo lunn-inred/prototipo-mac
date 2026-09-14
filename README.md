@@ -290,6 +290,60 @@ período, o radar é substituído por uma mensagem informativa.
 
 ## Monitoramento de GPS
 
+### Extração de relatórios GPS
+
+O botão **Adicionar novos arquivos**, no topo da página **Monitoramento GPS**,
+permite enviar um ou vários relatórios PDF diretamente pelo navegador. Para cada
+relatório, o extrator renderiza e analisa por OCR as duas últimas páginas (ou a
+única página disponível), mostra uma prévia das tabelas reconhecidas e permite
+corrigir os valores diretamente em uma grade editável. Apenas a coluna de origem
+`_arquivo` fica bloqueada; página, tabela e linha não aparecem na grade nem no
+CSV. Um único CSV consolidado é gerado com os dados já revisados, em UTF-8 com
+BOM e usando ponto e vírgula como separador para facilitar a abertura no Excel.
+
+O processamento requer as bibliotecas Python declaradas em `requirements.txt` e
+o executável Tesseract com o idioma português. No Streamlit Community Cloud, os
+pacotes de sistema necessários estão declarados em `packages.txt`. Em uma
+instalação local no Windows, instale o Tesseract, inclua o executável no `PATH` e
+confirme com:
+
+```powershell
+tesseract --list-langs
+```
+
+O idioma `por` deve aparecer na lista; se ele não estiver disponível, o extrator
+usa `eng` como alternativa. Upload, OCR e edição não gravam no Supabase; os dados
+só podem ser enviados após a validação e a confirmação descritas abaixo. O
+painel continua consultando a view somente leitura `public.vw_medidas_gps`.
+
+### Envio dos dados revisados ao banco
+
+Depois da conferência na grade, o botão **Validar para envio** verifica o padrão
+do nome, os valores numéricos, os cadastros que serão criados e as medições já
+existentes. O nome do PDF deve seguir este formato:
+
+```text
+01.02.2026_16_00h_MAC X LUMINENSE.pdf
+```
+
+A gravação só acontece após **Confirmar envio ao banco**. Cada PDF usa uma
+transação independente e as medições duplicadas são ignoradas. O timestamp do
+nome do arquivo é gravado em `partida.data` e `medida_valor.data`.
+
+As posições extraídas são normalizadas antes da revisão e do envio: `CA` vira
+`Centroavante`, `EXT` vira `Extrema`, `GOL` vira `Goleiro`, `VOL` vira
+`Volante`, `MEI` vira `Meia`, `LD` e `LE` viram `Lateral`, `ZAG` vira
+`Zagueiro` e `ATA` vira `Atacante`. `Ponta` permanece `Ponta`. A normalização
+ignora caixa, acentos, espaços e pontuação; valores desconhecidos precisam ser
+corrigidos na grade.
+
+As operações de escrita reutilizam as credenciais `SUPABASE_DB_*` já configuradas
+para as consultas do painel. A separação continua existindo nas conexões: o
+painel abre transações somente leitura, enquanto a confirmação da importação abre
+uma transação de escrita. O usuário configurado precisa de `USAGE` no schema
+`public`, `SELECT` e `INSERT` em `atleta`, `partida`, `grupo_medida`, `medida` e
+`medida_valor`, além de acesso às sequências `serial` correspondentes.
+
 A página `pages/Monitoramento_GPS.py` utiliza dados reais da view
 `public.vw_medidas_gps`, carregados por `gps_data.py` e mantidos em cache por
 cinco minutos. O seletor dos gráficos disponibiliza todas as medidas numéricas

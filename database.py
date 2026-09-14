@@ -38,6 +38,33 @@ def database_config() -> dict[str, object]:
     return config
 
 
+def database_write_config() -> dict[str, object]:
+    """Reutiliza as credenciais configuradas para abrir a conexão de importação."""
+    variables = {
+        "host": "SUPABASE_DB_HOST",
+        "port": "SUPABASE_DB_PORT",
+        "dbname": "SUPABASE_DB_NAME",
+        "user": "SUPABASE_DB_USER",
+        "password": "SUPABASE_DB_PASSWORD",
+    }
+    missing = [
+        secret_name
+        for secret_name in variables.values()
+        if not st.secrets.get(secret_name)
+    ]
+    if missing:
+        raise RuntimeError(
+            "Configuração do banco incompleta nos Secrets do Streamlit: "
+            + ", ".join(missing)
+        )
+
+    config = {key: st.secrets[secret_name] for key, secret_name in variables.items()}
+    config["sslmode"] = st.secrets.get("SUPABASE_DB_SSLMODE", "require")
+    config["connect_timeout"] = 15
+    config["application_name"] = "mac_streamlit_gps_import"
+    return config
+
+
 @contextmanager
 def database_connection() -> Iterator[connection]:
     """Abre exclusivamente uma conexão read-only e a fecha ao final."""
@@ -50,5 +77,25 @@ def database_connection() -> Iterator[connection]:
         if transaction_mode != "on":
             raise RuntimeError("O banco não confirmou o modo somente leitura.")
         yield db_connection
+    finally:
+        db_connection.close()
+
+
+@contextmanager
+def database_write_connection() -> Iterator[connection]:
+    """Abre uma transação de escrita isolada para um único PDF importado."""
+    db_connection = psycopg2.connect(**database_write_config())
+    db_connection.set_session(readonly=False, autocommit=False)
+    try:
+        with db_connection.cursor() as cursor:
+            cursor.execute("SHOW transaction_read_only")
+            transaction_mode = cursor.fetchone()[0]
+        if transaction_mode != "off":
+            raise RuntimeError("O banco não confirmou o modo de escrita.")
+        yield db_connection
+        db_connection.commit()
+    except Exception:
+        db_connection.rollback()
+        raise
     finally:
         db_connection.close()
