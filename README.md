@@ -376,11 +376,18 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 ## Termografia
 
-A página `pages/Termografia.py` inicia o fluxo de análise pela imagem. Ela aceita
-uma termografia em PNG ou JPEG de até 20 MB e utiliza `streamlit-cropper` para
-selecionar separadamente a perna esquerda e a perna direita.
+A página `pages/Termografia.py` aceita múltiplas termografias em PNG ou JPEG de
+até 20 MB cada. Para cada imagem, o usuário informa `Tmin` e `Tmax`, ajusta por
+slider a temperatura mínima de um pixel quente e utiliza `streamlit-cropper`
+para selecionar separadamente a perna esquerda e a perna direita. O limiar
+padrão corresponde ao início dos 20% mais quentes do intervalo informado.
 
-Cada seleção precisa ser confirmada. A imagem recortada e suas coordenadas são
-mantidas apenas no `session_state` do Streamlit para uso futuro nos cálculos;
-nesta etapa, nada é gravado no banco ou no sistema de arquivos. Ao enviar outra
-imagem, os recortes anteriores são descartados automaticamente.
+Nesta primeira versão, uma LUT Jet fixa associa as cores, do azul ao vermelho,
+a posições entre `Tmin` e `Tmax`. A correspondência usa a cor mais próxima e
+gera uma matriz de temperaturas aproximadas. As coordenadas dos recortes são
+aplicadas sobre essa matriz, e a métrica exibida é a quantidade de pixels com
+temperatura maior ou igual ao limiar escolhido.
+
+Imagens, coordenadas e métricas permanecem somente na sessão do Streamlit. Nada
+é gravado no banco ou no sistema de arquivos. A LUT é experimental e deverá ser
+substituída ou validada contra a paleta real da câmera antes do uso definitivo.
