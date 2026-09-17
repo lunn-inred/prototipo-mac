@@ -6,25 +6,24 @@ from typing import Any
 
 import streamlit as st
 from PIL import Image, ImageOps, UnidentifiedImageError
-from streamlit_cropper import st_cropper
 
-from thermal_analysis import count_hot_pixels, temperature_matrix
-
+from thermal_analysis import (
+    annotate_boxes,
+    count_hot_pixels,
+    detect_leg_boxes,
+    temperature_matrix,
+)
 
 st.set_page_config(
-    page_title="MAC Performance | Termografia",
-    page_icon="🌡️",
-    layout="wide",
+    page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide"
 )
 
 MAX_IMAGE_SIZE = 20 * 1024 * 1024
 DEFAULT_MIN_TEMPERATURE = 20.0
 DEFAULT_MAX_TEMPERATURE = 40.0
 DEFAULT_HOT_FRACTION = 0.20
-LEGS = {
-    "Perna esquerda": "left",
-    "Perna direita": "right",
-}
+LEGS = {"Perna direita": "right", "Perna esquerda": "left"}
+VIEW_LABELS = {"front": "Frente", "back": "Costas"}
 
 
 def load_thermography(content: bytes) -> Image.Image:
@@ -40,20 +39,12 @@ def load_thermography(content: bytes) -> Image.Image:
     except (OSError, UnidentifiedImageError) as error:
         raise ValueError("O arquivo enviado não é uma imagem válida.") from error
     if image.width < 2 or image.height < 2:
-        raise ValueError("A imagem não possui dimensões válidas para recorte.")
+        raise ValueError("A imagem não possui dimensões válidas.")
     return image
 
 
 def image_signature(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
-
-
-def default_coordinates(box: dict[str, Any] | None) -> tuple[int, int, int, int] | None:
-    if not box:
-        return None
-    left = int(box["left"])
-    top = int(box["top"])
-    return left, left + int(box["width"]), top, top + int(box["height"])
 
 
 def crop_from_box(image: Image.Image, box: dict[str, int]) -> Image.Image:
@@ -65,227 +56,272 @@ def crop_from_box(image: Image.Image, box: dict[str, int]) -> Image.Image:
 
 
 @st.cache_data(show_spinner=False)
+def cached_leg_boxes(content: bytes) -> list[dict[str, int]]:
+    return detect_leg_boxes(load_thermography(content))
+
+
+@st.cache_data(show_spinner=False)
 def cached_temperature_matrix(
     content: bytes,
     minimum_temperature: float,
     maximum_temperature: float,
 ) -> Any:
-    image = load_thermography(content)
-    return temperature_matrix(image, minimum_temperature, maximum_temperature)
-
-
-st.title("Termografia")
-
-uploaded_images = st.file_uploader(
-    "Imagens da termografia",
-    type=["png", "jpg", "jpeg"],
-    accept_multiple_files=True,
-    help="Envie uma ou mais imagens PNG ou JPEG de até 20 MB cada.",
-)
-
-if not uploaded_images:
-    st.session_state.pop("thermography_items", None)
-    st.session_state.pop("thermography_metrics", None)
-    st.info("Envie uma ou mais imagens para iniciar a análise.")
-    st.stop()
-
-valid_images: dict[str, dict[str, Any]] = {}
-for uploaded_image in uploaded_images:
-    content = uploaded_image.getvalue()
-    signature = image_signature(content)
-    try:
-        image = load_thermography(content)
-    except ValueError as error:
-        st.error(f"{uploaded_image.name}: {error}")
-        continue
-    valid_images.setdefault(
-        signature,
-        {"name": uploaded_image.name, "content": content, "image": image},
+    return temperature_matrix(
+        load_thermography(content), minimum_temperature, maximum_temperature
     )
 
-if not valid_images:
-    st.stop()
 
-items: dict[str, dict[str, Any]] = st.session_state.setdefault(
-    "thermography_items", {}
-)
-for signature, uploaded in valid_images.items():
-    items.setdefault(
-        signature,
-        {
-            "name": uploaded["name"],
-            "boxes": {},
-            "minimum_temperature": DEFAULT_MIN_TEMPERATURE,
-            "maximum_temperature": DEFAULT_MAX_TEMPERATURE,
-        },
-    )
-for signature in set(items) - set(valid_images):
-    del items[signature]
-stored_metrics: dict[str, dict[str, Any]] = st.session_state.setdefault(
-    "thermography_metrics", {}
-)
-for signature in set(stored_metrics) - set(valid_images):
-    del stored_metrics[signature]
+def render_view(
+    view_key: str,
+    name: str,
+    content: bytes,
+    image: Image.Image,
+    item: dict[str, Any],
+) -> dict[str, dict[str, float | int]] | None:
+    """Renderiza uma vista e retorna as métricas das duas pernas."""
+    view_label = VIEW_LABELS[view_key]
+    st.markdown(f"#### Imagem de {view_label.lower()}")
+    st.caption(name)
 
-if len(valid_images) < len(uploaded_images):
-    st.caption("Arquivos idênticos ou inválidos não são exibidos em duplicidade.")
+    with st.container(border=True):
+        minimum_column, maximum_column = st.columns(2)
+        with minimum_column:
+            minimum_temperature = st.number_input(
+                "Temperatura mínima — Tmin (°C)",
+                value=float(item["minimum_temperature"]),
+                step=0.1,
+                format="%.1f",
+                key=f"thermography_tmin_{view_key}_{image_signature(content)}",
+            )
+        with maximum_column:
+            maximum_temperature = st.number_input(
+                "Temperatura máxima — Tmax (°C)",
+                value=float(item["maximum_temperature"]),
+                step=0.1,
+                format="%.1f",
+                key=f"thermography_tmax_{view_key}_{image_signature(content)}",
+            )
 
-signatures = list(valid_images)
-filename_counts = {
-    name: sum(uploaded["name"] == name for uploaded in valid_images.values())
-    for name in {uploaded["name"] for uploaded in valid_images.values()}
-}
-selected_signature = st.selectbox(
-    "Imagem em edição",
-    signatures,
-    format_func=lambda signature: (
-        valid_images[signature]["name"]
-        if filename_counts[valid_images[signature]["name"]] == 1
-        else f"{valid_images[signature]['name']} — {signature[:8]}"
-    ),
-)
-selected_upload = valid_images[selected_signature]
-selected_item = items[selected_signature]
-thermography: Image.Image = selected_upload["image"]
-st.caption(f"Progresso: {len(selected_item['boxes'])}/2 recortes realizados.")
+        item["minimum_temperature"] = minimum_temperature
+        item["maximum_temperature"] = maximum_temperature
+        valid_scale = maximum_temperature > minimum_temperature
+        if valid_scale:
+            default_threshold = maximum_temperature - DEFAULT_HOT_FRACTION * (
+                maximum_temperature - minimum_temperature
+            )
+            slider_step = max(
+                (maximum_temperature - minimum_temperature) / 200, 0.01
+            )
+            threshold = st.slider(
+                "Temperatura mínima para considerar um pixel quente (°C)",
+                min_value=float(minimum_temperature),
+                max_value=float(maximum_temperature),
+                value=float(default_threshold),
+                step=float(slider_step),
+                key=(
+                    f"thermography_threshold_{view_key}_{image_signature(content)}_"
+                    f"{minimum_temperature:.4f}_{maximum_temperature:.4f}"
+                ),
+            )
+            st.caption(
+                "Valor padrão: início dos 20% mais quentes da escala informada."
+            )
+        else:
+            threshold = minimum_temperature
+            st.error("Tmax deve ser maior que Tmin.")
 
-with st.container(border=True):
-    minimum_column, maximum_column = st.columns(2)
-    with minimum_column:
-        minimum_temperature = st.number_input(
-            "Temperatura mínima — Tmin (°C)",
-            value=float(selected_item["minimum_temperature"]),
-            step=0.1,
-            format="%.1f",
-            key=f"thermography_tmin_{selected_signature}",
-        )
-    with maximum_column:
-        maximum_temperature = st.number_input(
-            "Temperatura máxima — Tmax (°C)",
-            value=float(selected_item["maximum_temperature"]),
-            step=0.1,
-            format="%.1f",
-            key=f"thermography_tmax_{selected_signature}",
-        )
+    with st.spinner(f"Identificando as caixas da imagem de {view_label.lower()}..."):
+        detected_boxes = cached_leg_boxes(content)
 
-    selected_item["minimum_temperature"] = minimum_temperature
-    selected_item["maximum_temperature"] = maximum_temperature
-    valid_scale = maximum_temperature > minimum_temperature
-    if valid_scale:
-        default_threshold = maximum_temperature - DEFAULT_HOT_FRACTION * (
-            maximum_temperature - minimum_temperature
+    if len(detected_boxes) != 2:
+        st.image(image, caption=f"Imagem de {view_label.lower()}", width="stretch")
+        st.error(
+            "Não foi possível identificar exatamente duas caixas R1/R2 "
+            f"({len(detected_boxes)} encontrada(s))."
         )
-        slider_step = max((maximum_temperature - minimum_temperature) / 200, 0.01)
-        threshold = st.slider(
-            "Temperatura mínima para considerar um pixel quente (°C)",
-            min_value=float(minimum_temperature),
-            max_value=float(maximum_temperature),
-            value=float(default_threshold),
-            step=float(slider_step),
-            key=(
-                f"thermography_threshold_{selected_signature}_"
-                f"{minimum_temperature:.4f}_{maximum_temperature:.4f}"
-            ),
-        )
-        st.caption(
-            "Valor padrão: início dos 20% mais quentes do intervalo da imagem."
-        )
+        st.info("Nesta etapa, somente imagens com as duas caixas são processadas.")
+        return None
+
+    if view_key == "front":
+        boxes = {"right": detected_boxes[0], "left": detected_boxes[1]}
+        labels = {"R1 — direita": boxes["right"], "R2 — esquerda": boxes["left"]}
+        convention = "Frente: R1 superior = direita; R2 inferior = esquerda."
     else:
-        threshold = minimum_temperature
-        st.error("Tmax deve ser maior que Tmin.")
+        boxes = {"left": detected_boxes[0], "right": detected_boxes[1]}
+        labels = {"R1 — esquerda": boxes["left"], "R2 — direita": boxes["right"]}
+        convention = "Costas: R1 superior = esquerda; R2 inferior = direita."
 
-st.warning(
-    "Conversão experimental: esta versão assume a mesma paleta Jet "
-    "(azul → vermelho) em todas as imagens."
-)
+    st.image(
+        annotate_boxes(image, labels),
+        caption=f"Detecção automática — {convention}",
+        width="stretch",
+    )
+    st.caption(convention)
 
-selected_leg = st.radio(
-    "Área que será recortada",
-    list(LEGS),
-    horizontal=True,
-    key=f"thermography_leg_{selected_signature}",
-)
-leg_key = LEGS[selected_leg]
-saved_boxes: dict[str, dict[str, int]] = selected_item["boxes"]
-
-st.caption(
-    f"Ajuste o retângulo sobre a {selected_leg.lower()} e confirme o recorte. "
-    "Depois, selecione a outra perna."
-)
-
-with st.container(border=True, key="thermography_editor"):
-    editor, preview = st.columns([5, 3], gap="small")
-    with editor:
-        cropped_image, crop_box = st_cropper(
-            thermography,
-            realtime_update=True,
-            default_coords=default_coordinates(saved_boxes.get(leg_key)),
-            box_color="#075fc9",
-            aspect_ratio=None,
-            return_type="both",
-            key=f"thermography_cropper_{selected_signature}_{leg_key}",
-            should_resize_image=True,
-            stroke_width=3,
-        )
-    with preview:
-        display_preview = cropped_image.copy()
-        display_preview.thumbnail((420, 420))
-        st.image(display_preview, caption=f"Prévia — {selected_leg}")
-        if st.button(
-            f"Confirmar {selected_leg.lower()}",
-            type="primary",
-            width="stretch",
-            key=f"thermography_confirm_{selected_signature}_{leg_key}",
-        ):
-            saved_boxes[leg_key] = {
-                name: int(value) for name, value in crop_box.items()
-            }
-            st.success(f"Recorte da {selected_leg.lower()} confirmado.")
-
-if saved_boxes:
-    st.subheader("Recortes realizados")
-    columns = st.columns(2)
-    for column, (label, key) in zip(columns, LEGS.items()):
+    preview_columns = st.columns(2)
+    for column, (label, key) in zip(preview_columns, LEGS.items()):
         with column:
-            if key in saved_boxes:
-                display_crop = crop_from_box(thermography, saved_boxes[key])
-                display_crop.thumbnail((420, 420))
-                st.image(display_crop, caption=label)
-            else:
-                st.info(f"O recorte da {label.lower()} ainda não foi confirmado.")
+            st.image(
+                crop_from_box(image, boxes[key]),
+                caption=label,
+                width="stretch",
+            )
 
-if saved_boxes and valid_scale:
+    if not valid_scale:
+        return None
+
     with st.spinner("Convertendo as cores em temperaturas aproximadas..."):
         temperatures = cached_temperature_matrix(
-            selected_upload["content"],
-            minimum_temperature,
-            maximum_temperature,
+            content, minimum_temperature, maximum_temperature
         )
 
     metrics: dict[str, dict[str, float | int]] = {}
-    for key, box in saved_boxes.items():
+    for key, box in boxes.items():
         hot_pixels, total_pixels = count_hot_pixels(temperatures, box, threshold)
         metrics[key] = {
             "hot_pixels": hot_pixels,
             "total_pixels": total_pixels,
+            "hot_percentage": hot_pixels / total_pixels * 100,
             "threshold": threshold,
         }
-    stored_metrics[selected_signature] = metrics
 
-    st.subheader("Pixels quentes")
+    st.markdown("##### Pixels quentes")
     metric_columns = st.columns(2)
     for column, (label, key) in zip(metric_columns, LEGS.items()):
+        metric = metrics[key]
         with column:
             with st.container(border=True):
-                if key in metrics:
-                    st.metric(label, f"{metrics[key]['hot_pixels']:,}".replace(",", "."))
-                    st.caption(f"Temperatura ≥ {threshold:.1f} °C")
-                else:
-                    st.metric(label, "—")
-                    st.caption("Recorte ainda não realizado")
+                st.metric(label, f"{metric['hot_pixels']:,}".replace(",", "."))
+                st.caption(
+                    f"{metric['hot_percentage']:.1f}% de "
+                    f"{metric['total_pixels']:,} pixels · "
+                    f"temperatura ≥ {threshold:.1f} °C"
+                )
+    return metrics
 
+
+st.title("Termografia")
+st.caption(
+    "Envie em conjunto as imagens frontal e posterior do mesmo atleta e da mesma coleta."
+)
+
+upload_columns = st.columns(2)
+with upload_columns[0]:
+    front_upload = st.file_uploader(
+        "Imagem de frente",
+        type=["png", "jpg", "jpeg"],
+        help="Imagem HIKMICRO frontal com as caixas R1 e R2 visíveis.",
+        key="thermography_front_upload",
+    )
+with upload_columns[1]:
+    back_upload = st.file_uploader(
+        "Imagem de costas",
+        type=["png", "jpg", "jpeg"],
+        help="Imagem HIKMICRO posterior com as caixas R1 e R2 visíveis.",
+        key="thermography_back_upload",
+    )
+
+if not front_upload or not back_upload:
+    st.session_state.pop("thermography_metrics", None)
+    missing = []
+    if not front_upload:
+        missing.append("frente")
+    if not back_upload:
+        missing.append("costas")
+    st.info(f"Envie a imagem de {' e '.join(missing)} para iniciar a análise.")
+    st.stop()
+
+uploads = {"front": front_upload, "back": back_upload}
+views: dict[str, dict[str, Any]] = {}
+for view_key, uploaded in uploads.items():
+    content = uploaded.getvalue()
+    try:
+        image = load_thermography(content)
+    except ValueError as error:
+        st.error(f"{VIEW_LABELS[view_key]} — {uploaded.name}: {error}")
+        continue
+    views[view_key] = {
+        "name": uploaded.name,
+        "content": content,
+        "image": image,
+        "signature": image_signature(content),
+    }
+
+if len(views) != 2:
+    st.stop()
+
+if views["front"]["signature"] == views["back"]["signature"]:
+    st.warning("A mesma imagem foi selecionada para frente e costas. Confira os arquivos.")
+
+pair_signature = hashlib.sha256(
+    (views["front"]["signature"] + views["back"]["signature"]).encode()
+).hexdigest()
+items: dict[str, dict[str, Any]] = st.session_state.setdefault(
+    "thermography_items", {}
+)
+active_item_keys = {
+    f"{view_key}:{view['signature']}" for view_key, view in views.items()
+}
+for item_key in active_item_keys:
+    items.setdefault(
+        item_key,
+        {
+            "minimum_temperature": DEFAULT_MIN_TEMPERATURE,
+            "maximum_temperature": DEFAULT_MAX_TEMPERATURE,
+        },
+    )
+for item_key in set(items) - active_item_keys:
+    del items[item_key]
+
+st.info(
+    "A lateralidade é invertida automaticamente entre as vistas frontal e posterior."
+)
+st.warning(
+    "Conversão experimental: a paleta é estimada pela barra térmica lateral "
+    "presente em cada imagem."
+)
+
+tabs = st.tabs(["Frente", "Costas"])
+view_metrics: dict[str, dict[str, dict[str, float | int]] | None] = {}
+for tab, view_key in zip(tabs, ("front", "back")):
+    view = views[view_key]
+    item_key = f"{view_key}:{view['signature']}"
+    with tab:
+        view_metrics[view_key] = render_view(
+            view_key,
+            view["name"],
+            view["content"],
+            view["image"],
+            items[item_key],
+        )
+
+stored_metrics: dict[str, Any] = st.session_state.setdefault(
+    "thermography_metrics", {}
+)
+if all(view_metrics.values()):
+    stored_metrics.clear()
+    stored_metrics[pair_signature] = view_metrics
+
+    st.subheader("Resumo conjunto")
+    summary_columns = st.columns(2)
+    for column, (label, key) in zip(summary_columns, LEGS.items()):
+        hot_pixels = sum(
+            int(view_metrics[view_key][key]["hot_pixels"])
+            for view_key in ("front", "back")
+        )
+        total_pixels = sum(
+            int(view_metrics[view_key][key]["total_pixels"])
+            for view_key in ("front", "back")
+        )
+        with column:
+            with st.container(border=True):
+                st.metric(label, f"{hot_pixels:,}".replace(",", "."))
+                st.caption(
+                    f"Frente + costas · {hot_pixels / total_pixels * 100:.1f}% "
+                    f"de {total_pixels:,} pixels"
+                )
     st.caption(
         "As métricas estão somente na sessão atual e ainda não são persistidas no banco."
     )
 else:
-    stored_metrics.pop(selected_signature, None)
+    stored_metrics.clear()
