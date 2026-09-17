@@ -151,21 +151,19 @@ def render_view(
         labels = {"R1 — esquerda": boxes["left"], "R2 — direita": boxes["right"]}
         convention = "Costas: R1 superior = esquerda; R2 inferior = direita."
 
-    st.image(
-        annotate_boxes(image, labels),
-        caption=f"Detecção automática — {convention}",
-        width="stretch",
-    )
-    st.caption(convention)
-
-    preview_columns = st.columns(2)
-    for column, (label, key) in zip(preview_columns, LEGS.items()):
+    image_columns = st.columns([2, 1, 1], gap="small")
+    with image_columns[0]:
+        st.image(
+            annotate_boxes(image, labels),
+            caption=f"Detecção automática — {convention}",
+            width=520,
+        )
+    for column, (label, key) in zip(image_columns[1:], LEGS.items()):
         with column:
-            st.image(
-                crop_from_box(image, boxes[key]),
-                caption=label,
-                width="stretch",
-            )
+            preview = crop_from_box(image, boxes[key])
+            preview.thumbnail((260, 190))
+            st.image(preview, caption=label, width=260)
+    st.caption(convention)
 
     if not valid_scale:
         return None
