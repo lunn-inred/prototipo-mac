@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from statistics import pstdev
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.colors import qualitative
 import streamlit as st
 
+from chart_statistics import daily_statistics
 from data_filters import render_data_filters
 from jump_data import (
     average,
@@ -25,16 +26,8 @@ st.set_page_config(
 
 def records_by_date(
     records: list[dict[str, object]], metric: str
-) -> tuple[list[object], list[float]]:
-    grouped: dict[object, list[float]] = defaultdict(list)
-    for record in records:
-        value = recorded_best(record, metric)
-        if value is not None:
-            grouped[record["data_coleta"]].append(value)
-
-    dates = sorted(grouped)
-    values = [average(grouped[date]) for date in dates]
-    return dates, [value for value in values if value is not None]
+) -> tuple[list[object], list[float], list[float]]:
+    return daily_statistics(records, lambda record: recorded_best(record, metric))
 
 
 def average_and_standard_deviation(
@@ -58,19 +51,54 @@ def add_evolution_trace(
     *,
     metric: str,
     chart_type: str,
+    color: str,
     highlight: bool = False,
 ) -> None:
-    dates, values = records_by_date(records, metric)
+    dates, values, deviations = records_by_date(records, metric)
     if not dates:
         return
 
     if chart_type == "Gráfico de linha":
+        lower_limit = [
+            value - deviation for value, deviation in zip(values, deviations)
+        ]
+        upper_limit = [
+            value + deviation for value, deviation in zip(values, deviations)
+        ]
+        fill_color = (
+            f"rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, "
+            f"{int(color[5:7], 16)}, 0.18)"
+        )
+        figure.add_trace(
+            go.Scatter(
+                x=[*dates, *reversed(dates)],
+                y=[*upper_limit, *reversed(lower_limit)],
+                name=f"Faixa ± DP — {name}",
+                legendgroup=name,
+                mode="lines",
+                line={"width": 0, "color": color},
+                fill="toself",
+                fillcolor=fill_color,
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
         figure.add_trace(
             go.Scatter(
                 x=dates,
                 y=values,
+                customdata=deviations,
                 name=name,
+                legendgroup=name,
                 mode="lines+markers" if highlight else "lines",
+                line={"color": color},
+                marker={"color": color},
+                hovertemplate=(
+                    "%{x|%d/%m/%Y}<br>"
+                    "Média: %{y:.1f} cm<br>"
+                    "DP: %{customdata:.1f} cm"
+                    "<extra>%{fullData.name}</extra>"
+                ),
             )
         )
     else:
@@ -78,57 +106,44 @@ def add_evolution_trace(
             go.Box(
                 y=values,
                 name=name,
+                legendgroup=name,
                 boxmean=True,
                 boxpoints="all",
                 jitter=0.2,
                 pointpos=0,
+                marker={"color": color},
+                line={"color": color},
             )
         )
 
 
-def add_athlete_deviation(
+def add_athlete_period_deviation(
     figure: go.Figure,
     records: list[dict[str, object]],
     name: str,
     metric: str,
-    chart_type: str,
+    color: str,
 ) -> None:
-    dates, values = records_by_date(records, metric)
-    if not dates:
+    _, values, _ = records_by_date(records, metric)
+    if not values:
         return
 
     standard_deviation = pstdev(values)
-    if chart_type == "Gráfico de linha":
-        lower_limit = [value - standard_deviation for value in values]
-        upper_limit = [value + standard_deviation for value in values]
-        figure.add_trace(
-            go.Scatter(
-                x=[*dates, *reversed(dates)],
-                y=[*upper_limit, *reversed(lower_limit)],
-                name=f"Faixa ± DP — {name}",
-                mode="lines",
-                line={"width": 0},
-                fill="toself",
-                opacity=0.18,
-                hoverinfo="skip",
-                zorder=-1,
-            )
+    figure.add_trace(
+        go.Scatter(
+            x=[name],
+            y=[average(values)],
+            name=f"Média ± DP — {name}",
+            mode="markers",
+            marker={"symbol": "diamond", "size": 10, "color": color},
+            legendgroup=name,
+            error_y={
+                "type": "constant",
+                "value": standard_deviation,
+                "visible": True,
+            },
         )
-    else:
-        figure.add_trace(
-            go.Scatter(
-                x=[name],
-                y=[average(values)],
-                name=f"Média ± DP — {name}",
-                mode="markers",
-                marker={"symbol": "diamond", "size": 10},
-                error_y={
-                    "type": "constant",
-                    "value": standard_deviation,
-                    "visible": True,
-                },
-            )
-        )
+    )
 
 
 st.title("Métricas de Salto")
@@ -228,22 +243,26 @@ styled_comparison_table = comparison_dataframe.style.map(
 
 def evolution_chart(metric: str, chart_type: str) -> go.Figure:
     figure = go.Figure()
-    athlete_record_groups: list[tuple[str, list[dict[str, object]]]] = []
+    athlete_record_groups: list[tuple[str, list[dict[str, object]], str]] = []
+    series_index = 0
     for athlete in analysis_athletes:
         athlete_records = [
             record
             for record in filtered_records
             if record["atleta"] == athlete
         ]
-        athlete_record_groups.append((athlete, athlete_records))
+        color = qualitative.Plotly[series_index % len(qualitative.Plotly)]
+        athlete_record_groups.append((athlete, athlete_records, color))
         add_evolution_trace(
             figure,
             athlete_records,
             athlete_names[athlete],
             metric=metric,
             chart_type=chart_type,
+            color=color,
             highlight=True,
         )
+        series_index += 1
 
     reference_positions = (
         [selected_position]
@@ -267,7 +286,9 @@ def evolution_chart(metric: str, chart_type: str) -> go.Figure:
             f"Média {reference_position}",
             metric=metric,
             chart_type=chart_type,
+            color=qualitative.Plotly[series_index % len(qualitative.Plotly)],
         )
+        series_index += 1
 
     add_evolution_trace(
         figure,
@@ -275,15 +296,17 @@ def evolution_chart(metric: str, chart_type: str) -> go.Figure:
         "Média do elenco",
         metric=metric,
         chart_type=chart_type,
+        color=qualitative.Plotly[series_index % len(qualitative.Plotly)],
     )
-    for athlete, athlete_records in athlete_record_groups:
-        add_athlete_deviation(
-            figure,
-            athlete_records,
-            athlete_names[athlete],
-            metric,
-            chart_type,
-        )
+    if chart_type == "Box plot":
+        for athlete, athlete_records, color in athlete_record_groups:
+            add_athlete_period_deviation(
+                figure,
+                athlete_records,
+                athlete_names[athlete],
+                metric,
+                color,
+            )
     figure.update_layout(
         height=420,
         hovermode="x unified" if chart_type != "Box plot" else "closest",
@@ -330,7 +353,7 @@ def temporal_radar_chart(metric: str) -> go.Figure | None:
         if record["data_coleta"] <= end_date
         and record["atleta"] in analysis_athletes
     ]
-    available_dates, _ = records_by_date(history_records, metric)
+    available_dates, _, _ = records_by_date(history_records, metric)
     radar_dates = available_dates[-5:]
     if not radar_dates:
         return None
@@ -385,7 +408,7 @@ def temporal_radar_chart(metric: str) -> go.Figure | None:
     date_labels = [radar_date.strftime("%d/%m/%Y") for radar_date in radar_dates]
     figure = go.Figure()
     for scope_name, scope_records in scopes:
-        dates, values = records_by_date(scope_records, metric)
+        dates, values, _ = records_by_date(scope_records, metric)
         values_by_date = dict(zip(dates, values))
         radar_values = [values_by_date.get(radar_date) for radar_date in radar_dates]
         if not any(value is not None for value in radar_values):

@@ -223,10 +223,12 @@ tempo:
 O gráfico de linha ocupa a primeira linha e o box plot aparece logo abaixo, em
 largura total.
 
-O desvio padrão populacional do atleta no período também é apresentado no
-gráfico. Na visualização de linha, uma área sombreada acompanha cada atleta entre
-os limites `valor − DP` e `valor + DP`. No box plot, um losango indica a média e
-a barra vertical representa `média ± DP` de cada atleta.
+No gráfico de linha, o desvio padrão populacional é calculado separadamente em
+cada data para todas as séries: atleta, posição e elenco. A área sombreada usa os
+limites `média diária − DP diário` e `média diária + DP diário`, e o hover mostra
+a média e o DP correspondentes à data. Quando há somente uma medição válida no
+dia, o DP diário é zero. No box plot, um losango continua indicando a média do
+período e a barra vertical representa `média ± DP` agregado de cada atleta.
 
 ### {Jogador}
 
@@ -363,11 +365,16 @@ presentes na view:
 
 Os filtros de atletas, posição e período são compartilhados com a página de
 saltos. A posição limita as opções do seletor múltiplo de atletas. Os cartões
-apresentam a média e o desvio padrão populacional dos registros filtrados, e os
-gráficos agrupam os valores por data de coleta. Para cada atleta analisado, uma
-faixa sombreada representa `valor − DP` a `valor + DP`, usando o desvio padrão
-populacional da série do jogador no período. As médias da posição e do elenco
-não recebem essa faixa.
+apresentam a média e o desvio padrão populacional dos registros filtrados no
+período completo. Nos gráficos, os valores são agrupados por data de coleta e
+cada série de atleta, posição e elenco recebe uma faixa sombreada entre
+`média diária − DP diário` e `média diária + DP diário`. O hover informa a média
+e o DP de cada data, além do nome do time adversário; com uma única medição
+válida no dia, o DP diário é zero. Quando houver mais de um adversário registrado
+na mesma data, o hover apresenta os nomes juntos. Quando `adversario` for `MAC`,
+o nome exibido é obtido da coluna `equipe`, cobrindo partidas cadastradas com a
+orientação invertida. Se `adversario` estiver vazio e `equipe` seguir o formato
+`Nome X MAC`, o trecho `Nome` é usado como adversário.
 
 Foram removidos os componentes de distância em sprint, acelerações e
 desacelerações separadas, player load total e zonas de velocidade, pois essas
