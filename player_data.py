@@ -26,7 +26,7 @@ def load_player_dashboard_data() -> tuple[
 ]:
     """Carrega cadastro e medidas usando exclusivamente a conexão read-only."""
     athlete_query = """
-        SELECT id_atleta, nome, apelido, posicao, grupo
+        SELECT id_atleta, nome, apelido, posicao, grupo, data_nascimento
         FROM public.atleta
         ORDER BY COALESCE(NULLIF(TRIM(apelido), ''), NULLIF(TRIM(nome), '')),
                  id_atleta

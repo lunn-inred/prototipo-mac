@@ -5,6 +5,12 @@ from html import escape
 
 import streamlit as st
 
+from athlete_service import (
+    AthleteInUseError,
+    create_athlete,
+    delete_athlete,
+    update_athlete,
+)
 from data_filters import PERIODS, alphabetical_key
 from player_data import (
     eva_classification,
@@ -207,6 +213,9 @@ def player_card(
 st.title("Mural do Elenco")
 st.caption("Última medida ± desvio padrão no período selecionado.")
 
+if message := st.session_state.pop("athlete_crud_message", None):
+    st.success(message)
+
 try:
     athletes, measurements = load_player_dashboard_data()
 except Exception:
@@ -216,6 +225,191 @@ except Exception:
 if not athletes:
     st.warning("A tabela de jogadores não retornou registros.")
     st.stop()
+
+def refresh_after_mutation(message: str) -> None:
+    """Limpa dados cacheados após uma transação confirmada."""
+    load_player_dashboard_data.clear()
+    try:
+        from thermography_data import load_thermography_athletes
+
+        load_thermography_athletes.clear()
+    except ImportError:
+        pass
+    st.session_state["athlete_crud_message"] = message
+    st.rerun()
+
+
+with st.expander("Gerenciar jogadores", expanded=False):
+    create_tab, edit_tab, delete_tab = st.tabs(
+        ["Cadastrar", "Editar", "Excluir"]
+    )
+
+    with create_tab:
+        with st.form("create_athlete_form", clear_on_submit=True):
+            st.caption("Somente o nome é obrigatório.")
+            create_columns = st.columns(2)
+            with create_columns[0]:
+                create_name = st.text_input("Nome *", key="create_athlete_name")
+                create_nickname = st.text_input(
+                    "Apelido", key="create_athlete_nickname"
+                )
+                create_position = st.text_input(
+                    "Posição", key="create_athlete_position"
+                )
+            with create_columns[1]:
+                create_group = st.text_input(
+                    "Grupo", key="create_athlete_group"
+                )
+                create_birth_date = st.date_input(
+                    "Data de nascimento",
+                    value=None,
+                    format="DD/MM/YYYY",
+                    key="create_athlete_birth_date",
+                )
+            create_submitted = st.form_submit_button(
+                "Cadastrar jogador", type="primary"
+            )
+
+        if create_submitted:
+            try:
+                athlete_id = create_athlete(
+                    name=create_name,
+                    nickname=create_nickname,
+                    position=create_position,
+                    group=create_group,
+                    birth_date=create_birth_date,
+                )
+            except ValueError as error:
+                st.error(str(error))
+            except Exception:
+                st.error("Não foi possível cadastrar o jogador.")
+            else:
+                refresh_after_mutation(
+                    f"Jogador cadastrado com sucesso (ID {athlete_id})."
+                )
+
+    with edit_tab:
+        edit_id = st.selectbox(
+            "Jogador que será editado",
+            [int(athlete["id_atleta"]) for athlete in athletes],
+            format_func=lambda athlete_id: player_name(
+                next(
+                    athlete
+                    for athlete in athletes
+                    if int(athlete["id_atleta"]) == athlete_id
+                )
+            ),
+            key="edit_athlete_id",
+        )
+        selected_athlete = next(
+            athlete
+            for athlete in athletes
+            if int(athlete["id_atleta"]) == edit_id
+        )
+        stored_birth_date = selected_athlete.get("data_nascimento")
+        if hasattr(stored_birth_date, "date"):
+            stored_birth_date = stored_birth_date.date()
+
+        with st.form(f"edit_athlete_form_{edit_id}"):
+            st.caption(
+                "Nome alternativo é preservado e não faz parte deste formulário."
+            )
+            edit_columns = st.columns(2)
+            with edit_columns[0]:
+                edit_name = st.text_input(
+                    "Nome *",
+                    value=str(selected_athlete.get("nome") or ""),
+                    key=f"edit_athlete_name_{edit_id}",
+                )
+                edit_nickname = st.text_input(
+                    "Apelido",
+                    value=str(selected_athlete.get("apelido") or ""),
+                    key=f"edit_athlete_nickname_{edit_id}",
+                )
+                edit_position = st.text_input(
+                    "Posição",
+                    value=str(selected_athlete.get("posicao") or ""),
+                    key=f"edit_athlete_position_{edit_id}",
+                )
+            with edit_columns[1]:
+                edit_group = st.text_input(
+                    "Grupo",
+                    value=str(selected_athlete.get("grupo") or ""),
+                    key=f"edit_athlete_group_{edit_id}",
+                )
+                edit_birth_date = st.date_input(
+                    "Data de nascimento",
+                    value=stored_birth_date,
+                    format="DD/MM/YYYY",
+                    key=f"edit_athlete_birth_date_{edit_id}",
+                )
+            edit_submitted = st.form_submit_button(
+                "Salvar alterações", type="primary"
+            )
+
+        if edit_submitted:
+            try:
+                update_athlete(
+                    edit_id,
+                    name=edit_name,
+                    nickname=edit_nickname,
+                    position=edit_position,
+                    group=edit_group,
+                    birth_date=edit_birth_date,
+                )
+            except ValueError as error:
+                st.error(str(error))
+            except Exception:
+                st.error("Não foi possível atualizar o jogador.")
+            else:
+                refresh_after_mutation("Jogador atualizado com sucesso.")
+
+    with delete_tab:
+        delete_id = st.selectbox(
+            "Jogador que será excluído",
+            [int(athlete["id_atleta"]) for athlete in athletes],
+            format_func=lambda athlete_id: player_name(
+                next(
+                    athlete
+                    for athlete in athletes
+                    if int(athlete["id_atleta"]) == athlete_id
+                )
+            ),
+            key="delete_athlete_id",
+        )
+        delete_candidate = next(
+            athlete
+            for athlete in athletes
+            if int(athlete["id_atleta"]) == delete_id
+        )
+        confirmation_name = player_name(delete_candidate)
+        st.warning(
+            "A exclusão é permanente e só é permitida para jogadores sem "
+            "medições vinculadas."
+        )
+        with st.form(f"delete_athlete_form_{delete_id}"):
+            confirmation = st.text_input(
+                f'Digite "{confirmation_name}" para confirmar',
+                key=f"delete_athlete_confirmation_{delete_id}",
+            )
+            delete_submitted = st.form_submit_button(
+                "Excluir jogador",
+                type="primary",
+                disabled=confirmation.strip() != confirmation_name,
+            )
+
+        if delete_submitted:
+            try:
+                delete_athlete(delete_id)
+            except AthleteInUseError as error:
+                st.error(str(error))
+            except ValueError as error:
+                st.error(str(error))
+            except Exception:
+                st.error("Não foi possível excluir o jogador.")
+            else:
+                refresh_after_mutation("Jogador excluído com sucesso.")
+
 
 measurements_by_athlete = group_measurements(measurements)
 positions = sorted(
