@@ -8,6 +8,11 @@ apply_global_style()
 navigation = st.navigation(
     [
         st.Page(
+            "pages/Jogadores.py",
+            title="Jogadores",
+            icon="👥",
+        ),
+        st.Page(
             "pages/Monitoramento_GPS.py",
             title="Monitoramento GPS",
             icon="📍",

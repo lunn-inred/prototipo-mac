@@ -3,22 +3,22 @@ import unittest
 import numpy as np
 from PIL import Image
 
-from thermal_analysis import (
-    count_hot_pixels,
-    reference_palette,
-    temperature_matrix,
-)
+from thermal_analysis import count_hot_pixels, temperature_matrix
 
 
 class ThermalAnalysisTests(unittest.TestCase):
-    def test_maps_palette_extremes_to_temperature_limits(self) -> None:
-        palette = reference_palette().astype(np.uint8)
-        image = Image.fromarray(np.asarray([[palette[0], palette[-1]]], dtype=np.uint8))
+    def test_maps_extracted_colorbar_extremes_to_temperature_limits(self) -> None:
+        pixels = np.zeros((100, 100, 3), dtype=np.uint8)
+        gradient = np.linspace(255, 0, 87, dtype=np.uint8)
+        pixels[5:92, 96:100] = gradient[:, None, None]
+        pixels[50, 0] = (0, 0, 0)
+        pixels[50, 1] = (255, 255, 255)
+        image = Image.fromarray(pixels)
 
         temperatures = temperature_matrix(image, 20.0, 40.0)
 
-        self.assertAlmostEqual(float(temperatures[0, 0]), 20.0, places=4)
-        self.assertAlmostEqual(float(temperatures[0, 1]), 40.0, places=4)
+        self.assertAlmostEqual(float(temperatures[50, 0]), 20.0, places=4)
+        self.assertAlmostEqual(float(temperatures[50, 1]), 40.0, places=4)
 
     def test_counts_only_pixels_at_or_above_threshold_in_crop(self) -> None:
         matrix = np.asarray(
