@@ -24,7 +24,7 @@ DEFAULT_MIN_TEMPERATURE = 20.0
 DEFAULT_MAX_TEMPERATURE = 40.0
 DEFAULT_HOT_FRACTION = 0.20
 LEGS = {"Perna direita": "right", "Perna esquerda": "left"}
-VIEW_LABELS = {"front": "Frente", "back": "Costas"}
+VIEW_LABELS = {"front": "Frente", "back": "Verso"}
 
 
 def load_thermography(content: bytes) -> Image.Image:
@@ -150,7 +150,7 @@ def render_view(
     else:
         boxes = {"left": detected_boxes[0], "right": detected_boxes[1]}
         labels = {"R1 — esquerda": boxes["left"], "R2 — direita": boxes["right"]}
-        convention = "Costas: R1 superior = esquerda; R2 inferior = direita."
+        convention = "Verso: R1 superior = esquerda; R2 inferior = direita."
 
     image_columns = st.columns([2, 1, 1], gap="small")
     with image_columns[0]:
@@ -203,40 +203,15 @@ st.title("Termografia")
 
 st.subheader("Histórico térmico")
 with st.container(border=True):
-    history_filters = st.columns([2, 2, 3])
-    with history_filters[0]:
-        st.selectbox(
-            "Atleta",
-            ["Nenhum atleta disponível"],
-            disabled=True,
-            key="thermography_history_athlete",
-        )
-    with history_filters[1]:
-        st.selectbox(
-            "Posição",
-            ["Nenhuma posição disponível"],
-            disabled=True,
-            key="thermography_history_position",
-        )
-    with history_filters[2]:
-        st.date_input(
-            "Período",
-            value=[],
-            disabled=True,
-            key="thermography_history_period",
-        )
+    st.selectbox(
+        "Jogador",
+        ["Nenhum jogador disponível"],
+        disabled=True,
+        key="thermography_history_player",
+    )
 
     history = pd.DataFrame(
-        columns=[
-            "Data",
-            "Atleta",
-            "Vista",
-            "Perna",
-            "Pixels quentes",
-            "Pixels analisados",
-            "Percentual quente",
-            "Limiar (°C)",
-        ]
+        columns=["Jogador", "Massa", "EVA Dor", "Frente", "Verso", "Observações"]
     )
     st.dataframe(history, width="stretch", hide_index=True)
     st.info(
@@ -273,8 +248,43 @@ with st.container(border=True):
 st.divider()
 st.subheader("Nova análise térmica")
 st.caption(
-    "Envie em conjunto as imagens frontal e posterior do mesmo atleta e da mesma coleta."
+    "Informe os dados da coleta e envie em conjunto as imagens de frente e verso."
 )
+
+with st.container(border=True):
+    record_columns = st.columns(3)
+    with record_columns[0]:
+        player = st.text_input(
+            "Jogador *",
+            placeholder="Nome do jogador",
+            key="thermography_player",
+        )
+    with record_columns[1]:
+        mass = st.number_input(
+            "Massa (kg) *",
+            min_value=0.1,
+            value=None,
+            step=0.1,
+            format="%.1f",
+            placeholder="Informe a massa",
+            key="thermography_mass",
+        )
+    with record_columns[2]:
+        pain_score = st.number_input(
+            "EVA Dor *",
+            min_value=0,
+            max_value=10,
+            value=None,
+            step=1,
+            placeholder="Valor de 0 a 10",
+            key="thermography_pain_score",
+        )
+    observations = st.text_area(
+        "Observações",
+        placeholder="Campo opcional",
+        key="thermography_observations",
+    )
+    st.caption("* Campos obrigatórios para o futuro envio ao banco.")
 
 upload_columns = st.columns(2)
 with upload_columns[0]:
@@ -286,9 +296,9 @@ with upload_columns[0]:
     )
 with upload_columns[1]:
     back_upload = st.file_uploader(
-        "Imagem de costas",
+        "Imagem do verso",
         type=["png", "jpg", "jpeg"],
-        help="Imagem HIKMICRO posterior com as caixas R1 e R2 visíveis.",
+        help="Imagem HIKMICRO do verso (costas) com as caixas R1 e R2 visíveis.",
         key="thermography_back_upload",
     )
 
@@ -298,7 +308,7 @@ if not front_upload or not back_upload:
     if not front_upload:
         missing.append("frente")
     if not back_upload:
-        missing.append("costas")
+        missing.append("verso")
     st.info(f"Envie a imagem de {' e '.join(missing)} para iniciar a análise.")
     st.stop()
 
@@ -322,7 +332,7 @@ if len(views) != 2:
     st.stop()
 
 if views["front"]["signature"] == views["back"]["signature"]:
-    st.warning("A mesma imagem foi selecionada para frente e costas. Confira os arquivos.")
+    st.warning("A mesma imagem foi selecionada para frente e verso. Confira os arquivos.")
 
 pair_signature = hashlib.sha256(
     (views["front"]["signature"] + views["back"]["signature"]).encode()
@@ -345,14 +355,14 @@ for item_key in set(items) - active_item_keys:
     del items[item_key]
 
 st.info(
-    "A lateralidade é invertida automaticamente entre as vistas frontal e posterior."
+    "A lateralidade é invertida automaticamente entre as vistas de frente e verso."
 )
 st.warning(
     "Conversão experimental: a paleta é estimada pela barra térmica lateral "
     "presente em cada imagem."
 )
 
-tabs = st.tabs(["Frente", "Costas"])
+tabs = st.tabs(["Frente", "Verso"])
 view_metrics: dict[str, dict[str, dict[str, float | int]] | None] = {}
 for tab, view_key in zip(tabs, ("front", "back")):
     view = views[view_key]
@@ -370,29 +380,71 @@ stored_metrics: dict[str, Any] = st.session_state.setdefault(
     "thermography_metrics", {}
 )
 if all(view_metrics.values()):
-    stored_metrics.clear()
-    stored_metrics[pair_signature] = view_metrics
+    front_pixels = sum(
+        int(view_metrics["front"][key]["hot_pixels"]) for key in LEGS.values()
+    )
+    back_pixels = sum(
+        int(view_metrics["back"][key]["hot_pixels"]) for key in LEGS.values()
+    )
+    record = {
+        "Jogador": player.strip(),
+        "Massa": mass,
+        "EVA Dor": pain_score,
+        "Frente": front_pixels,
+        "Verso": back_pixels,
+        "Observações": observations.strip(),
+    }
 
-    st.subheader("Resumo conjunto")
+    stored_metrics.clear()
+    stored_metrics[pair_signature] = {
+        "thermal_metrics": view_metrics,
+        "record": record,
+    }
+
+    st.subheader("Resumo da coleta")
     summary_columns = st.columns(2)
-    for column, (label, key) in zip(summary_columns, LEGS.items()):
-        hot_pixels = sum(
-            int(view_metrics[view_key][key]["hot_pixels"])
-            for view_key in ("front", "back")
+    with summary_columns[0]:
+        with st.container(border=True):
+            st.metric("Frente", f"{front_pixels:,}".replace(",", "."))
+            st.caption("Pixels quentes das duas pernas")
+    with summary_columns[1]:
+        with st.container(border=True):
+            st.metric("Verso", f"{back_pixels:,}".replace(",", "."))
+            st.caption("Pixels quentes das duas pernas")
+
+    st.subheader("Registro preparado")
+    st.dataframe(
+        pd.DataFrame([record]),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Massa": st.column_config.NumberColumn(format="%.1f kg"),
+            "EVA Dor": st.column_config.NumberColumn(format="%d"),
+            "Frente": st.column_config.NumberColumn(format="%d"),
+            "Verso": st.column_config.NumberColumn(format="%d"),
+        },
+    )
+    missing_fields = []
+    if not player.strip():
+        missing_fields.append("Jogador")
+    if mass is None:
+        missing_fields.append("Massa")
+    if pain_score is None:
+        missing_fields.append("EVA Dor")
+
+    if missing_fields:
+        st.warning(
+            "Preencha os campos obrigatórios antes do futuro envio ao banco: "
+            + ", ".join(missing_fields)
+            + "."
         )
-        total_pixels = sum(
-            int(view_metrics[view_key][key]["total_pixels"])
-            for view_key in ("front", "back")
+    else:
+        st.success(
+            "Registro completo para futura persistência. "
+            "Observações permanece opcional."
         )
-        with column:
-            with st.container(border=True):
-                st.metric(label, f"{hot_pixels:,}".replace(",", "."))
-                st.caption(
-                    f"Frente + costas · {hot_pixels / total_pixels * 100:.1f}% "
-                    f"de {total_pixels:,} pixels"
-                )
     st.caption(
-        "As métricas estão somente na sessão atual e ainda não são persistidas no banco."
+        "O registro está somente na sessão atual e ainda não é persistido no banco."
     )
 else:
     stored_metrics.clear()
