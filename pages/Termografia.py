@@ -4,6 +4,7 @@ import hashlib
 import io
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -199,6 +200,78 @@ def render_view(
 
 
 st.title("Termografia")
+
+st.subheader("Histórico térmico")
+with st.container(border=True):
+    history_filters = st.columns([2, 2, 3])
+    with history_filters[0]:
+        st.selectbox(
+            "Atleta",
+            ["Nenhum atleta disponível"],
+            disabled=True,
+            key="thermography_history_athlete",
+        )
+    with history_filters[1]:
+        st.selectbox(
+            "Posição",
+            ["Nenhuma posição disponível"],
+            disabled=True,
+            key="thermography_history_position",
+        )
+    with history_filters[2]:
+        st.date_input(
+            "Período",
+            value=[],
+            disabled=True,
+            key="thermography_history_period",
+        )
+
+    history = pd.DataFrame(
+        columns=[
+            "Data",
+            "Atleta",
+            "Vista",
+            "Perna",
+            "Pixels quentes",
+            "Pixels analisados",
+            "Percentual quente",
+            "Limiar (°C)",
+        ]
+    )
+    st.dataframe(history, width="stretch", hide_index=True)
+    st.info(
+        "Ainda não há histórico disponível. Os dados serão carregados quando "
+        "a view de termografia estiver integrada ao banco."
+    )
+
+st.subheader("Documentos legados")
+with st.container(border=True):
+    legacy_documents = st.file_uploader(
+        "Planilhas e fichas preenchidas manualmente",
+        type=["pdf", "png", "jpg", "jpeg"],
+        accept_multiple_files=True,
+        help=(
+            "Envie documentos digitalizados ou fotografados. "
+            "A extração dos dados será implementada em uma próxima etapa."
+        ),
+        key="thermography_legacy_documents",
+    )
+    if legacy_documents:
+        st.success(f"{len(legacy_documents)} documento(s) recebido(s).")
+        for document in legacy_documents:
+            size_kb = document.size / 1024
+            st.caption(f"• {document.name} — {size_kb:.1f} KB")
+        st.warning(
+            "Os documentos ainda não são processados nem persistidos no banco."
+        )
+    else:
+        st.caption(
+            "Nenhum documento enviado. Nesta etapa, o componente apenas recebe "
+            "os arquivos e não realiza extração."
+        )
+
+st.divider()
+st.subheader("Nova análise térmica")
 st.caption(
     "Envie em conjunto as imagens frontal e posterior do mesmo atleta e da mesma coleta."
 )
