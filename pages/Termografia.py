@@ -14,6 +14,7 @@ from thermal_analysis import (
     detect_leg_boxes,
     temperature_matrix,
 )
+from thermography_data import athlete_label, load_thermography_athletes
 
 st.set_page_config(
     page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide"
@@ -201,12 +202,30 @@ def render_view(
 
 st.title("Termografia")
 
+try:
+    athletes = load_thermography_athletes()
+except Exception as error:
+    athletes = []
+    st.error("Não foi possível carregar os jogadores do banco.")
+
+athletes_by_id = {
+    int(athlete["id_atleta"]): athlete for athlete in athletes
+}
+athlete_ids = list(athletes_by_id)
+
 st.subheader("Histórico térmico")
 with st.container(border=True):
-    st.selectbox(
+    selected_history_athlete_id = st.selectbox(
         "Jogador",
-        ["Nenhum jogador disponível"],
-        disabled=True,
+        athlete_ids,
+        index=None,
+        placeholder=(
+            "Selecione um jogador"
+            if athlete_ids
+            else "Nenhum jogador disponível"
+        ),
+        format_func=lambda athlete_id: athlete_label(athletes_by_id[athlete_id]),
+        disabled=not athlete_ids,
         key="thermography_history_player",
     )
 
@@ -254,9 +273,19 @@ st.caption(
 with st.container(border=True):
     record_columns = st.columns(3)
     with record_columns[0]:
-        player = st.text_input(
+        selected_player_id = st.selectbox(
             "Jogador *",
-            placeholder="Nome do jogador",
+            athlete_ids,
+            index=None,
+            placeholder=(
+                "Selecione um jogador"
+                if athlete_ids
+                else "Nenhum jogador disponível"
+            ),
+            format_func=lambda athlete_id: athlete_label(
+                athletes_by_id[athlete_id]
+            ),
+            disabled=not athlete_ids,
             key="thermography_player",
         )
     with record_columns[1]:
@@ -386,8 +415,9 @@ if all(view_metrics.values()):
     back_pixels = sum(
         int(view_metrics["back"][key]["hot_pixels"]) for key in LEGS.values()
     )
+    selected_player = athletes_by_id.get(selected_player_id)
     record = {
-        "Jogador": player.strip(),
+        "Jogador": athlete_label(selected_player) if selected_player else "",
         "Massa": mass,
         "EVA Dor": pain_score,
         "Frente": front_pixels,
@@ -425,7 +455,7 @@ if all(view_metrics.values()):
         },
     )
     missing_fields = []
-    if not player.strip():
+    if selected_player_id is None:
         missing_fields.append("Jogador")
     if mass is None:
         missing_fields.append("Massa")
