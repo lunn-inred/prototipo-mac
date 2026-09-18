@@ -3,19 +3,19 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from gps_extraction import EXTRACTION_VERSION, csv_bytes, extract_uploaded_pdfs, flatten
+from gps_extraction import EXTRACTION_VERSION, csv_bytes, flatten
 from gps_data import load_gps_records
 from gps_import_service import (
     GPS_VIEW_COLUMNS,
     GpsImportPreview,
     GpsImportResult,
+    import_gps_documents,
+    preview_gps_documents,
     extracted_rows_to_gps_view,
     gps_view_preview_rows,
-    import_gps_documents,
     payload_signature,
-    prepare_gps_documents,
-    preview_gps_documents,
 )
+from service_gateway import extract_uploaded_pdfs, import_gps_payload, preview_gps_payload
 
 
 def _render_preview(previews: list[GpsImportPreview]) -> None:
@@ -230,9 +230,8 @@ def render_gps_import() -> None:
             )
 
         if st.button("Validar para envio", key=f"gps_validate_{revision}"):
-            prepared = prepare_gps_documents(import_payload)
             with st.spinner("Conferindo cadastros e duplicatas no banco..."):
-                previews = preview_gps_documents(prepared)
+                previews = preview_gps_payload(import_payload)
             validation = {"signature": signature, "previews": previews}
             st.session_state["gps_import_validation"] = validation
             st.session_state.pop("gps_import_results", None)
@@ -248,9 +247,7 @@ def render_gps_import() -> None:
                 key=f"gps_confirm_{revision}",
             ):
                 with st.spinner("Enviando medições por relatório..."):
-                    results = import_gps_documents(
-                        [preview.document for preview in previews]
-                    )
+                    results = import_gps_payload(import_payload)
                 st.session_state["gps_import_results"] = results
                 load_gps_records.clear()
 

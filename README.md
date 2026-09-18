@@ -1,59 +1,169 @@
 # Protótipo — MAC Performance
 
-Protótipo em Streamlit para estudar a lógica de visualização e cálculo das
-métricas de desempenho do MAC. O projeto possui páginas de monitoramento de
-saltos e GPS e utiliza Plotly para a construção dos gráficos.
+Aplicação dividida em uma API FastAPI e uma interface Streamlit para cadastro
+de atletas, análise e visualização das métricas de desempenho do MAC. A API
+centraliza banco, importações e processamento; o Streamlit funciona como cliente
+da API e mantém um modo local de compatibilidade para a transição de hospedagem.
 
 ## Sumário
 
 - [Como executar](#como-executar)
+  - [Execução separada da API e do Streamlit](#execução-separada-da-api-e-do-streamlit)
+  - [Testes](#testes)
+- [Arquitetura](#arquitetura)
+- [Configuração](#configuração)
+- [API HTTP](#api-http)
+  - [Autenticação](#autenticação)
+  - [Documentação interativa](#documentação-interativa)
+  - [Endpoints](#endpoints)
 - [Deploy no Streamlit Community Cloud](#deploy-no-streamlit-community-cloud)
+- [Mural e CRUD de jogadores](#mural-e-crud-de-jogadores)
 - [Monitoramento de Salto](#monitoramento-de-salto)
-  - [Consulta SQL](#consulta-sql)
-  - [Gráfico de evolução de CMJ ou SJ](#gráfico-de-evolução-de-cmj-ou-sj)
-  - [Radar das últimas cinco datas](#radar-das-últimas-cinco-datas)
-  - [Radar comparativo por atleta](#radar-comparativo-por-atleta)
 - [Monitoramento de GPS](#monitoramento-de-gps)
 - [Termografia](#termografia)
 
 ## Como executar
 
-Crie e ative um ambiente virtual, instale as dependências e copie o modelo de
-configuração:
+Requer Python 3.10 ou mais recente e os pacotes de sistema de `packages.txt`.
+Crie o ambiente, instale as dependências e copie os modelos de configuração:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+cp .env.example .env
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 ```
 
-No Windows PowerShell, a ativação do ambiente pode ser feita com:
+No Windows PowerShell, ative com `.venv\Scripts\Activate.ps1`. Nunca versione
+`.env` nem `.streamlit/secrets.toml`: os dois arquivos estão no `.gitignore`.
 
-```powershell
-.venv\Scripts\Activate.ps1
-```
+### Execução separada da API e do Streamlit
 
-
-Preencha `.streamlit/secrets.toml` com as credenciais do Supabase. Esse arquivo
-contém dados sensíveis e está ignorado pelo Git; somente o modelo
-`.streamlit/secrets.toml.example` é versionado.
-
-Execute o protótipo com:
+Inicie cada processo em um terminal, a partir da raiz do projeto:
 
 ```bash
-streamlit run app.py
+# Terminal 1 — API
+uvicorn mac_api.main:app --reload --host 127.0.0.1 --port 8000 --env-file .env
+
+# Terminal 2 — interface
+MAC_API_BASE_URL=http://127.0.0.1:8000 MAC_API_KEY=sua-chave streamlit run app.py
 ```
 
-O módulo `database.py` centraliza a conexão com o PostgreSQL do Supabase. As
-conexões abertas pelo protótipo são configuradas e verificadas como somente
-leitura antes de serem disponibilizadas às páginas.
+Se `MAC_API_BASE_URL` não estiver definido, o Streamlit utiliza os mesmos
+repositórios e serviços no próprio processo. Esse modo existe para manter o
+deploy atual funcionando durante a transição; para uma implantação definitiva,
+use os dois processos separados.
+
+### Testes
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+A suíte cobre regras de domínio, persistência simulada, importações e contratos
+HTTP. A integração real com LlamaParse só roda quando explicitamente habilitada.
 
 ### Logo
 
 Para exibir a identidade do MAC na barra lateral, coloque a imagem PNG em
 `assets/logo_mac.png`. O arquivo é carregado automaticamente quando existe; sua
 ausência não impede a execução do protótipo.
+
+## Arquitetura
+
+```text
+Navegador → Streamlit → service_gateway.py → FastAPI → serviços/repositórios → Supabase
+                                     └── modo local compatível ───────────────┘
+```
+
+- `mac_api/main.py`: aplicação FastAPI, rotas, autenticação e tratamento de erros;
+- `mac_api/schemas.py`: validação dos corpos enviados à API;
+- `data_repository.py`: consultas PostgreSQL de leitura;
+- `athlete_service.py`, `gps_import_service.py` e `thermography_service.py`: regras
+  transacionais de escrita;
+- `thermography_analysis_service.py`: validação e análise das imagens em memória;
+- `service_gateway.py`: único ponto usado pelo Streamlit para escolher HTTP ou
+  modo local;
+- `settings.py`: configuração compartilhada sem dependência do Streamlit.
+
+As imagens térmicas e os documentos enviados não são armazenados. Eles são
+processados durante a requisição e somente as métricas confirmadas são gravadas.
+As leituras de salto, GPS e termografia usam as views públicas correspondentes.
+
+## Configuração
+
+A API aceita variáveis de ambiente ou, no desenvolvimento, os valores de
+`.streamlit/secrets.toml`. O ambiente tem prioridade.
+
+| Variável | Processo | Finalidade |
+|---|---|---|
+| `SUPABASE_DB_*` | API | Conexão PostgreSQL com SSL |
+| `LLAMA_CLOUD_API_KEY` | API | Extração principal de documentos legados |
+| `MAC_API_KEY` | Ambos | Exige/envia o cabeçalho `X-API-Key`; se vazio, autenticação fica desativada para desenvolvimento |
+| `MAC_API_CORS_ORIGINS` | API | Origens permitidas, separadas por vírgula |
+| `MAC_API_BASE_URL` | Streamlit | URL pública ou interna da API |
+| `MAC_API_TIMEOUT_SECONDS` | Streamlit | Timeout de chamadas longas, padrão 300 s |
+
+## API HTTP
+
+A versão inicial usa o prefixo `/api/v1`. Erros de validação retornam `422`,
+recursos inexistentes `404` e conflitos de integridade `409`. O banco continua
+usando transações para que uma falha não deixe gravações parciais.
+
+### Autenticação
+
+Defina a mesma `MAC_API_KEY` na API e no Streamlit. Clientes externos devem enviar:
+
+```http
+X-API-Key: sua-chave
+```
+
+Use HTTPS no ambiente hospedado. A chave é uma proteção simples entre serviços;
+quando houver usuários finais e permissões distintas, adote autenticação por
+usuário/token no sistema consumidor.
+
+### Documentação interativa
+
+Com a API em execução:
+
+- Swagger UI: `http://127.0.0.1:8000/docs`;
+- ReDoc: `http://127.0.0.1:8000/redoc`;
+- contrato OpenAPI: `http://127.0.0.1:8000/openapi.json`;
+- saúde do processo: `GET /health` (não exige chave).
+
+### Endpoints
+
+| Método e rota | Função | Escrita no banco |
+|---|---|---|
+| `GET /api/v1/athletes` | Lista os atletas | Não |
+| `GET /api/v1/athletes/{id}` | Consulta um atleta | Não |
+| `POST /api/v1/athletes` | Cadastra atleta | Sim |
+| `PUT /api/v1/athletes/{id}` | Atualiza atleta, preservando `nome_alternativo` | Sim |
+| `DELETE /api/v1/athletes/{id}` | Exclui atleta sem medições | Sim |
+| `GET /api/v1/players/dashboard` | Dados do mural | Não |
+| `GET /api/v1/jumps` | Registros da view de saltos | Não |
+| `GET /api/v1/gps` | Registros da view GPS | Não |
+| `POST /api/v1/gps/extract` | Extrai um lote de PDFs | Não |
+| `POST /api/v1/gps/preview` | Valida e prevê alterações do lote | Não |
+| `POST /api/v1/gps/import` | Confirma a importação GPS revisada | Sim |
+| `GET /api/v1/thermography?athlete_id=` | Histórico térmico, opcionalmente por atleta | Não |
+| `POST /api/v1/thermography/analyze` | Detecta pernas e conta pixels em uma imagem | Não |
+| `POST /api/v1/thermography` | Registra uma coleta de frente e verso | Sim |
+| `POST /api/v1/thermography/legacy/extract` | Extrai documentos manuscritos | Não |
+| `POST /api/v1/thermography/legacy/validate-athletes` | Correlaciona nomes revisados | Não |
+| `POST /api/v1/thermography/legacy/import` | Registra o lote legado validado | Sim |
+
+Uploads usam `multipart/form-data`; os demais corpos usam JSON. Os esquemas,
+campos obrigatórios e exemplos para testar cada chamada ficam sempre atualizados
+na página `/docs`.
+
+## Mural e CRUD de jogadores
+
+A página inicial lista o elenco e resume CMJ, distância GPS e a EVA Dor mais
+recente. O gerenciador permite cadastrar, editar e excluir atletas. Somente o
+nome é obrigatório; `nome_alternativo` não é exposto no CRUD e permanece
+inalterado nas edições. Atletas que já possuem medições não podem ser excluídos.
 
 ## Deploy no Streamlit Community Cloud
 

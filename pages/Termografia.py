@@ -9,16 +9,9 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from thermal_analysis import (
-    annotate_boxes,
-    count_hot_pixels,
-    detect_leg_boxes,
-    temperature_matrix,
-)
+from thermal_analysis import annotate_boxes
 from legacy_thermography import (
-    extract_document,
     review_rows_signature,
-    validate_athlete_rows,
     validated_athlete_ids,
 )
 from thermography_data import (
@@ -26,11 +19,13 @@ from thermography_data import (
     load_thermography_athletes,
     load_thermography_history,
 )
-from thermography_service import (
-    DuplicateThermographyError,
-    LegacyThermographyRecord,
+from thermography_service import DuplicateThermographyError, LegacyThermographyRecord
+from service_gateway import (
+    analyze_thermography_view,
+    extract_legacy_documents,
     save_image_thermography,
     save_legacy_thermography,
+    validate_legacy_athletes,
 )
 
 st.set_page_config(
@@ -75,18 +70,13 @@ def crop_from_box(image: Image.Image, box: dict[str, int]) -> Image.Image:
 
 
 @st.cache_data(show_spinner=False)
-def cached_leg_boxes(content: bytes) -> list[dict[str, int]]:
-    return detect_leg_boxes(load_thermography(content))
-
-
-@st.cache_data(show_spinner=False)
-def cached_temperature_matrix(
-    content: bytes,
-    minimum_temperature: float,
-    maximum_temperature: float,
-) -> Any:
-    return temperature_matrix(
-        load_thermography(content), minimum_temperature, maximum_temperature
+def cached_analysis(
+    content: bytes, view: str, minimum_temperature: float,
+    maximum_temperature: float, threshold: float,
+) -> dict[str, Any]:
+    return analyze_thermography_view(
+        content, view=view, minimum_temperature=minimum_temperature,
+        maximum_temperature=maximum_temperature, threshold=threshold,
     )
 
 
@@ -149,24 +139,24 @@ def render_view(
             threshold = minimum_temperature
             st.error("Tmax deve ser maior que Tmin.")
 
-    with st.spinner(f"Identificando as caixas da imagem de {view_label.lower()}..."):
-        detected_boxes = cached_leg_boxes(content)
-
-    if len(detected_boxes) != 2:
+    if not valid_scale:
+        return None
+    try:
+        with st.spinner(f"Analisando a imagem de {view_label.lower()}..."):
+            analysis = cached_analysis(
+                content, view_key, minimum_temperature, maximum_temperature, threshold
+            )
+    except ValueError as error:
         st.image(image, caption=f"Imagem de {view_label.lower()}", width="stretch")
-        st.error(
-            "Não foi possível identificar exatamente duas caixas R1/R2 "
-            f"({len(detected_boxes)} encontrada(s))."
-        )
+        st.error(str(error))
         st.info("Nesta etapa, somente imagens com as duas caixas são processadas.")
         return None
 
+    boxes = analysis["boxes"]
     if view_key == "front":
-        boxes = {"right": detected_boxes[0], "left": detected_boxes[1]}
         labels = {"R1 — direita": boxes["right"], "R2 — esquerda": boxes["left"]}
         convention = "Frente: R1 superior = direita; R2 inferior = esquerda."
     else:
-        boxes = {"left": detected_boxes[0], "right": detected_boxes[1]}
         labels = {"R1 — esquerda": boxes["left"], "R2 — direita": boxes["right"]}
         convention = "Verso: R1 superior = esquerda; R2 inferior = direita."
 
@@ -184,23 +174,7 @@ def render_view(
             st.image(preview, caption=label, width=260)
     st.caption(convention)
 
-    if not valid_scale:
-        return None
-
-    with st.spinner("Convertendo as cores em temperaturas aproximadas..."):
-        temperatures = cached_temperature_matrix(
-            content, minimum_temperature, maximum_temperature
-        )
-
-    metrics: dict[str, dict[str, float | int]] = {}
-    for key, box in boxes.items():
-        hot_pixels, total_pixels = count_hot_pixels(temperatures, box, threshold)
-        metrics[key] = {
-            "hot_pixels": hot_pixels,
-            "total_pixels": total_pixels,
-            "hot_percentage": hot_pixels / total_pixels * 100,
-            "threshold": threshold,
-        }
+    metrics = analysis["metrics"]
 
     st.markdown("##### Pixels quentes")
     metric_columns = st.columns(2)
@@ -321,11 +295,9 @@ with st.container(border=True):
             progress = st.progress(0, text="Preparando documentos...")
             for index, document in enumerate(legacy_documents):
                 try:
-                    extraction = extract_document(
-                        document.getvalue(),
-                        document.name,
-                        api_key=st.secrets.get("LLAMA_CLOUD_API_KEY"),
-                    )
+                    _, extraction = extract_legacy_documents(
+                        [(document.name, document.getvalue())]
+                    )[0]
                     extracted_documents.append(
                         {
                             "filename": document.name,
@@ -510,7 +482,7 @@ if extraction_results:
             key=f"validate_legacy_athletes_{editor_batch_key}",
             disabled=not athletes,
         ):
-            resolutions = validate_athlete_rows(edited_records, athletes)
+            resolutions = validate_legacy_athletes(edited_records, athletes)
             athlete_validation = {
                 "signature": current_review_signature,
                 "resolutions": resolutions,

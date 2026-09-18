@@ -15,6 +15,7 @@ ENV/
 # Local environment variables and secrets
 .env
 .env.*
+!.env.example
 .streamlit/secrets.toml
 
 # Test and coverage artifacts

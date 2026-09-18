@@ -8,7 +8,7 @@ from statistics import pstdev
 
 import streamlit as st
 
-from database import database_connection
+from service_gateway import load_player_dashboard
 
 
 METRIC_NAMES = {
@@ -25,40 +25,7 @@ def load_player_dashboard_data() -> tuple[
     list[dict[str, object]], list[dict[str, object]]
 ]:
     """Carrega cadastro e medidas usando exclusivamente a conexão read-only."""
-    athlete_query = """
-        SELECT id_atleta, nome, apelido, posicao, grupo, data_nascimento
-        FROM public.atleta
-        ORDER BY COALESCE(NULLIF(TRIM(apelido), ''), NULLIF(TRIM(nome), '')),
-                 id_atleta
-    """
-    measurement_query = """
-        SELECT mv.id_atleta, m.nome AS medida, mv.valor, mv.data::date AS data
-        FROM public.medida_valor AS mv
-        JOIN public.medida AS m ON m.id_medida = mv.id_medida
-        WHERE LOWER(TRIM(m.nome)) IN (
-            'maior_cmj', 'distance (km)', 'eva', 'eva dor', 'eva_dor'
-        )
-          AND mv.valor IS NOT NULL
-        ORDER BY mv.data, mv.id_medida_valor
-    """
-    with database_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(athlete_query)
-            athlete_columns = [
-                description.name for description in cursor.description
-            ]
-            athletes = [
-                dict(zip(athlete_columns, row)) for row in cursor.fetchall()
-            ]
-
-            cursor.execute(measurement_query)
-            measurement_columns = [
-                description.name for description in cursor.description
-            ]
-            measurements = [
-                dict(zip(measurement_columns, row)) for row in cursor.fetchall()
-            ]
-    return athletes, measurements
+    return load_player_dashboard()
 
 
 def player_name(athlete: dict[str, object]) -> str:

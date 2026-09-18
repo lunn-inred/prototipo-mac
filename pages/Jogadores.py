@@ -5,12 +5,8 @@ from html import escape
 
 import streamlit as st
 
-from athlete_service import (
-    AthleteInUseError,
-    create_athlete,
-    delete_athlete,
-    update_athlete,
-)
+from athlete_service import AthleteInUseError
+from service_gateway import create_athlete, delete_athlete, update_athlete
 from data_filters import PERIODS, alphabetical_key
 from player_data import (
     eva_classification,
