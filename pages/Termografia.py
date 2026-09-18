@@ -15,7 +15,12 @@ from thermal_analysis import (
     detect_leg_boxes,
     temperature_matrix,
 )
-from legacy_thermography import extract_document
+from legacy_thermography import (
+    extract_document,
+    review_rows_signature,
+    validate_athlete_rows,
+    validated_athlete_ids,
+)
 from thermography_data import (
     athlete_label,
     load_thermography_athletes,
@@ -304,6 +309,7 @@ with st.container(border=True):
         if st.session_state.get("legacy_batch_signature") != batch_signature:
             st.session_state.pop("legacy_extraction_results", None)
             st.session_state.pop("legacy_edited_rows", None)
+            st.session_state.pop("legacy_athlete_validation", None)
 
         if st.button(
             "Extrair conteúdo",
@@ -317,7 +323,6 @@ with st.container(border=True):
                     pages = extract_document(
                         document.getvalue(),
                         document.name,
-                        athletes,
                     )
                     extracted_documents.append(
                         {
@@ -341,10 +346,12 @@ with st.container(border=True):
             progress.empty()
             st.session_state["legacy_batch_signature"] = batch_signature
             st.session_state["legacy_extraction_results"] = extracted_documents
+            st.session_state.pop("legacy_athlete_validation", None)
     else:
         st.session_state.pop("legacy_batch_signature", None)
         st.session_state.pop("legacy_extraction_results", None)
         st.session_state.pop("legacy_edited_rows", None)
+        st.session_state.pop("legacy_athlete_validation", None)
         st.caption(
             "Envie os documentos e execute a extração. "
             "Nenhum arquivo é persistido pelo protótipo."
@@ -390,18 +397,10 @@ if extraction_results:
                         for key, value in row.items()
                         if key not in {
                             "_raw",
-                            "id_atleta",
-                            "Confiança jogador",
                             "Confiança OCR",
                             "Revisão",
                         }
                     }
-                    matched_id = row.get("id_atleta")
-                    review_row["Jogador"] = (
-                        editor_label_by_athlete_id.get(int(matched_id))
-                        if matched_id is not None
-                        else None
-                    )
                     extracted_rows.append(review_row)
                 if not page_result["rows"]:
                     st.warning("Nenhuma linha preenchida foi identificada.")
@@ -436,7 +435,6 @@ if extraction_results:
         review_frame["Data"] = pd.to_datetime(
             review_frame["Data"], errors="coerce"
         )
-        athlete_options = sorted(athlete_id_by_editor_label)
         editor_batch_key = st.session_state.get(
             "legacy_batch_signature", "sem_lote"
         )
@@ -448,8 +446,7 @@ if extraction_results:
             disabled=False,
             column_order=review_columns,
             column_config={
-                "Jogador": st.column_config.SelectboxColumn(
-                    options=athlete_options,
+                "Jogador": st.column_config.TextColumn(
                     required=True,
                 ),
                 "Massa": st.column_config.NumberColumn(
@@ -475,7 +472,70 @@ if extraction_results:
             },
             key=f"legacy_review_editor_{editor_batch_key}",
         )
-        st.session_state["legacy_edited_rows"] = edited_rows.to_dict("records")
+        edited_records = (
+            edited_rows.astype(object)
+            .where(pd.notna(edited_rows), None)
+            .to_dict("records")
+        )
+        st.session_state["legacy_edited_rows"] = edited_records
+        current_review_signature = review_rows_signature(edited_records)
+        athlete_validation = st.session_state.get("legacy_athlete_validation")
+        if (
+            athlete_validation
+            and athlete_validation["signature"] != current_review_signature
+        ):
+            st.session_state.pop("legacy_athlete_validation", None)
+            athlete_validation = None
+            st.warning(
+                "Os dados foram alterados. Valide os atletas novamente antes "
+                "de registrar."
+            )
+
+        if st.button(
+            "Validar atletas",
+            key=f"validate_legacy_athletes_{editor_batch_key}",
+            disabled=not athletes,
+        ):
+            resolutions = validate_athlete_rows(edited_records, athletes)
+            athlete_validation = {
+                "signature": current_review_signature,
+                "resolutions": resolutions,
+            }
+            st.session_state["legacy_athlete_validation"] = athlete_validation
+
+        validation_is_current = bool(
+            athlete_validation
+            and athlete_validation["signature"] == current_review_signature
+        )
+        validated_ids = validated_athlete_ids(
+            athlete_validation, current_review_signature
+        )
+        validation_has_errors = validated_ids is None
+        if validation_is_current:
+            resolutions = athlete_validation["resolutions"]
+            validation_rows = [
+                {
+                    "Linha": item["linha"],
+                    "Nome informado": item["nome_informado"],
+                    "Atleta cadastrado": item["atleta"] or "—",
+                    "ID": item["id_atleta"],
+                    "Status": item["erro"] or "Validado",
+                }
+                for item in resolutions
+            ]
+            st.markdown("#### Validação dos atletas")
+            st.dataframe(
+                pd.DataFrame(validation_rows),
+                width="stretch",
+                hide_index=True,
+            )
+            if validation_has_errors:
+                for item in resolutions:
+                    if item["erro"]:
+                        st.error(f"Linha {item['linha']}: {item['erro']}")
+            else:
+                st.success("Todos os atletas foram validados.")
+
         st.info(
             "Frente e Verso dos documentos serão associados às medidas "
             "SOMA_FRENTE e SOMA_VERSO. As quatro medidas individuais por "
@@ -485,18 +545,15 @@ if extraction_results:
             "Registrar documentos revisados no banco",
             type="primary",
             key="save_legacy_thermography",
-            disabled=not athlete_options,
+            disabled=not validation_is_current or validation_has_errors,
         ):
             try:
+                if validated_ids is None:
+                    raise ValueError("Valide todos os atletas antes de registrar.")
                 legacy_records = []
-                for row_number, row in enumerate(
-                    edited_rows.to_dict("records"), start=1
+                for row_number, (row, athlete_id) in enumerate(
+                    zip(edited_records, validated_ids), start=1
                 ):
-                    athlete_id = athlete_id_by_editor_label.get(row.get("Jogador"))
-                    if athlete_id is None:
-                        raise ValueError(
-                            f"Linha {row_number}: selecione um jogador cadastrado."
-                        )
                     raw_date = row.get("Data")
                     if raw_date is None or pd.isna(raw_date):
                         raise ValueError(

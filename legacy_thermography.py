@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import re
 from datetime import datetime
-from difflib import SequenceMatcher
 from typing import Callable
 from unicodedata import combining, normalize
 
@@ -330,18 +331,17 @@ def normalized_name(value: str) -> str:
     )
 
 
-def match_athlete(
-    extracted_name: str,
+def resolve_athlete_name(
+    entered_name: object,
     athletes: list[dict[str, object]],
-) -> tuple[int | None, str, float]:
-    """Relaciona o apelido extraído aos nomes conhecidos, sem forçar ambiguidades."""
-    target = normalized_name(extracted_name)
+) -> tuple[int | None, str, str | None]:
+    """Resolve um texto somente quando ele identifica um único atleta existente."""
+    text = "" if entered_name is None else str(entered_name).strip()
+    target = normalized_name(text)
     if not target:
-        return None, "", 0.0
+        return None, "", "Informe o nome do jogador."
 
-    best_id = None
-    best_label = ""
-    best_score = 0.0
+    matches: dict[int, str] = {}
     for athlete in athletes:
         alternatives = [
             str(athlete.get("nome") or ""),
@@ -351,32 +351,72 @@ def match_athlete(
             part.strip()
             for part in str(athlete.get("nome_alternativo") or "").split(",")
         )
-        for alternative in alternatives:
-            normalized = normalized_name(alternative)
-            if not normalized:
-                continue
-            score = (
-                1.0
-                if normalized == target
-                else SequenceMatcher(None, target, normalized).ratio()
+        if any(normalized_name(alternative) == target for alternative in alternatives):
+            athlete_id = int(athlete["id_atleta"])
+            matches[athlete_id] = (
+                str(athlete.get("apelido") or "").strip()
+                or str(athlete.get("nome") or "").strip()
+                or f"Jogador {athlete_id}"
             )
-            if score > best_score:
-                best_score = score
-                best_id = int(athlete["id_atleta"])
-                best_label = (
-                    str(athlete.get("apelido") or "").strip()
-                    or str(athlete.get("nome") or "").strip()
-                )
 
-    # Resultados fracos permanecem sem associação para revisão humana.
-    if best_score < 0.72:
-        return None, "", best_score
-    return best_id, best_label, best_score
+    if not matches:
+        return None, "", f'Jogador "{text}" não encontrado.'
+    if len(matches) > 1:
+        return None, "", f'Jogador "{text}" corresponde a mais de um cadastro.'
+    athlete_id, label = next(iter(matches.items()))
+    return athlete_id, label, None
+
+
+def validate_athlete_rows(
+    rows: list[dict[str, object]],
+    athletes: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Valida os nomes editados e conserva a posição de cada linha do lote."""
+    results = []
+    for row_number, row in enumerate(rows, start=1):
+        entered_name = row.get("Jogador", "")
+        athlete_id, label, error = resolve_athlete_name(entered_name, athletes)
+        results.append(
+            {
+                "linha": row_number,
+                "nome_informado": "" if entered_name is None else str(entered_name),
+                "id_atleta": athlete_id,
+                "atleta": label,
+                "erro": error,
+            }
+        )
+    return results
+
+
+def review_rows_signature(rows: list[dict[str, object]]) -> str:
+    """Cria uma assinatura estável para invalidar revisões que foram alteradas."""
+    payload = json.dumps(
+        rows,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def validated_athlete_ids(
+    validation: dict[str, object] | None,
+    current_signature: str,
+) -> list[int] | None:
+    """Retorna IDs somente para uma validação atual e inteiramente bem-sucedida."""
+    if not validation or validation.get("signature") != current_signature:
+        return None
+    resolutions = validation.get("resolutions")
+    if not isinstance(resolutions, list) or not resolutions:
+        return None
+    if any(item.get("erro") or item.get("id_atleta") is None for item in resolutions):
+        return None
+    return [int(item["id_atleta"]) for item in resolutions]
 
 
 def extract_page(
     image: Image.Image,
-    athletes: list[dict[str, object]],
     ocr: Callable[
         [Image.Image, Image.Image, str], tuple[str, float]
     ] = recognize_cell,
@@ -414,15 +454,12 @@ def extract_page(
 
         if not any(raw.values()):
             continue
-        athlete_id, athlete_name, match_score = match_athlete(
-            raw["apelido"], athletes
-        )
         mass = parse_number(raw["massa"])
         eva = parse_number(raw["eva_dor"], integer=True)
         front = parse_number(raw["frente"], integer=True)
         back = parse_number(raw["verso"], integer=True)
         issues = []
-        if athlete_id is None:
+        if not raw["apelido"].strip():
             issues.append("Jogador não identificado")
         if mass is None or mass <= 0:
             issues.append("Massa inválida")
@@ -437,15 +474,13 @@ def extract_page(
 
         rows.append(
             {
-                "id_atleta": athlete_id,
-                "Jogador": athlete_name or raw["apelido"],
+                "Jogador": raw["apelido"],
                 "Massa": mass,
                 "EVA Dor": eva,
                 "Frente": front,
                 "Verso": back,
                 "Observações": raw["observacoes"],
                 "Data": collection_date,
-                "Confiança jogador": round(match_score * 100, 1),
                 "Confiança OCR": round(
                     sum(confidence.values()) / len(confidence), 1
                 ),
@@ -466,13 +501,12 @@ def extract_page(
 def extract_document(
     content: bytes,
     filename: str,
-    athletes: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     """Processa todas as páginas de um documento."""
     results = []
     for source_page in document_pages(content, filename):
         try:
-            results.append(extract_page(source_page, athletes))
+            results.append(extract_page(source_page))
         except Exception as error:
             # Mantém um diagnóstico visual mesmo quando a validação estrita
             # da grade falha, para mostrar ao usuário o que foi detectado.

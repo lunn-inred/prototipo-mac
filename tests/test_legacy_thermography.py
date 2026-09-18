@@ -1,5 +1,6 @@
 import io
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -10,8 +11,12 @@ from legacy_thermography import (
     document_pages,
     extract_document,
     extract_date,
-    match_athlete,
+    extract_page,
     parse_number,
+    resolve_athlete_name,
+    review_rows_signature,
+    validate_athlete_rows,
+    validated_athlete_ids,
 )
 
 
@@ -25,32 +30,120 @@ class LegacyThermographyTests(unittest.TestCase):
         self.assertEqual(extract_date("DATA: 22/06/2026"), "2026-06-22")
         self.assertIsNone(extract_date("DATA: 42/18/2026"))
 
-    def test_matches_alternative_athlete_name(self) -> None:
+    def test_resolves_normalized_name_nickname_and_alternative(self) -> None:
         athletes = [
             {
                 "id_atleta": 4,
                 "nome": "Felipe Cruz",
                 "apelido": "Cruz",
-                "nome_alternativo": "CRUZ, FELIPE",
+                "nome_alternativo": "F. Cruz, Felipe",
             }
         ]
-        athlete_id, label, confidence = match_athlete("Felipe", athletes)
-        self.assertEqual(athlete_id, 4)
-        self.assertEqual(label, "Cruz")
-        self.assertEqual(confidence, 1.0)
 
-    def test_does_not_force_weak_athlete_match(self) -> None:
+        for entered_name in ("felipe cruz", "CRÚZ", "f cruz", "FELIPE"):
+            with self.subTest(entered_name=entered_name):
+                athlete_id, label, error = resolve_athlete_name(
+                    entered_name, athletes
+                )
+                self.assertEqual(athlete_id, 4)
+                self.assertEqual(label, "Cruz")
+                self.assertIsNone(error)
+
+    def test_rejects_empty_unknown_and_ambiguous_athlete_names(self) -> None:
         athletes = [
             {
                 "id_atleta": 4,
                 "nome": "Felipe Cruz",
                 "apelido": "Cruz",
-                "nome_alternativo": "",
-            }
+                "nome_alternativo": "Felipe",
+            },
+            {
+                "id_atleta": 8,
+                "nome": "Felipe Silva",
+                "apelido": "Silva",
+                "nome_alternativo": "Felipe",
+            },
         ]
-        athlete_id, _, confidence = match_athlete("XYZ", athletes)
-        self.assertIsNone(athlete_id)
-        self.assertLess(confidence, 0.72)
+
+        self.assertIn("Informe", resolve_athlete_name("", athletes)[2])
+        self.assertIn("não encontrado", resolve_athlete_name("XYZ", athletes)[2])
+        self.assertIn("mais de um", resolve_athlete_name("Felipe", athletes)[2])
+        rows = [{"Jogador": "Cruz"}, {"Jogador": "XYZ"}]
+        signature = review_rows_signature(rows)
+        self.assertIsNone(
+            validated_athlete_ids(
+                {
+                    "signature": signature,
+                    "resolutions": validate_athlete_rows(rows, athletes),
+                },
+                signature,
+            )
+        )
+
+    def test_validates_every_row_and_signature_changes_after_edit(self) -> None:
+        athletes = [{
+            "id_atleta": 4,
+            "nome": "Felipe Cruz",
+            "apelido": "Cruz",
+            "nome_alternativo": "",
+        }]
+        rows = [{"Jogador": "cruz", "Massa": 72.0}]
+
+        validation = validate_athlete_rows(rows, athletes)
+        original_signature = review_rows_signature(rows)
+        edited_signature = review_rows_signature(
+            [{"Jogador": "cruz", "Massa": 73.0}]
+        )
+
+        self.assertEqual(validation[0]["id_atleta"], 4)
+        self.assertIsNone(validation[0]["erro"])
+        self.assertNotEqual(original_signature, edited_signature)
+        saved_validation = {
+            "signature": original_signature,
+            "resolutions": validation,
+        }
+        self.assertEqual(
+            validated_athlete_ids(saved_validation, original_signature), [4]
+        )
+        self.assertIsNone(
+            validated_athlete_ids(saved_validation, edited_signature)
+        )
+
+    def test_extract_page_preserves_raw_athlete_name(self) -> None:
+        image = Image.new("RGB", (80, 60), "white")
+        binary = np.zeros((60, 80), dtype=np.uint8)
+        values = {
+            "numero": "1",
+            "apelido": "Felipee",
+            "massa": "72",
+            "eva_dor": "2",
+            "frente": "30",
+            "verso": "40",
+            "observacoes": "ok",
+        }
+
+        def ocr(_color, _threshold, column):
+            return values[column], 90.0
+
+        with (
+            patch(
+                "legacy_thermography.prepare_page",
+                return_value=(image, binary),
+            ),
+            patch(
+                "legacy_thermography.detect_table_grid",
+                return_value=(
+                    list(range(0, 81, 10)),
+                    [10, 30, 50],
+                    binary,
+                ),
+            ),
+            patch("legacy_thermography._ocr_variant", return_value=("", 0.0)),
+        ):
+            result = extract_page(image, ocr=ocr)
+
+        self.assertEqual(result["rows"][0]["Jogador"], "Felipee")
+        self.assertNotIn("id_atleta", result["rows"][0])
 
     def test_detects_expected_seven_column_grid(self) -> None:
         binary = np.zeros((600, 900), dtype=np.uint8)
@@ -79,7 +172,7 @@ class LegacyThermographyTests(unittest.TestCase):
         buffer = io.BytesIO()
         Image.new("RGB", (500, 700), "white").save(buffer, format="PNG")
 
-        pages = extract_document(buffer.getvalue(), "ficha.png", [])
+        pages = extract_document(buffer.getvalue(), "ficha.png")
 
         self.assertEqual(len(pages), 1)
         self.assertTrue(pages[0]["error"])
