@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
+import os
 import re
+import tempfile
+from dataclasses import dataclass
 from datetime import datetime
-from difflib import SequenceMatcher
-from typing import Callable
+from pathlib import Path
+from typing import Any, Callable
 from unicodedata import combining, normalize
 
 import cv2
@@ -30,6 +35,37 @@ NUMERIC_COLUMNS = {"numero", "massa", "eva_dor", "frente", "verso"}
 DATE_PATTERN = re.compile(
     r"(?<!\d)([0-3]?\d)[/\-.]([01]?\d)[/\-.]((?:19|20)?\d{2})(?!\d)"
 )
+LLAMA_PARSE_TIMEOUT_SECONDS = 180
+LLAMA_PARSE_PROMPT = """
+O documento é uma ficha manuscrita de termografia esportiva. Para cada página,
+transcreva a data da coleta no formato DD/MM/AAAA e uma única tabela Markdown
+com exatamente estas
+colunas e nesta ordem: Número, Jogador, Massa, EVA Dor, Frente, Verso,
+Observações. Preserve literalmente os nomes manuscritos; não corrija, complete,
+associe ou invente nomes. Use célula vazia quando algo estiver ilegível. Não
+omita linhas preenchidas e não inclua explicações fora da data e da tabela.
+""".strip()
+
+MARKDOWN_HEADER_ALIASES = {
+    "numero": {"numero", "num", "n", "no"},
+    "apelido": {"jogador", "apelido", "atleta", "nome"},
+    "massa": {"massa", "peso", "massakg", "pesokg"},
+    "eva_dor": {"evador", "eva", "dor", "escaladedor"},
+    "frente": {"frente", "somafrente"},
+    "verso": {"verso", "costas", "somaverso"},
+    "observacoes": {"observacoes", "observacao", "obs"},
+}
+
+
+@dataclass(frozen=True)
+class LegacyDocumentExtraction:
+    pages: list[dict[str, object]]
+    used_fallback: bool = False
+    fallback_reason: str | None = None
+
+
+class InvalidLlamaParseOutput(ValueError):
+    """Indica que o LlamaParse respondeu sem a tabela esperada."""
 
 
 def document_pages(content: bytes, filename: str) -> list[Image.Image]:
@@ -321,6 +357,123 @@ def extract_date(text: str) -> str | None:
         return None
 
 
+def _split_markdown_row(line: str) -> list[str] | None:
+    stripped = line.strip()
+    if "|" not in stripped:
+        return None
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|") and not stripped.endswith(r"\|"):
+        stripped = stripped[:-1]
+    return [
+        cell.replace(r"\|", "|").strip()
+        for cell in re.split(r"(?<!\\)\|", stripped)
+    ]
+
+
+def _is_markdown_separator(cells: list[str]) -> bool:
+    return bool(cells) and all(
+        re.fullmatch(r":?-{3,}:?", cell.replace(" ", ""))
+        for cell in cells
+    )
+
+
+def _markdown_column_map(headers: list[str]) -> dict[str, int] | None:
+    mapped: dict[str, int] = {}
+    for index, header in enumerate(headers):
+        normalized = normalized_name(header)
+        for column, aliases in MARKDOWN_HEADER_ALIASES.items():
+            if normalized in aliases and column not in mapped:
+                mapped[column] = index
+                break
+    if set(mapped) != set(EXPECTED_COLUMNS):
+        return None
+    return mapped
+
+
+def _find_markdown_table(markdown: str) -> tuple[dict[str, int], list[list[str]]]:
+    lines = markdown.splitlines()
+    for index in range(len(lines) - 1):
+        headers = _split_markdown_row(lines[index])
+        separator = _split_markdown_row(lines[index + 1])
+        if not headers or not separator or not _is_markdown_separator(separator):
+            continue
+        column_map = _markdown_column_map(headers)
+        if column_map is None:
+            continue
+
+        rows: list[list[str]] = []
+        for candidate in lines[index + 2:]:
+            cells = _split_markdown_row(candidate)
+            if cells is None:
+                if candidate.strip():
+                    break
+                continue
+            if _is_markdown_separator(cells):
+                continue
+            padded = cells + [""] * max(0, len(headers) - len(cells))
+            if any(cell.strip() for cell in padded):
+                rows.append(padded)
+        return column_map, rows
+    raise InvalidLlamaParseOutput(
+        "O LlamaParse não retornou a tabela de termografia esperada."
+    )
+
+
+def parse_llamaparse_page(
+    markdown: str,
+    diagnostic: Image.Image,
+) -> dict[str, object]:
+    """Converte uma página Markdown do LlamaParse para a revisão existente."""
+    if not isinstance(markdown, str) or not markdown.strip():
+        raise InvalidLlamaParseOutput("O LlamaParse retornou uma página vazia.")
+    column_map, table_rows = _find_markdown_table(markdown)
+    collection_date = extract_date(markdown)
+    rows = []
+    for cells in table_rows:
+        raw = {
+            column: cells[index].strip() if index < len(cells) else ""
+            for column, index in column_map.items()
+        }
+        mass = parse_number(raw["massa"])
+        eva = parse_number(raw["eva_dor"], integer=True)
+        front = parse_number(raw["frente"], integer=True)
+        back = parse_number(raw["verso"], integer=True)
+        issues = []
+        if not raw["apelido"]:
+            issues.append("Jogador não identificado")
+        if mass is None or mass <= 0:
+            issues.append("Massa inválida")
+        if eva is None or not 0 <= eva <= 10:
+            issues.append("EVA deve estar entre 0 e 10")
+        if front is None or front < 0:
+            issues.append("Frente inválida")
+        if back is None or back < 0:
+            issues.append("Verso inválido")
+        if collection_date is None:
+            issues.append("Data não identificada")
+        rows.append(
+            {
+                "Jogador": raw["apelido"],
+                "Massa": mass,
+                "EVA Dor": eva,
+                "Frente": front,
+                "Verso": back,
+                "Observações": raw["observacoes"],
+                "Data": collection_date,
+                "Revisão": "; ".join(issues) if issues else "Pronto para revisão",
+                "_raw": raw,
+            }
+        )
+    return {
+        "date": collection_date,
+        "header_text": markdown,
+        "rows": rows,
+        "diagnostic": diagnostic.convert("RGB"),
+        "error": None,
+    }
+
+
 def normalized_name(value: str) -> str:
     decomposed = normalize("NFKD", value.casefold().strip())
     return "".join(
@@ -330,18 +483,17 @@ def normalized_name(value: str) -> str:
     )
 
 
-def match_athlete(
-    extracted_name: str,
+def resolve_athlete_name(
+    entered_name: object,
     athletes: list[dict[str, object]],
-) -> tuple[int | None, str, float]:
-    """Relaciona o apelido extraído aos nomes conhecidos, sem forçar ambiguidades."""
-    target = normalized_name(extracted_name)
+) -> tuple[int | None, str, str | None]:
+    """Resolve um texto somente quando ele identifica um único atleta existente."""
+    text = "" if entered_name is None else str(entered_name).strip()
+    target = normalized_name(text)
     if not target:
-        return None, "", 0.0
+        return None, "", "Informe o nome do jogador."
 
-    best_id = None
-    best_label = ""
-    best_score = 0.0
+    matches: dict[int, str] = {}
     for athlete in athletes:
         alternatives = [
             str(athlete.get("nome") or ""),
@@ -351,32 +503,72 @@ def match_athlete(
             part.strip()
             for part in str(athlete.get("nome_alternativo") or "").split(",")
         )
-        for alternative in alternatives:
-            normalized = normalized_name(alternative)
-            if not normalized:
-                continue
-            score = (
-                1.0
-                if normalized == target
-                else SequenceMatcher(None, target, normalized).ratio()
+        if any(normalized_name(alternative) == target for alternative in alternatives):
+            athlete_id = int(athlete["id_atleta"])
+            matches[athlete_id] = (
+                str(athlete.get("apelido") or "").strip()
+                or str(athlete.get("nome") or "").strip()
+                or f"Jogador {athlete_id}"
             )
-            if score > best_score:
-                best_score = score
-                best_id = int(athlete["id_atleta"])
-                best_label = (
-                    str(athlete.get("apelido") or "").strip()
-                    or str(athlete.get("nome") or "").strip()
-                )
 
-    # Resultados fracos permanecem sem associação para revisão humana.
-    if best_score < 0.72:
-        return None, "", best_score
-    return best_id, best_label, best_score
+    if not matches:
+        return None, "", f'Jogador "{text}" não encontrado.'
+    if len(matches) > 1:
+        return None, "", f'Jogador "{text}" corresponde a mais de um cadastro.'
+    athlete_id, label = next(iter(matches.items()))
+    return athlete_id, label, None
+
+
+def validate_athlete_rows(
+    rows: list[dict[str, object]],
+    athletes: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Valida os nomes editados e conserva a posição de cada linha do lote."""
+    results = []
+    for row_number, row in enumerate(rows, start=1):
+        entered_name = row.get("Jogador", "")
+        athlete_id, label, error = resolve_athlete_name(entered_name, athletes)
+        results.append(
+            {
+                "linha": row_number,
+                "nome_informado": "" if entered_name is None else str(entered_name),
+                "id_atleta": athlete_id,
+                "atleta": label,
+                "erro": error,
+            }
+        )
+    return results
+
+
+def review_rows_signature(rows: list[dict[str, object]]) -> str:
+    """Cria uma assinatura estável para invalidar revisões que foram alteradas."""
+    payload = json.dumps(
+        rows,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def validated_athlete_ids(
+    validation: dict[str, object] | None,
+    current_signature: str,
+) -> list[int] | None:
+    """Retorna IDs somente para uma validação atual e inteiramente bem-sucedida."""
+    if not validation or validation.get("signature") != current_signature:
+        return None
+    resolutions = validation.get("resolutions")
+    if not isinstance(resolutions, list) or not resolutions:
+        return None
+    if any(item.get("erro") or item.get("id_atleta") is None for item in resolutions):
+        return None
+    return [int(item["id_atleta"]) for item in resolutions]
 
 
 def extract_page(
     image: Image.Image,
-    athletes: list[dict[str, object]],
     ocr: Callable[
         [Image.Image, Image.Image, str], tuple[str, float]
     ] = recognize_cell,
@@ -414,15 +606,12 @@ def extract_page(
 
         if not any(raw.values()):
             continue
-        athlete_id, athlete_name, match_score = match_athlete(
-            raw["apelido"], athletes
-        )
         mass = parse_number(raw["massa"])
         eva = parse_number(raw["eva_dor"], integer=True)
         front = parse_number(raw["frente"], integer=True)
         back = parse_number(raw["verso"], integer=True)
         issues = []
-        if athlete_id is None:
+        if not raw["apelido"].strip():
             issues.append("Jogador não identificado")
         if mass is None or mass <= 0:
             issues.append("Massa inválida")
@@ -437,15 +626,13 @@ def extract_page(
 
         rows.append(
             {
-                "id_atleta": athlete_id,
-                "Jogador": athlete_name or raw["apelido"],
+                "Jogador": raw["apelido"],
                 "Massa": mass,
                 "EVA Dor": eva,
                 "Frente": front,
                 "Verso": back,
                 "Observações": raw["observacoes"],
                 "Data": collection_date,
-                "Confiança jogador": round(match_score * 100, 1),
                 "Confiança OCR": round(
                     sum(confidence.values()) / len(confidence), 1
                 ),
@@ -463,16 +650,15 @@ def extract_page(
     }
 
 
-def extract_document(
+def _extract_document_tesseract(
     content: bytes,
     filename: str,
-    athletes: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     """Processa todas as páginas de um documento."""
     results = []
     for source_page in document_pages(content, filename):
         try:
-            results.append(extract_page(source_page, athletes))
+            results.append(extract_page(source_page))
         except Exception as error:
             # Mantém um diagnóstico visual mesmo quando a validação estrita
             # da grade falha, para mostrar ao usuário o que foi detectado.
@@ -492,3 +678,136 @@ def extract_document(
                 }
             )
     return results
+
+
+def _default_llama_client_factory(*, api_key: str) -> Any:
+    from llama_cloud import LlamaCloud
+
+    return LlamaCloud(api_key=api_key)
+
+
+def _result_markdown_pages(result: object) -> list[str]:
+    markdown_result = (
+        result.get("markdown") if isinstance(result, dict)
+        else getattr(result, "markdown", None)
+    )
+    if markdown_result is None:
+        raise InvalidLlamaParseOutput("O LlamaParse não retornou Markdown.")
+    pages = (
+        markdown_result.get("pages") if isinstance(markdown_result, dict)
+        else getattr(markdown_result, "pages", None)
+    )
+    if not pages:
+        raise InvalidLlamaParseOutput("O LlamaParse não retornou páginas.")
+    markdown_pages = []
+    for page in pages:
+        markdown = (
+            page.get("markdown") if isinstance(page, dict)
+            else getattr(page, "markdown", None)
+        )
+        if not isinstance(markdown, str):
+            raise InvalidLlamaParseOutput(
+                "O LlamaParse retornou uma página sem conteúdo Markdown."
+            )
+        markdown_pages.append(markdown)
+    return markdown_pages
+
+
+def _extract_document_llamaparse(
+    content: bytes,
+    filename: str,
+    *,
+    api_key: str,
+    client_factory: Callable[..., Any],
+) -> list[dict[str, object]]:
+    source_pages = document_pages(content, filename)
+    suffix = Path(filename).suffix.lower() or ".bin"
+    temporary_path = ""
+    client = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temporary:
+            temporary.write(content)
+            temporary_path = temporary.name
+
+        client = client_factory(api_key=api_key)
+        uploaded_file = client.files.create(file=temporary_path, purpose="parse")
+        file_id = (
+            uploaded_file.get("id") if isinstance(uploaded_file, dict)
+            else getattr(uploaded_file, "id", None)
+        )
+        if not file_id:
+            raise InvalidLlamaParseOutput(
+                "O LlamaParse não confirmou o envio do documento."
+            )
+        result = client.parsing.parse(
+            file_id=file_id,
+            tier="agentic",
+            version="latest",
+            expand=["markdown"],
+            output_options={
+                "markdown": {"tables": {"output_tables_as_markdown": True}},
+            },
+            agentic_options={"custom_prompt": LLAMA_PARSE_PROMPT},
+            processing_control={
+                "timeouts": {"base_in_seconds": LLAMA_PARSE_TIMEOUT_SECONDS}
+            },
+        )
+        markdown_pages = _result_markdown_pages(result)
+        if len(markdown_pages) != len(source_pages):
+            raise InvalidLlamaParseOutput(
+                "O LlamaParse retornou uma quantidade inesperada de páginas."
+            )
+        return [
+            parse_llamaparse_page(markdown, diagnostic)
+            for markdown, diagnostic in zip(markdown_pages, source_pages)
+        ]
+    finally:
+        close_client = getattr(client, "close", None)
+        if callable(close_client):
+            try:
+                close_client()
+            except Exception:
+                pass
+        if temporary_path:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+
+
+def _fallback_reason(error: Exception) -> str:
+    if isinstance(error, InvalidLlamaParseOutput):
+        return str(error)
+    if isinstance(error, TimeoutError) or "timeout" in type(error).__name__.lower():
+        return "O LlamaParse excedeu o tempo limite de processamento."
+    if isinstance(error, (ImportError, ModuleNotFoundError)):
+        return "A integração com o LlamaParse não está instalada."
+    if isinstance(error, RuntimeError) and str(error) == "Chave do LlamaParse ausente.":
+        return "O LlamaParse não está configurado neste ambiente."
+    return "O LlamaParse ficou indisponível durante a extração."
+
+
+def extract_document(
+    content: bytes,
+    filename: str,
+    *,
+    api_key: str | None = None,
+    client_factory: Callable[..., Any] | None = None,
+) -> LegacyDocumentExtraction:
+    """Usa LlamaParse como extrator principal e Tesseract como fallback local."""
+    try:
+        if not str(api_key or "").strip():
+            raise RuntimeError("Chave do LlamaParse ausente.")
+        pages = _extract_document_llamaparse(
+            content,
+            filename,
+            api_key=str(api_key).strip(),
+            client_factory=client_factory or _default_llama_client_factory,
+        )
+        return LegacyDocumentExtraction(pages=pages)
+    except Exception as error:
+        return LegacyDocumentExtraction(
+            pages=_extract_document_tesseract(content, filename),
+            used_fallback=True,
+            fallback_reason=_fallback_reason(error),
+        )

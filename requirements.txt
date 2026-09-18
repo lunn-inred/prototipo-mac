@@ -9,3 +9,4 @@ img2table>=1.4,<2
 Pillow>=10,<13
 opencv-contrib-python-headless>=4.9,<5
 pytesseract>=0.3.13,<1
+llama-cloud>=2.8,<3
