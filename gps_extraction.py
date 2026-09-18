@@ -11,12 +11,16 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from gps_header import parse_page_header
+
 try:
+    import cv2
     import pypdfium2
     from img2table.document import Image as TableImage
     from img2table.ocr import TesseractOCR
     from PIL import Image, ImageOps
 except ModuleNotFoundError as error:  # Pure helpers remain importable without OCR.
+    cv2 = None
     pypdfium2 = None
     TableImage = None
     TesseractOCR = None
@@ -28,6 +32,8 @@ else:
 
 
 META = ["_arquivo"]
+# Incrementar quando mudanças na extração exigirem reprocessar sessões existentes.
+EXTRACTION_VERSION = 2
 DPI = 300
 HEADERS = {
     8: [
@@ -55,6 +61,16 @@ def require_ocr_dependencies() -> None:
             "Dependencias da extracao GPS ausentes. Instale o requirements.txt. "
             f"Detalhe: {OCR_IMPORT_ERROR}"
         ) from OCR_IMPORT_ERROR
+    ximgproc = getattr(cv2, "ximgproc", None)
+    if ximgproc is None or not hasattr(ximgproc, "niBlackThreshold"):
+        version = getattr(cv2, "__version__", "desconhecida")
+        raise RuntimeError(
+            "Instalacao do OpenCV incompativel com o img2table: "
+            "cv2.ximgproc.niBlackThreshold nao esta disponivel "
+            f"(versao carregada: {version}). Remova todas as variantes "
+            "opencv-python e opencv-contrib-python do ambiente e reinstale "
+            "o requirements.txt."
+        )
 
 
 def find_tesseract() -> str:
@@ -205,6 +221,60 @@ def render_page(page: Any) -> Any:
     return page.render(scale=DPI / 72).to_pil()
 
 
+def read_page_header(page: Any, image: Any, tesseract: str, language: str) -> str:
+    """Reúne os fragmentos do cabeçalho no topo, mesmo em linhas/blocos separados."""
+    attempts = []
+
+    def find_header(lines: list[str]) -> str | None:
+        lines = [line.strip() for line in lines if line.strip()][:12]
+        attempts.append(" / ".join(lines)[:500])
+        # O PDF pode separar título, confronto e data em objetos diferentes.
+        for start in range(len(lines)):
+            for end in range(start + 1, min(len(lines), start + 10) + 1):
+                candidate = " ".join(lines[start:end])
+                try:
+                    parse_page_header(candidate)
+                    return candidate
+                except ValueError:
+                    continue
+        return None
+
+    try:
+        textpage = page.get_textpage()
+        try:
+            left, bottom, right, top = page.get_bbox()
+            text = textpage.get_text_bounded(
+                left=left, bottom=top - (top - bottom) * 0.22, right=right, top=top
+            )
+        finally:
+            textpage.close()
+        header = find_header(text.splitlines())
+        if header:
+            return header
+    except Exception as error:
+        attempts.append(f"Texto do PDF indisponível: {error}")
+
+    crop = image.crop((0, 0, image.width, max(1, int(image.height * 0.22))))
+    for psm in (6, 11):
+        result = subprocess.run(
+            [tesseract, "stdin", "stdout", "-l", language, "--psm", str(psm), "tsv"],
+            input=image_bytes(crop), capture_output=True, check=True, timeout=120,
+        )
+        lines: dict[tuple, list[str]] = {}
+        for item in csv.DictReader(io.StringIO(result.stdout.decode("utf-8")), delimiter="\t"):
+            if item.get("level") != "5" or not item.get("text", "").strip():
+                continue
+            key = tuple(item.get(field) for field in ("block_num", "par_num", "line_num"))
+            lines.setdefault(key, []).append(item["text"])
+        header = find_header([" ".join(words) for words in lines.values()])
+        if header:
+            return header
+    raise ValueError(
+        "Cabeçalho não reconhecido no topo da página. Texto lido: "
+        + " | ".join(text for text in attempts if text)
+    )
+
+
 def image_bytes(image: Any) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -317,7 +387,9 @@ def extract_pdf(
     source_name: str | None = None,
 ) -> dict[str, Any]:
     source = source_name or path.name
-    document = {"arquivo": source, "total_paginas": 0, "paginas_analisadas": [], "tabelas": []}
+    document = {"arquivo": source, "total_paginas": 0, "paginas_analisadas": [], "tabelas": [],
+                "origem_metadados": "cabecalho_pagina", "erros_extracao": [],
+                "versao_extrator": EXTRACTION_VERSION}
     pdf = None
     try:
         pdf = pypdfium2.PdfDocument(path)
@@ -332,8 +404,18 @@ def extract_pdf(
         document["paginas_analisadas"] = pages
         for index, page_number in zip(indexes, pages, strict=True):
             try:
-                image = render_page(pdf[index])
+                page = pdf[index]
+                image = render_page(page)
                 tables = extract_with_ocr(image, ocr)
+                page_metadata = {}
+                if tables:
+                    try:
+                        header = read_page_header(page, image, tesseract, language)
+                        page_metadata = parse_page_header(header)
+                    except Exception as error:
+                        document["erros_extracao"].append(
+                            f"Página {page_number}: não foi possível ler os dados do cabeçalho: {error}"
+                        )
                 if not tables:
                     print(f"Aviso: {source}, página {page_number}: tabela não localizada.")
                 for number, table in enumerate(tables, 1):
@@ -341,6 +423,7 @@ def extract_pdf(
                         table, image, source, page_number, number, tesseract, language
                     )
                     if converted:
+                        converted["metadados"] = page_metadata
                         document["tabelas"].append(converted)
             except Exception as error:
                 print(f"Aviso: {source}, página {page_number}: {error}")
@@ -355,7 +438,7 @@ def extract_pdf(
 
 def flatten(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
-        {**{key: row[key] for key in META}, **row["dados"]}
+        {**{key: row[key] for key in META}, **row["dados"], **table.get("metadados", {})}
         for document in documents
         for table in document["tabelas"]
         for row in table["linhas"]
@@ -368,7 +451,8 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def csv_bytes(rows: list[dict[str, Any]]) -> bytes:
     """Gera CSV compativel com Excel sem criar outro arquivo temporario."""
-    fields, seen = META.copy(), set(META)
+    fields = [field for field in META if any(field in row for row in rows)]
+    seen = set(fields)
     for row in rows:
         for field in row:
             if field not in seen:

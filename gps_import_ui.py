@@ -3,13 +3,15 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from gps_extraction import META, csv_bytes, extract_uploaded_pdfs, flatten
+from gps_extraction import EXTRACTION_VERSION, csv_bytes, extract_uploaded_pdfs, flatten
 from gps_data import load_gps_records
 from gps_import_service import (
+    GPS_VIEW_COLUMNS,
     GpsImportPreview,
     GpsImportResult,
+    extracted_rows_to_gps_view,
+    gps_view_preview_rows,
     import_gps_documents,
-    normalize_position_if_known,
     payload_signature,
     prepare_gps_documents,
     preview_gps_documents,
@@ -23,7 +25,7 @@ def _render_preview(previews: list[GpsImportPreview]) -> None:
         with st.expander(preview.document.filename, expanded=True):
             if metadata:
                 st.caption(
-                    f"{metadata.collected_at:%d/%m/%Y %H:%M} · "
+                    f"{metadata.collected_at:%d/%m/%Y %H:%M:%S} · "
                     f"{metadata.team} x {metadata.opponent}"
                 )
             if preview.errors:
@@ -40,6 +42,14 @@ def _render_preview(previews: list[GpsImportPreview]) -> None:
                 st.write("**Novas métricas:** " + ", ".join(preview.new_metrics))
             for warning in preview.warnings:
                 st.warning(warning)
+            view_rows = gps_view_preview_rows(preview.document)
+            if view_rows:
+                st.markdown("**Prévia no formato da `vw_medidas_gps`:**")
+                st.dataframe(
+                    pd.DataFrame(view_rows, columns=GPS_VIEW_COLUMNS),
+                    width="stretch",
+                    hide_index=True,
+                )
 
 
 def _render_results(results: list[GpsImportResult]) -> None:
@@ -114,12 +124,22 @@ def render_gps_import() -> None:
                     st.session_state.pop("gps_import_validation", None)
                     st.session_state.pop("gps_import_results", None)
             except Exception as error:
-                st.session_state.pop("gps_extraction_documents", None)
-                st.session_state.pop("gps_extraction_edited", None)
                 st.error(f"Não foi possível executar a extração: {error}")
 
         documents = st.session_state.get("gps_extraction_documents")
         if not documents:
+            return
+
+        if any(
+            document.get("versao_extrator") != EXTRACTION_VERSION
+            or document.get("origem_metadados") != "cabecalho_pagina"
+            for document in documents
+        ):
+            st.info(
+                "A extração salva foi feita com uma versão anterior. Selecione os PDFs "
+                "e clique em Extrair dados novamente antes de validar ou enviar. "
+                "Os dados anteriores permanecem preservados até a nova extração."
+            )
             return
 
         original_rows = flatten(documents)
@@ -140,7 +160,8 @@ def render_gps_import() -> None:
         st.markdown("#### Conferência dos dados")
         st.caption(
             "Clique em uma célula para corrigir o valor reconhecido pelo OCR. "
-            "A coluna de arquivo identifica a origem e fica bloqueada."
+            "Equipe, adversário e data são lidos da primeira linha de cada página "
+            "e ficam bloqueados. O grupo é GPS."
         )
 
         revision = st.session_state.get("gps_extraction_revision", 0)
@@ -162,22 +183,20 @@ def render_gps_import() -> None:
                     st.info("Nenhuma tabela válida foi encontrada neste PDF.")
                     continue
 
-                editor_source = [
-                    {
-                        **row,
-                        "Posição": normalize_position_if_known(
-                            row.get("Posição", "")
-                        ),
-                    }
-                    for row in saved_edits.get(document_index, rows)
-                ]
+                editor_source = saved_edits.get(document_index)
+                if editor_source is None:
+                    editor_source = extracted_rows_to_gps_view(
+                        document["arquivo"], rows
+                    )
                 edited_frame = st.data_editor(
-                    pd.DataFrame(editor_source),
+                    pd.DataFrame(editor_source, columns=GPS_VIEW_COLUMNS),
                     width="stretch",
                     hide_index=True,
-                    disabled=META,
+                    disabled=["grupo", "data_coleta", "equipe", "adversario"],
                     key=f"gps_editor_{revision}_{document_index}",
                 )
+                for error in document.get("erros_extracao", []):
+                    st.error(error)
                 edited_frame = edited_frame.astype(object).where(
                     pd.notna(edited_frame), ""
                 )
@@ -185,7 +204,8 @@ def render_gps_import() -> None:
                 saved_edits[document_index] = edited_rows
                 edited_documents.append(edited_rows)
                 import_payload.append(
-                    {"arquivo": document["arquivo"], "linhas": edited_rows}
+                    {"arquivo": document["arquivo"], "linhas": edited_rows,
+                     "erros_extracao": document.get("erros_extracao", [])}
                 )
 
         consolidated_rows = [row for rows in edited_documents for row in rows]

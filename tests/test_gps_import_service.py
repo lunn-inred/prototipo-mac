@@ -4,12 +4,14 @@ import unittest
 from unittest.mock import patch
 
 from gps_import_service import (
+    GPS_VIEW_COLUMNS,
     GpsFileMetadata,
     GpsMeasurement,
     PreparedGpsDocument,
+    extracted_rows_to_gps_view,
     import_gps_documents,
+    gps_view_preview_rows,
     normalize_position,
-    parse_gps_filename,
     parse_metric_value,
     payload_signature,
     prepare_gps_documents,
@@ -48,7 +50,7 @@ def connection_factory(connection: FakeConnection):
 
 
 def document(filename="01.02.2026_16_00h_MAC X LUMINENSE.pdf"):
-    metadata = parse_gps_filename(filename)
+    metadata = GpsFileMetadata(filename, datetime(2026, 2, 1, 16), "MAC", "LUMINENSE")
     return PreparedGpsDocument(
         metadata=metadata,
         filename=filename,
@@ -61,18 +63,6 @@ def document(filename="01.02.2026_16_00h_MAC X LUMINENSE.pdf"):
 
 
 class GpsImportPreparationTests(unittest.TestCase):
-    def test_parses_filename_with_local_timestamp_and_match(self) -> None:
-        parsed = parse_gps_filename(
-            "01.02.2026_16_00h_MAC X LUMINENSE.pdf"
-        )
-
-        self.assertEqual(parsed.collected_at, datetime(2026, 2, 1, 16, 0))
-        self.assertEqual((parsed.team, parsed.opponent), ("MAC", "LUMINENSE"))
-
-    def test_rejects_invalid_filename(self) -> None:
-        with self.assertRaisesRegex(ValueError, "fora do padrão"):
-            parse_gps_filename("relatorio.pdf")
-
     def test_accepts_comma_dot_and_negative_numbers(self) -> None:
         self.assertEqual(parse_metric_value("5,25"), (5.25, "5,25"))
         self.assertEqual(parse_metric_value("-3.4"), (-3.4, "-3.4"))
@@ -111,6 +101,9 @@ class GpsImportPreparationTests(unittest.TestCase):
                             "Posição": "ATA",
                             "Distance (km)": "5,2",
                             "Sprint Efforts": "",
+                            "equipe": "MAC",
+                            "adversario": "LUMINENSE",
+                            "data_coleta": datetime(2026, 2, 1, 16),
                         }
                     ],
                 }
@@ -127,6 +120,59 @@ class GpsImportPreparationTests(unittest.TestCase):
         edited = [{"arquivo": "a.pdf", "linhas": [{"Métrica": "2,0"}]}]
 
         self.assertNotEqual(payload_signature(original), payload_signature(edited))
+
+    def test_projects_preview_with_the_same_columns_as_gps_view(self) -> None:
+        rows = gps_view_preview_rows(document())
+
+        self.assertEqual(tuple(rows[0]), GPS_VIEW_COLUMNS)
+        self.assertEqual(rows[0]["atleta"], "CAIO")
+        self.assertEqual(rows[0]["grupo"], "GPS")
+        self.assertEqual(rows[0]["distance_km"], 5.2)
+        self.assertEqual(rows[0]["sprint_efforts"], 3.0)
+        self.assertIsNone(rows[0]["high_speed_distance"])
+
+    def test_converts_extracted_rows_to_editable_view_order(self) -> None:
+        rows = extracted_rows_to_gps_view(
+            "01.02.2026_16_00h_MAC X LUMINENSE.pdf",
+            [
+                {
+                    "Nome": "CAIO, CAIO",
+                    "Posição": "ATA",
+                    "Distance (km)": "5,2",
+                    "Sprint Efforts": "3",
+                }
+            ],
+        )
+
+        self.assertEqual(tuple(rows[0]), GPS_VIEW_COLUMNS)
+        self.assertEqual(rows[0]["atleta"], "CAIO")
+        self.assertEqual(rows[0]["posicao"], "Atacante")
+        self.assertEqual(rows[0]["distance_km"], 5.2)
+        self.assertEqual(rows[0]["sprint_efforts"], 3.0)
+
+    def test_prepares_rows_edited_in_view_format(self) -> None:
+        view_row = extracted_rows_to_gps_view(
+            "01.02.2026_16_00h_MAC X LUMINENSE.pdf",
+            [{"Nome": "CAIO", "Posição": "ATA", "Distance (km)": "5,2",
+              "equipe": "IAPE", "adversario": "MAC", "data_coleta": datetime(2026, 3, 1, 16)}],
+        )[0]
+
+        prepared = prepare_gps_documents(
+            [
+                {
+                    "arquivo": "01.02.2026_16_00h_MAC X LUMINENSE.pdf",
+                    "linhas": [view_row],
+                }
+            ]
+        )[0]
+
+        self.assertEqual(prepared.errors, ())
+        self.assertEqual(prepared.measurements[0].metric, "Distance (km)")
+        self.assertEqual(prepared.measurements[0].value, 5.2)
+
+        self.assertEqual(prepared.metadata.team, "IAPE")
+        self.assertEqual(prepared.metadata.opponent, "MAC")
+        self.assertEqual(prepared.metadata.collected_at, datetime(2026, 3, 1, 16))
 
 
 class GpsImportDatabaseTests(unittest.TestCase):

@@ -299,10 +299,12 @@ O botão **Adicionar novos arquivos**, no topo da página **Monitoramento GPS**,
 permite enviar um ou vários relatórios PDF diretamente pelo navegador. Para cada
 relatório, o extrator renderiza e analisa por OCR as duas últimas páginas (ou a
 única página disponível), mostra uma prévia das tabelas reconhecidas e permite
-corrigir os valores diretamente em uma grade editável. Apenas a coluna de origem
-`_arquivo` fica bloqueada; página, tabela e linha não aparecem na grade nem no
-CSV. Um único CSV consolidado é gerado com os dados já revisados, em UTF-8 com
-BOM e usando ponto e vírgula como separador para facilitar a abertura no Excel.
+corrigir os valores diretamente em uma grade editável. A grade e o CSV usam as
+mesmas colunas e a mesma ordem de `public.vw_medidas_gps`. Equipe, adversário e
+data são lidos da primeira linha da página das métricas e ficam bloqueados;
+o grupo é sempre GPS. Os campos técnicos de
+origem, página, tabela e linha não aparecem. Um único CSV consolidado é gerado
+com os dados revisados, em UTF-8 com BOM e usando ponto e vírgula como separador.
 
 O processamento requer as bibliotecas Python declaradas em `requirements.txt` e
 o executável Tesseract com o idioma português. No Streamlit Community Cloud, os
@@ -319,19 +321,51 @@ usa `eng` como alternativa. Upload, OCR e edição não gravam no Supabase; os d
 só podem ser enviados após a validação e a confirmação descritas abaixo. O
 painel continua consultando a view somente leitura `public.vw_medidas_gps`.
 
+#### Conflito entre OpenCV e img2table
+
+O `img2table` requer a distribuição contrib do OpenCV. Não mantenha
+`opencv-python` ou `opencv-python-headless` instalados junto com
+`opencv-contrib-python-headless`, pois esses pacotes compartilham o mesmo módulo
+`cv2` e podem remover `cv2.ximgproc.niBlackThreshold`. Para recuperar um ambiente
+local que apresente esse erro, execute com o ambiente virtual ativado:
+
+```bash
+python -m pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless
+python -m pip install -r requirements.txt
+python -c "import cv2; print(cv2.__version__); print(hasattr(cv2.ximgproc, 'niBlackThreshold'))"
+```
+
+A última linha deve mostrar `True`. As linhas impressas pelo Tesseract com versão,
+bibliotecas e instruções de CPU (`AVX`, `FMA` e `SSE`) são apenas informativas e
+não indicam falha.
+
 ### Envio dos dados revisados ao banco
 
-Depois da conferência na grade, o botão **Validar para envio** verifica o padrão
-do nome, os valores numéricos, os cadastros que serão criados e as medições já
-existentes. O nome do PDF deve seguir este formato:
+Depois da conferência na grade, o botão **Validar para envio** verifica os dados
+dos cabeçalhos, os valores numéricos, os cadastros que serão criados e as medições
+já existentes. O nome do PDF é livre e serve apenas para identificar a origem.
+Exemplo de primeira linha reconhecida na página:
 
 ```text
-01.02.2026_16_00h_MAC X LUMINENSE.pdf
+RELATÓRIO DE ATIVIDADES MAC X IAPE (MD) DOMINGO, MARÇO 1, 2026 - 03:06:22 PM PÁGINA 5/6
 ```
 
 A gravação só acontece após **Confirmar envio ao banco**. Cada PDF usa uma
 transação independente e as medições duplicadas são ignoradas. O timestamp do
-nome do arquivo é gravado em `partida.data` e `medida_valor.data`.
+cabeçalho da página é gravado em `partida.data` e `medida_valor.data`.
+A primeira linha acima produz `MAC`, `IAPE` e `2026-03-01 15:06:22`.
+O leitor aceita meses por extenso em português e horários AM/PM, preservando
+os segundos. Também aceita datas numéricas com `/`, `.` ou `-`; sem horário,
+usa-se `00:00`.
+O texto do PDF é utilizado quando disponível; páginas digitalizadas usam OCR.
+Cabeçalhos ausentes, inválidos ou divergentes entre páginas bloqueiam o envio,
+sem usar o nome do arquivo como alternativa. Extrações de sessões antigas devem
+ser refeitas para obter os metadados da página.
+Os resultados guardam a versão do extrator. Quando ela muda, a aplicação solicita
+nova extração e bloqueia validação e envio dos resultados antigos. Os dados e as
+edições anteriores são preservados até a substituição por uma nova extração;
+uma tentativa que falhe não apaga esses dados. Ao modificar a lógica de extração
+de forma incompatível, incremente `EXTRACTION_VERSION` em `gps_extraction.py`.
 
 As posições extraídas são normalizadas antes da revisão e do envio: `CA` vira
 `Centroavante`, `EXT` vira `Extrema`, `GOL` vira `Goleiro`, `VOL` vira
