@@ -18,7 +18,53 @@ from database import database_write_connection
 
 GPS_GROUP = "GPS"
 IMPORT_LOCK_ID = 1_947_703_001
-BASE_COLUMNS = {"_arquivo", "Nome", "Posição"}
+BASE_COLUMNS = {"_arquivo", "Nome", "Posição", "equipe", "adversario", "data_coleta"}
+GPS_VIEW_COLUMNS = (
+    "atleta",
+    "posicao",
+    "grupo",
+    "data_coleta",
+    "equipe",
+    "adversario",
+    "accel_de_cel_efforts",
+    "accel_de_cel_efforts_per_minute",
+    "distance_km",
+    "high_speed_distance",
+    "high_speed_efforts",
+    "max_acceleration",
+    "max_deceleration",
+    "maximum_velocity_km_h",
+    "meterage_per_minute",
+    "player_load_per_minute",
+    "sprint_efforts",
+)
+GPS_METRIC_VIEW_COLUMNS = {
+    "Accel&Decel Efforts": "accel_de_cel_efforts",
+    "Accel&Decel Efforts Per Minute": "accel_de_cel_efforts_per_minute",
+    "Distance (km)": "distance_km",
+    "High Speed Distance": "high_speed_distance",
+    "High Speed Distance (km)": "high_speed_distance",
+    "High Speed Efforts": "high_speed_efforts",
+    "Max Acceleration": "max_acceleration",
+    "Max Deceleration": "max_deceleration",
+    "Maximum Velocity (km/h)": "maximum_velocity_km_h",
+    "Meterage Per Minute": "meterage_per_minute",
+    "Player Load Per Minute": "player_load_per_minute",
+    "Sprint Efforts": "sprint_efforts",
+}
+GPS_VIEW_METRICS = {
+    "accel_de_cel_efforts": "Accel&Decel Efforts",
+    "accel_de_cel_efforts_per_minute": "Accel&Decel Efforts Per Minute",
+    "distance_km": "Distance (km)",
+    "high_speed_distance": "High Speed Distance",
+    "high_speed_efforts": "High Speed Efforts",
+    "max_acceleration": "Max Acceleration",
+    "max_deceleration": "Max Deceleration",
+    "maximum_velocity_km_h": "Maximum Velocity (km/h)",
+    "meterage_per_minute": "Meterage Per Minute",
+    "player_load_per_minute": "Player Load Per Minute",
+    "sprint_efforts": "Sprint Efforts",
+}
 POSITION_NAMES = {
     "ca": "Centroavante",
     "centroavante": "Centroavante",
@@ -39,12 +85,6 @@ POSITION_NAMES = {
     "ata": "Atacante",
     "atacante": "Atacante",
 }
-FILENAME_PATTERN = re.compile(
-    r"^(?P<date>\d{2}\.\d{2}\.\d{4})_"
-    r"(?P<hour>\d{2})_(?P<minute>\d{2})h_"
-    r"(?P<team>.+?)\s+[xX]\s+(?P<opponent>.+?)\.pdf$",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True)
@@ -97,24 +137,6 @@ class GpsImportResult:
 
 
 ConnectionFactory = Callable[[], AbstractContextManager[Any]]
-
-
-def parse_gps_filename(filename: str) -> GpsFileMetadata:
-    safe_name = Path(filename).name
-    match = FILENAME_PATTERN.fullmatch(safe_name)
-    if not match:
-        raise ValueError(
-            "nome fora do padrão DD.MM.AAAA_HH_MMh_EQUIPE X ADVERSÁRIO.pdf"
-        )
-    collected_at = datetime.strptime(
-        f"{match['date']} {match['hour']}:{match['minute']}",
-        "%d.%m.%Y %H:%M",
-    )
-    team = " ".join(match["team"].split())
-    opponent = " ".join(match["opponent"].split())
-    if not team or not opponent:
-        raise ValueError("equipe e adversário são obrigatórios no nome do arquivo")
-    return GpsFileMetadata(safe_name, collected_at, team, opponent)
 
 
 def parse_metric_value(value: object) -> tuple[float, str]:
@@ -172,23 +194,97 @@ def payload_signature(payload: object) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def gps_view_preview_rows(document: PreparedGpsDocument) -> list[dict[str, object]]:
+    """Projeta as medições extraídas nas colunas da vw_medidas_gps."""
+    if document.metadata is None:
+        return []
+
+    rows_by_athlete: dict[str, dict[str, object]] = {}
+    for measurement in document.measurements:
+        row = rows_by_athlete.setdefault(
+            measurement.athlete,
+            {
+                **dict.fromkeys(GPS_VIEW_COLUMNS),
+                "atleta": measurement.athlete,
+                "posicao": measurement.position,
+                "grupo": GPS_GROUP,
+                "data_coleta": document.metadata.collected_at,
+                "equipe": document.metadata.team,
+                "adversario": document.metadata.opponent,
+            },
+        )
+        view_column = GPS_METRIC_VIEW_COLUMNS.get(measurement.metric)
+        if view_column:
+            row[view_column] = measurement.value
+
+    return list(rows_by_athlete.values())
+
+
+def extracted_rows_to_gps_view(
+    filename: str, rows: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Converte as linhas horizontais do OCR para o formato editável da view."""
+    view_rows: list[dict[str, object]] = []
+    for source in rows:
+        row: dict[str, object] = {
+            **dict.fromkeys(GPS_VIEW_COLUMNS),
+            "atleta": clean_athlete_name(source.get("Nome", "")),
+            "posicao": normalize_position_if_known(source.get("Posição", "")),
+            "grupo": GPS_GROUP,
+            "data_coleta": source.get("data_coleta"),
+            "equipe": source.get("equipe"),
+            "adversario": source.get("adversario"),
+        }
+        for metric, view_column in GPS_METRIC_VIEW_COLUMNS.items():
+            raw_value = source.get(metric)
+            if raw_value is None or str(raw_value).strip() == "":
+                continue
+            try:
+                row[view_column] = parse_metric_value(raw_value)[0]
+            except ValueError:
+                # Preserva o OCR inválido para que o usuário possa corrigi-lo.
+                row[view_column] = raw_value
+        view_rows.append(row)
+    return view_rows
+
+
+def metadata_from_page_rows(filename: str, rows: list[dict[str, object]]) -> GpsFileMetadata:
+    """Exige cabeçalhos válidos e consistentes nas páginas de um relatório."""
+    metadata = None
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("linha inválida para leitura dos metadados da página")
+        team = str(row.get("equipe") or "").strip()
+        opponent = str(row.get("adversario") or "").strip()
+        collected_at = row.get("data_coleta")
+        if not team or not opponent or not isinstance(collected_at, datetime) or collected_at != collected_at:
+            raise ValueError("equipe, adversário ou data ausentes no cabeçalho da página; extraia o PDF novamente")
+        current = GpsFileMetadata(filename, collected_at, team, opponent)
+        if metadata is not None and metadata != current:
+            raise ValueError("as páginas do PDF possuem equipe, adversário ou data divergentes")
+        metadata = current
+    if metadata is None:
+        raise ValueError("nenhum cabeçalho de página disponível")
+    return metadata
+
+
 def prepare_gps_documents(
     payload: list[dict[str, object]],
 ) -> list[PreparedGpsDocument]:
     prepared: list[PreparedGpsDocument] = []
     for item in payload:
         filename = Path(str(item.get("arquivo", ""))).name
-        errors: list[str] = []
-        try:
-            metadata = parse_gps_filename(filename)
-        except (TypeError, ValueError) as error:
-            metadata = None
-            errors.append(f"{filename or 'arquivo sem nome'}: {error}")
-
+        errors: list[str] = list(item.get("erros_extracao", []))
         rows = item.get("linhas", [])
         if not isinstance(rows, list) or not rows:
             errors.append(f"{filename}: nenhuma linha extraída para importar")
             rows = []
+
+        try:
+            metadata = metadata_from_page_rows(filename, rows)
+        except (TypeError, ValueError) as error:
+            metadata = None
+            errors.append(f"{filename or 'arquivo sem nome'}: {error}")
 
         measurements: list[GpsMeasurement] = []
         seen_measurements: set[tuple[str, str]] = set()
@@ -196,9 +292,14 @@ def prepare_gps_documents(
             if not isinstance(row, dict):
                 errors.append(f"{filename}, linha {row_number}: formato inválido")
                 continue
-            athlete = clean_athlete_name(row.get("Nome", ""))
+            is_view_row = "atleta" in row or "posicao" in row
+            athlete = clean_athlete_name(
+                row.get("atleta", "") if is_view_row else row.get("Nome", "")
+            )
             try:
-                position = normalize_position(row.get("Posição", ""))
+                position = normalize_position(
+                    row.get("posicao", "") if is_view_row else row.get("Posição", "")
+                )
             except ValueError as error:
                 position = ""
                 errors.append(f"{filename}, linha {row_number}: {error}")
@@ -206,7 +307,14 @@ def prepare_gps_documents(
                 errors.append(f"{filename}, linha {row_number}: atleta obrigatório")
 
             metric_count = 0
-            for metric, raw_value in row.items():
+            metric_values = (
+                (
+                    metric_name,
+                    row.get(view_column),
+                )
+                for view_column, metric_name in GPS_VIEW_METRICS.items()
+            ) if is_view_row else row.items()
+            for metric, raw_value in metric_values:
                 metric_name = str(metric).strip()
                 if metric_name in BASE_COLUMNS:
                     continue
