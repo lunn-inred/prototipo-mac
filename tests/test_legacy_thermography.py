@@ -1,5 +1,7 @@
 import io
+import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import cv2
@@ -12,7 +14,9 @@ from legacy_thermography import (
     extract_document,
     extract_date,
     extract_page,
+    LLAMA_PARSE_PROMPT,
     parse_number,
+    parse_llamaparse_page,
     resolve_athlete_name,
     review_rows_signature,
     validate_athlete_rows,
@@ -145,6 +149,197 @@ class LegacyThermographyTests(unittest.TestCase):
         self.assertEqual(result["rows"][0]["Jogador"], "Felipee")
         self.assertNotIn("id_atleta", result["rows"][0])
 
+    def test_parses_llamaparse_markdown_table(self) -> None:
+        markdown = """
+        Data: 22/06/2026
+
+        | Nº | Atleta | Peso (kg) | EVA | Soma Frente | Costas | Obs. |
+        |---|---|---|---|---|---|---|
+        | 1 | Jõao-Silva | 72,5 | 2 | 1.250 | 980 | sem queixas |
+        """
+
+        page = parse_llamaparse_page(
+            markdown, Image.new("RGB", (100, 100), "white")
+        )
+
+        self.assertEqual(page["date"], "2026-06-22")
+        self.assertEqual(page["rows"][0]["Jogador"], "Jõao-Silva")
+        self.assertEqual(page["rows"][0]["Massa"], 72.5)
+        self.assertEqual(page["rows"][0]["Frente"], 1250)
+        self.assertNotIn("id_atleta", page["rows"][0])
+
+    def test_accepts_recognized_empty_llamaparse_table(self) -> None:
+        markdown = """
+        Data: 22/06/2026
+        | Número | Jogador | Massa | EVA Dor | Frente | Verso | Observações |
+        |---|---|---|---|---|---|---|
+        """
+
+        page = parse_llamaparse_page(
+            markdown, Image.new("RGB", (100, 100), "white")
+        )
+
+        self.assertEqual(page["rows"], [])
+        self.assertEqual(page["date"], "2026-06-22")
+
+    def test_uses_llamaparse_with_expected_options_and_removes_temp_file(self) -> None:
+        buffer = io.BytesIO()
+        Image.new("RGB", (100, 100), "white").save(buffer, format="PNG")
+        markdown = """
+        Data: 22/06/2026
+        | Número | Jogador | Massa | EVA Dor | Frente | Verso | Observações |
+        |---|---|---|---|---|---|---|
+        | 1 | Felipee | 72 | 2 | 30 | 40 | ok |
+        """
+        calls = {}
+
+        class Files:
+            def create(self, **kwargs):
+                calls["upload"] = kwargs
+                calls["temporary_path"] = kwargs["file"]
+                calls["temporary_exists_during_upload"] = os.path.exists(
+                    kwargs["file"]
+                )
+                return SimpleNamespace(id="file-1")
+
+        class Parsing:
+            def parse(self, **kwargs):
+                calls["parse"] = kwargs
+                return SimpleNamespace(
+                    markdown=SimpleNamespace(
+                        pages=[SimpleNamespace(markdown=markdown)]
+                    )
+                )
+
+        fake_client = SimpleNamespace(files=Files(), parsing=Parsing())
+
+        def factory(**kwargs):
+            calls["factory"] = kwargs
+            return fake_client
+
+        extraction = extract_document(
+            buffer.getvalue(),
+            "ficha.png",
+            api_key="llx-test",
+            client_factory=factory,
+        )
+
+        self.assertFalse(extraction.used_fallback)
+        self.assertEqual(extraction.pages[0]["rows"][0]["Jogador"], "Felipee")
+        self.assertEqual(calls["factory"], {"api_key": "llx-test"})
+        self.assertEqual(calls["upload"]["purpose"], "parse")
+        self.assertTrue(calls["temporary_exists_during_upload"])
+        self.assertEqual(calls["parse"]["tier"], "agentic")
+        self.assertEqual(calls["parse"]["version"], "latest")
+        self.assertEqual(calls["parse"]["expand"], ["markdown"])
+        self.assertEqual(
+            calls["parse"]["agentic_options"]["custom_prompt"],
+            LLAMA_PARSE_PROMPT,
+        )
+        self.assertEqual(
+            calls["parse"]["processing_control"]["timeouts"]["base_in_seconds"],
+            180,
+        )
+        self.assertFalse(os.path.exists(calls["temporary_path"]))
+
+    def test_falls_back_for_missing_key_api_error_and_invalid_output(self) -> None:
+        fallback_pages = [{"rows": [], "error": None}]
+
+        def failing_factory(**_kwargs):
+            raise TimeoutError("segredo técnico")
+
+        invalid_client = SimpleNamespace(
+            files=SimpleNamespace(
+                create=lambda **_kwargs: SimpleNamespace(id="file-1")
+            ),
+            parsing=SimpleNamespace(
+                parse=lambda **_kwargs: SimpleNamespace(
+                    markdown=SimpleNamespace(
+                        pages=[SimpleNamespace(markdown="sem tabela")]
+                    )
+                )
+            ),
+        )
+        with patch(
+            "legacy_thermography._extract_document_tesseract",
+            return_value=fallback_pages,
+        ) as fallback:
+            missing_key = extract_document(b"imagem", "ficha.png")
+            with patch(
+                "legacy_thermography.document_pages",
+                return_value=[Image.new("RGB", (10, 10), "white")],
+            ):
+                api_error = extract_document(
+                    b"imagem",
+                    "ficha.png",
+                    api_key="llx-test",
+                    client_factory=failing_factory,
+                )
+                invalid_output = extract_document(
+                    b"imagem",
+                    "ficha.png",
+                    api_key="llx-test",
+                    client_factory=lambda **_kwargs: invalid_client,
+                )
+
+        self.assertEqual(fallback.call_count, 3)
+        self.assertTrue(missing_key.used_fallback)
+        self.assertIn("não está configurado", missing_key.fallback_reason)
+        self.assertIn("tempo limite", api_error.fallback_reason)
+        self.assertTrue(invalid_output.used_fallback)
+        self.assertIn("tabela", invalid_output.fallback_reason)
+
+    def test_maps_multiple_llamaparse_pages(self) -> None:
+        markdown_pages = [
+            """
+            Data: 01/06/2026
+            | Número | Jogador | Massa | EVA Dor | Frente | Verso | Observações |
+            |---|---|---|---|---|---|---|
+            | 1 | Ana | 60 | 1 | 10 | 20 | ok |
+            """,
+            """
+            Data: 02/06/2026
+            | Número | Jogador | Massa | EVA Dor | Frente | Verso | Observações |
+            |---|---|---|---|---|---|---|
+            | 1 | Bia | 61 | 2 | 11 | 21 | ok |
+            """,
+        ]
+        client = SimpleNamespace(
+            files=SimpleNamespace(
+                create=lambda **_kwargs: SimpleNamespace(id="file-1")
+            ),
+            parsing=SimpleNamespace(
+                parse=lambda **_kwargs: SimpleNamespace(
+                    markdown=SimpleNamespace(
+                        pages=[
+                            SimpleNamespace(markdown=value)
+                            for value in markdown_pages
+                        ]
+                    )
+                )
+            ),
+        )
+        diagnostics = [
+            Image.new("RGB", (10, 10), "white"),
+            Image.new("RGB", (10, 10), "white"),
+        ]
+        with patch("legacy_thermography.document_pages", return_value=diagnostics):
+            extraction = extract_document(
+                b"pdf",
+                "ficha.pdf",
+                api_key="llx-test",
+                client_factory=lambda **_kwargs: client,
+            )
+
+        self.assertFalse(extraction.used_fallback)
+        self.assertEqual([page["date"] for page in extraction.pages], [
+            "2026-06-01", "2026-06-02"
+        ])
+        self.assertEqual(
+            [page["rows"][0]["Jogador"] for page in extraction.pages],
+            ["Ana", "Bia"],
+        )
+
     def test_detects_expected_seven_column_grid(self) -> None:
         binary = np.zeros((600, 900), dtype=np.uint8)
         x_positions = [80, 160, 300, 400, 500, 600, 700, 820]
@@ -172,12 +367,33 @@ class LegacyThermographyTests(unittest.TestCase):
         buffer = io.BytesIO()
         Image.new("RGB", (500, 700), "white").save(buffer, format="PNG")
 
-        pages = extract_document(buffer.getvalue(), "ficha.png")
+        extraction = extract_document(buffer.getvalue(), "ficha.png")
+        pages = extraction.pages
 
+        self.assertTrue(extraction.used_fallback)
         self.assertEqual(len(pages), 1)
         self.assertTrue(pages[0]["error"])
         self.assertEqual(pages[0]["rows"], [])
         self.assertIsInstance(pages[0]["diagnostic"], Image.Image)
+
+    def test_llamaparse_live_integration_when_explicitly_enabled(self) -> None:
+        if os.getenv("RUN_LLAMAPARSE_INTEGRATION") != "1":
+            self.skipTest("integração LlamaParse não habilitada")
+        api_key = os.getenv("LLAMA_CLOUD_API_KEY")
+        fixture = os.getenv("LLAMAPARSE_FIXTURE")
+        if not api_key or not fixture:
+            self.skipTest("chave ou fixture LlamaParse ausente")
+        with open(fixture, "rb") as source:
+            content = source.read()
+
+        extraction = extract_document(
+            content,
+            os.path.basename(fixture),
+            api_key=api_key,
+        )
+
+        self.assertFalse(extraction.used_fallback, extraction.fallback_reason)
+        self.assertTrue(extraction.pages)
 
 
 if __name__ == "__main__":

@@ -417,7 +417,7 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 ## Termografia
 
-A página `pages/Termografia.py` possui histórico por jogador, importação local de
+A página `pages/Termografia.py` possui histórico por jogador, importação de
 fichas manuscritas e registro de uma nova análise a partir das imagens de frente
 e verso. O histórico é consultado exclusivamente pela view
 `public.vw_medida_termografia`.
@@ -435,14 +435,20 @@ medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
 `OBSERVACOES`. Todas recebem o mesmo jogador e timestamp. Uma coleta já
 existente para o mesmo jogador e data é rejeitada para evitar duplicidade.
 
-As fichas legadas em PDF, PNG ou JPEG são processadas localmente e apresentadas
-em uma grade editável. Após revisão, elas podem ser gravadas em lote usando
+As fichas legadas em PDF, PNG ou JPEG são enviadas ao LlamaParse Cloud, usando
+o modo `agentic`, e apresentadas em uma grade editável. Configure
+`LLAMA_CLOUD_API_KEY` nos secrets do Streamlit. Se a chave estiver ausente, a
+API falhar ou a resposta não contiver a tabela esperada, o sistema utiliza
+automaticamente o extrator local com OpenCV e Tesseract e informa o fallback na
+tela. Após revisão, as fichas podem ser gravadas em lote usando
 `MASSA`, `EVA_DOR`, `SOMA_FRENTE`, `SOMA_VERSO` e `OBSERVACOES`; as quatro
 medidas individuais das pernas permanecem ausentes porque o documento original
 não possui essa separação. O lote é atômico: qualquer erro impede todas as
 inserções daquele envio.
 
-As imagens e os documentos enviados nunca são armazenados no banco nem no
-sistema de arquivos. Somente as medidas revisadas são persistidas. A conversão
+As imagens e os documentos enviados nunca são armazenados no banco. Os arquivos
+temporários locais usados no envio ao LlamaParse são removidos ao final; o
+tratamento e a retenção no serviço externo seguem as políticas do LlamaCloud.
+Somente as medidas revisadas são persistidas pelo protótipo. A conversão
 de cor em temperatura e a identificação das caixas ainda são experimentais e
 devem ser validadas antes do uso definitivo.

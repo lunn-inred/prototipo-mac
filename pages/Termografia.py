@@ -293,8 +293,9 @@ with st.container(border=True):
         type=["pdf", "png", "jpg", "jpeg"],
         accept_multiple_files=True,
         help=(
-            "Processamento inteiramente local. Envie fotografias, prints "
-            "ou PDFs contendo a tabela manuscrita."
+            "Os documentos são enviados ao LlamaParse Cloud para extração. "
+            "Se o serviço falhar ou a tabela não for reconhecida, o sistema "
+            "usa o OCR local como alternativa."
         ),
         key="thermography_legacy_documents",
     )
@@ -320,14 +321,17 @@ with st.container(border=True):
             progress = st.progress(0, text="Preparando documentos...")
             for index, document in enumerate(legacy_documents):
                 try:
-                    pages = extract_document(
+                    extraction = extract_document(
                         document.getvalue(),
                         document.name,
+                        api_key=st.secrets.get("LLAMA_CLOUD_API_KEY"),
                     )
                     extracted_documents.append(
                         {
                             "filename": document.name,
-                            "pages": pages,
+                            "pages": extraction.pages,
+                            "used_fallback": extraction.used_fallback,
+                            "fallback_reason": extraction.fallback_reason,
                             "error": None,
                         }
                     )
@@ -373,6 +377,12 @@ if extraction_results:
             if document_result["error"]:
                 st.error(document_result["error"])
                 continue
+            if document_result.get("used_fallback"):
+                st.warning(
+                    "LlamaParse não pôde concluir a extração; foi utilizado "
+                    "o OCR local (Tesseract). "
+                    + str(document_result.get("fallback_reason") or "")
+                )
             for page_number, page_result in enumerate(
                 document_result["pages"], start=1
             ):
@@ -381,7 +391,11 @@ if extraction_results:
                 diagnostic.thumbnail((900, 700))
                 st.image(
                     diagnostic,
-                    caption="Linhas candidatas identificadas em verde",
+                    caption=(
+                        "Linhas candidatas identificadas em verde"
+                        if document_result.get("used_fallback")
+                        else "Página enviada para extração"
+                    ),
                     width=700,
                 )
                 if page_result.get("error"):
