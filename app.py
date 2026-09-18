@@ -8,15 +8,25 @@ apply_global_style()
 navigation = st.navigation(
     [
         st.Page(
+            "pages/Jogadores.py",
+            title="Jogadores",
+            icon="👥",
+            default=True,
+        ),
+        st.Page(
             "pages/Monitoramento_GPS.py",
             title="Monitoramento GPS",
             icon="📍",
-            default=True,
         ),
         st.Page(
             "pages/Metricas_de_Salto.py",
             title="Métricas de Salto",
             icon="📈",
+        ),
+        st.Page(
+            "pages/Termografia.py",
+            title="Termografia",
+            icon="🌡️",
         ),
     ]
 )

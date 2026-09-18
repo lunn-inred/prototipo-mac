@@ -14,6 +14,7 @@ saltos e GPS e utiliza Plotly para a construção dos gráficos.
   - [Radar das últimas cinco datas](#radar-das-últimas-cinco-datas)
   - [Radar comparativo por atleta](#radar-comparativo-por-atleta)
 - [Monitoramento de GPS](#monitoramento-de-gps)
+- [Termografia](#termografia)
 
 ## Como executar
 
@@ -379,3 +380,21 @@ orientação invertida. Se `adversario` estiver vazio e `equipe` seguir o format
 Foram removidos os componentes de distância em sprint, acelerações e
 desacelerações separadas, player load total e zonas de velocidade, pois essas
 métricas não estão disponíveis na view no formato exigido pelo protótipo.
+
+## Termografia
+
+A página `pages/Termografia.py` aceita múltiplas termografias em PNG ou JPEG de
+até 20 MB cada. Para cada imagem, o usuário informa `Tmin` e `Tmax`, ajusta por
+slider a temperatura mínima de um pixel quente e utiliza `streamlit-cropper`
+para selecionar separadamente a perna esquerda e a perna direita. O limiar
+padrão corresponde ao início dos 20% mais quentes do intervalo informado.
+
+Nesta primeira versão, uma LUT Jet fixa associa as cores, do azul ao vermelho,
+a posições entre `Tmin` e `Tmax`. A correspondência usa a cor mais próxima e
+gera uma matriz de temperaturas aproximadas. As coordenadas dos recortes são
+aplicadas sobre essa matriz, e a métrica exibida é a quantidade de pixels com
+temperatura maior ou igual ao limiar escolhido.
+
+Imagens, coordenadas e métricas permanecem somente na sessão do Streamlit. Nada
+é gravado no banco ou no sistema de arquivos. A LUT é experimental e deverá ser
+substituída ou validada contra a paleta real da câmera antes do uso definitivo.
