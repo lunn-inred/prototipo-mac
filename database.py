@@ -61,7 +61,7 @@ def database_write_config() -> dict[str, object]:
     config = {key: st.secrets[secret_name] for key, secret_name in variables.items()}
     config["sslmode"] = st.secrets.get("SUPABASE_DB_SSLMODE", "require")
     config["connect_timeout"] = 15
-    config["application_name"] = "mac_streamlit_gps_import"
+    config["application_name"] = "mac_streamlit_write"
     return config
 
 
@@ -83,7 +83,7 @@ def database_connection() -> Iterator[connection]:
 
 @contextmanager
 def database_write_connection() -> Iterator[connection]:
-    """Abre uma transação de escrita isolada para um único PDF importado."""
+    """Abre uma transação de escrita e aplica commit ou rollback ao final."""
     db_connection = psycopg2.connect(**database_write_config())
     db_connection.set_session(readonly=False, autocommit=False)
     try:
