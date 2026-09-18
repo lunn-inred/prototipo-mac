@@ -15,6 +15,7 @@ def load_thermography_athletes() -> list[dict[str, object]]:
             id_atleta,
             nome,
             apelido,
+            nome_alternativo,
             posicao,
             grupo
         FROM public.atleta

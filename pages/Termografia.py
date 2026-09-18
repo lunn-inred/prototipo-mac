@@ -14,6 +14,7 @@ from thermal_analysis import (
     detect_leg_boxes,
     temperature_matrix,
 )
+from legacy_thermography import extract_document
 from thermography_data import athlete_label, load_thermography_athletes
 
 st.set_page_config(
@@ -245,23 +246,151 @@ with st.container(border=True):
         type=["pdf", "png", "jpg", "jpeg"],
         accept_multiple_files=True,
         help=(
-            "Envie documentos digitalizados ou fotografados. "
-            "A extração dos dados será implementada em uma próxima etapa."
+            "Processamento inteiramente local. Envie fotografias, prints "
+            "ou PDFs contendo a tabela manuscrita."
         ),
         key="thermography_legacy_documents",
     )
+
     if legacy_documents:
-        st.success(f"{len(legacy_documents)} documento(s) recebido(s).")
-        for document in legacy_documents:
-            size_kb = document.size / 1024
-            st.caption(f"• {document.name} — {size_kb:.1f} KB")
-        st.warning(
-            "Os documentos ainda não são processados nem persistidos no banco."
-        )
+        batch_signature = hashlib.sha256(
+            b"".join(
+                hashlib.sha256(document.getvalue()).digest()
+                for document in legacy_documents
+            )
+        ).hexdigest()
+        if st.session_state.get("legacy_batch_signature") != batch_signature:
+            st.session_state.pop("legacy_extraction_results", None)
+            st.session_state.pop("legacy_edited_rows", None)
+
+        if st.button(
+            "Extrair conteúdo",
+            type="primary",
+            key="extract_legacy_documents",
+        ):
+            extracted_documents = []
+            progress = st.progress(0, text="Preparando documentos...")
+            for index, document in enumerate(legacy_documents):
+                try:
+                    pages = extract_document(
+                        document.getvalue(),
+                        document.name,
+                        athletes,
+                    )
+                    extracted_documents.append(
+                        {
+                            "filename": document.name,
+                            "pages": pages,
+                            "error": None,
+                        }
+                    )
+                except Exception as error:
+                    extracted_documents.append(
+                        {
+                            "filename": document.name,
+                            "pages": [],
+                            "error": str(error),
+                        }
+                    )
+                progress.progress(
+                    (index + 1) / len(legacy_documents),
+                    text=f"Processando {document.name}",
+                )
+            progress.empty()
+            st.session_state["legacy_batch_signature"] = batch_signature
+            st.session_state["legacy_extraction_results"] = extracted_documents
     else:
+        st.session_state.pop("legacy_batch_signature", None)
+        st.session_state.pop("legacy_extraction_results", None)
+        st.session_state.pop("legacy_edited_rows", None)
         st.caption(
-            "Nenhum documento enviado. Nesta etapa, o componente apenas recebe "
-            "os arquivos e não realiza extração."
+            "Envie os documentos e execute a extração. "
+            "Nenhum arquivo é persistido pelo protótipo."
+        )
+
+extraction_results = st.session_state.get("legacy_extraction_results", [])
+if extraction_results:
+    extracted_rows = []
+    for document_result in extraction_results:
+        with st.expander(document_result["filename"]):
+            if document_result["error"]:
+                st.error(document_result["error"])
+                continue
+            for page_number, page_result in enumerate(
+                document_result["pages"], start=1
+            ):
+                st.markdown(f"**Página {page_number}**")
+                diagnostic = page_result["diagnostic"].copy()
+                diagnostic.thumbnail((900, 700))
+                st.image(
+                    diagnostic,
+                    caption="Linhas candidatas identificadas em verde",
+                    width=700,
+                )
+                if page_result.get("error"):
+                    st.error(page_result["error"])
+                    continue
+                if page_result["date"]:
+                    st.caption(f"Data identificada: {page_result['date']}")
+                else:
+                    st.warning("A data da página não foi identificada.")
+                for row in page_result["rows"]:
+                    extracted_rows.append(
+                        {
+                            key: value
+                            for key, value in row.items()
+                            if key not in {
+                                "_raw",
+                                "id_atleta",
+                                "Confiança jogador",
+                                "Confiança OCR",
+                                "Revisão",
+                            }
+                        }
+                    )
+                if not page_result["rows"]:
+                    st.warning("Nenhuma linha preenchida foi identificada.")
+
+    if extracted_rows:
+        st.markdown("#### Revisão da extração")
+        st.caption(
+            "Confira todas as células antes de qualquer futura persistência."
+        )
+        review_frame = pd.DataFrame(extracted_rows)
+        athlete_options = sorted(
+            {athlete_label(athlete) for athlete in athletes}
+        )
+        edited_rows = st.data_editor(
+            review_frame,
+            width="stretch",
+            hide_index=True,
+            num_rows="dynamic",
+            column_config={
+                "Jogador": st.column_config.SelectboxColumn(
+                    options=athlete_options,
+                    required=True,
+                ),
+                "Massa": st.column_config.NumberColumn(
+                    min_value=0.1, format="%.1f"
+                ),
+                "EVA Dor": st.column_config.NumberColumn(
+                    min_value=0, max_value=10, step=1, format="%d"
+                ),
+                "Frente": st.column_config.NumberColumn(
+                    min_value=0, step=1, format="%d"
+                ),
+                "Verso": st.column_config.NumberColumn(
+                    min_value=0, step=1, format="%d"
+                ),
+                "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
+            },
+            key="legacy_review_editor",
+        )
+        st.session_state["legacy_edited_rows"] = edited_rows.to_dict("records")
+        st.info(
+            "Frente e Verso dos documentos serão associados às medidas "
+            "SOMA_FRENTE e SOMA_VERSO. As quatro medidas individuais por "
+            "perna permanecerão vazias nos registros legados."
         )
 
 st.divider()
