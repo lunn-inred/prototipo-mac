@@ -417,18 +417,32 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 ## Termografia
 
-A página `pages/Termografia.py` aceita múltiplas termografias em PNG ou JPEG de
-até 20 MB cada. Para cada imagem, o usuário informa `Tmin` e `Tmax`, ajusta por
-slider a temperatura mínima de um pixel quente e utiliza `streamlit-cropper`
-para selecionar separadamente a perna esquerda e a perna direita. O limiar
-padrão corresponde ao início dos 20% mais quentes do intervalo informado.
+A página `pages/Termografia.py` possui histórico por jogador, importação local de
+fichas manuscritas e registro de uma nova análise a partir das imagens de frente
+e verso. O histórico é consultado exclusivamente pela view
+`public.vw_medida_termografia`.
 
-Nesta primeira versão, uma LUT Jet fixa associa as cores, do azul ao vermelho,
-a posições entre `Tmin` e `Tmax`. A correspondência usa a cor mais próxima e
-gera uma matriz de temperaturas aproximadas. As coordenadas dos recortes são
-aplicadas sobre essa matriz, e a métrica exibida é a quantidade de pixels com
-temperatura maior ou igual ao limiar escolhido.
+Na nova análise, o usuário informa jogador, massa, data da coleta, EVA Dor e,
+opcionalmente, observações. As imagens precisam conter as duas caixas R1/R2 do
+layout HIKMICRO atualmente suportado. O sistema identifica as caixas, inverte a
+lateralidade entre frente e verso, estima a temperatura dos pixels pela barra
+térmica lateral e conta os pixels acima do limiar configurado.
 
-Imagens, coordenadas e métricas permanecem somente na sessão do Streamlit. Nada
-é gravado no banco ou no sistema de arquivos. A LUT é experimental e deverá ser
-substituída ou validada contra a paleta real da câmera antes do uso definitivo.
+Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
+medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
+`PERNA_ESQUERDA_FRENTE`, `PERNA_DIREITA_VERSO`,
+`PERNA_ESQUERDA_VERSO`, `SOMA_FRENTE`, `SOMA_VERSO` e, quando preenchida,
+`OBSERVACOES`. Todas recebem o mesmo jogador e timestamp. Uma coleta já
+existente para o mesmo jogador e data é rejeitada para evitar duplicidade.
+
+As fichas legadas em PDF, PNG ou JPEG são processadas localmente e apresentadas
+em uma grade editável. Após revisão, elas podem ser gravadas em lote usando
+`MASSA`, `EVA_DOR`, `SOMA_FRENTE`, `SOMA_VERSO` e `OBSERVACOES`; as quatro
+medidas individuais das pernas permanecem ausentes porque o documento original
+não possui essa separação. O lote é atômico: qualquer erro impede todas as
+inserções daquele envio.
+
+As imagens e os documentos enviados nunca são armazenados no banco nem no
+sistema de arquivos. Somente as medidas revisadas são persistidas. A conversão
+de cor em temperatura e a identificação das caixas ainda são experimentais e
+devem ser validadas antes do uso definitivo.

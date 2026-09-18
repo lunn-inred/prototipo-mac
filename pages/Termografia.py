@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+from datetime import date
 from typing import Any
 
 import pandas as pd
@@ -15,7 +16,17 @@ from thermal_analysis import (
     temperature_matrix,
 )
 from legacy_thermography import extract_document
-from thermography_data import athlete_label, load_thermography_athletes
+from thermography_data import (
+    athlete_label,
+    load_thermography_athletes,
+    load_thermography_history,
+)
+from thermography_service import (
+    DuplicateThermographyError,
+    LegacyThermographyRecord,
+    save_image_thermography,
+    save_legacy_thermography,
+)
 
 st.set_page_config(
     page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide"
@@ -203,6 +214,10 @@ def render_view(
 
 st.title("Termografia")
 
+flash_message = st.session_state.pop("thermography_flash", None)
+if flash_message:
+    st.success(flash_message)
+
 try:
     athletes = load_thermography_athletes()
 except Exception as error:
@@ -221,7 +236,7 @@ with st.container(border=True):
         athlete_ids,
         index=None,
         placeholder=(
-            "Selecione um jogador"
+            "Todos os jogadores"
             if athlete_ids
             else "Nenhum jogador disponível"
         ),
@@ -230,14 +245,41 @@ with st.container(border=True):
         key="thermography_history_player",
     )
 
+    try:
+        history_records = load_thermography_history(
+            selected_history_athlete_id
+        )
+    except Exception:
+        history_records = []
+        st.error("Não foi possível carregar o histórico térmico do banco.")
+
     history = pd.DataFrame(
-        columns=["Jogador", "Massa", "EVA Dor", "Frente", "Verso", "Observações"]
+        [
+            {
+                "Jogador": record["jogador"],
+                "Massa": record["massa"],
+                "EVA Dor": record["eva_dor"],
+                "Frente": record["frente"],
+                "Verso": record["verso"],
+                "Observações": record["observacoes"],
+            }
+            for record in history_records
+        ],
+        columns=["Jogador", "Massa", "EVA Dor", "Frente", "Verso", "Observações"],
     )
-    st.dataframe(history, width="stretch", hide_index=True)
-    st.info(
-        "Ainda não há histórico disponível. Os dados serão carregados quando "
-        "a view de termografia estiver integrada ao banco."
+    st.dataframe(
+        history,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Massa": st.column_config.NumberColumn(format="%.1f kg"),
+            "EVA Dor": st.column_config.NumberColumn(format="%d"),
+            "Frente": st.column_config.NumberColumn(format="%d"),
+            "Verso": st.column_config.NumberColumn(format="%d"),
+        },
     )
+    if not history_records:
+        st.info("Nenhuma coleta térmica encontrada para o filtro selecionado.")
 
 st.subheader("Documentos legados")
 with st.container(border=True):
@@ -308,6 +350,14 @@ with st.container(border=True):
             "Nenhum arquivo é persistido pelo protótipo."
         )
 
+editor_label_by_athlete_id = {
+    athlete_id: f"{athlete_label(athlete)} — ID {athlete_id}"
+    for athlete_id, athlete in athletes_by_id.items()
+}
+athlete_id_by_editor_label = {
+    label: athlete_id for athlete_id, label in editor_label_by_athlete_id.items()
+}
+
 extraction_results = st.session_state.get("legacy_extraction_results", [])
 if extraction_results:
     extracted_rows = []
@@ -335,36 +385,68 @@ if extraction_results:
                 else:
                     st.warning("A data da página não foi identificada.")
                 for row in page_result["rows"]:
-                    extracted_rows.append(
-                        {
-                            key: value
-                            for key, value in row.items()
-                            if key not in {
-                                "_raw",
-                                "id_atleta",
-                                "Confiança jogador",
-                                "Confiança OCR",
-                                "Revisão",
-                            }
+                    review_row = {
+                        key: value
+                        for key, value in row.items()
+                        if key not in {
+                            "_raw",
+                            "id_atleta",
+                            "Confiança jogador",
+                            "Confiança OCR",
+                            "Revisão",
                         }
+                    }
+                    matched_id = row.get("id_atleta")
+                    review_row["Jogador"] = (
+                        editor_label_by_athlete_id.get(int(matched_id))
+                        if matched_id is not None
+                        else None
                     )
+                    extracted_rows.append(review_row)
                 if not page_result["rows"]:
                     st.warning("Nenhuma linha preenchida foi identificada.")
 
     if extracted_rows:
         st.markdown("#### Revisão da extração")
         st.caption(
-            "Confira todas as células antes de qualquer futura persistência."
+            "Todas as células abaixo são editáveis. Confira e corrija os "
+            "valores antes de registrar no banco."
         )
-        review_frame = pd.DataFrame(extracted_rows)
-        athlete_options = sorted(
-            {athlete_label(athlete) for athlete in athletes}
+        review_columns = [
+            "Jogador",
+            "Massa",
+            "EVA Dor",
+            "Frente",
+            "Verso",
+            "Observações",
+            "Data",
+        ]
+        review_frame = pd.DataFrame(extracted_rows).reindex(columns=review_columns)
+        review_frame["Jogador"] = review_frame["Jogador"].astype("string")
+        review_frame["Massa"] = pd.to_numeric(
+            review_frame["Massa"], errors="coerce"
+        ).astype("Float64")
+        for numeric_column in ("EVA Dor", "Frente", "Verso"):
+            review_frame[numeric_column] = pd.to_numeric(
+                review_frame[numeric_column], errors="coerce"
+            ).astype("Int64")
+        review_frame["Observações"] = (
+            review_frame["Observações"].fillna("").astype("string")
+        )
+        review_frame["Data"] = pd.to_datetime(
+            review_frame["Data"], errors="coerce"
+        )
+        athlete_options = sorted(athlete_id_by_editor_label)
+        editor_batch_key = st.session_state.get(
+            "legacy_batch_signature", "sem_lote"
         )
         edited_rows = st.data_editor(
             review_frame,
             width="stretch",
             hide_index=True,
             num_rows="dynamic",
+            disabled=False,
+            column_order=review_columns,
             column_config={
                 "Jogador": st.column_config.SelectboxColumn(
                     options=athlete_options,
@@ -382,9 +464,16 @@ if extraction_results:
                 "Verso": st.column_config.NumberColumn(
                     min_value=0, step=1, format="%d"
                 ),
-                "Data": st.column_config.DateColumn(format="DD/MM/YYYY"),
+                "Observações": st.column_config.TextColumn(
+                    width="large",
+                    default="",
+                ),
+                "Data": st.column_config.DateColumn(
+                    format="DD/MM/YYYY",
+                    required=True,
+                ),
             },
-            key="legacy_review_editor",
+            key=f"legacy_review_editor_{editor_batch_key}",
         )
         st.session_state["legacy_edited_rows"] = edited_rows.to_dict("records")
         st.info(
@@ -392,6 +481,57 @@ if extraction_results:
             "SOMA_FRENTE e SOMA_VERSO. As quatro medidas individuais por "
             "perna permanecerão vazias nos registros legados."
         )
+        if st.button(
+            "Registrar documentos revisados no banco",
+            type="primary",
+            key="save_legacy_thermography",
+            disabled=not athlete_options,
+        ):
+            try:
+                legacy_records = []
+                for row_number, row in enumerate(
+                    edited_rows.to_dict("records"), start=1
+                ):
+                    athlete_id = athlete_id_by_editor_label.get(row.get("Jogador"))
+                    if athlete_id is None:
+                        raise ValueError(
+                            f"Linha {row_number}: selecione um jogador cadastrado."
+                        )
+                    raw_date = row.get("Data")
+                    if raw_date is None or pd.isna(raw_date):
+                        raise ValueError(
+                            f"Linha {row_number}: informe a data da coleta."
+                        )
+                    parsed_date = pd.to_datetime(raw_date, errors="raise").date()
+                    raw_observations = row.get("Observações")
+                    observations_value = (
+                        None
+                        if raw_observations is None or pd.isna(raw_observations)
+                        else str(raw_observations)
+                    )
+                    legacy_records.append(
+                        LegacyThermographyRecord(
+                            athlete_id=athlete_id,
+                            collected_at=parsed_date,
+                            mass=row.get("Massa"),
+                            pain_score=row.get("EVA Dor"),
+                            front=row.get("Frente"),
+                            back=row.get("Verso"),
+                            observations=observations_value,
+                        )
+                    )
+                inserted = save_legacy_thermography(legacy_records)
+            except (ValueError, RuntimeError, DuplicateThermographyError) as error:
+                st.error(str(error))
+            except Exception:
+                st.error("Não foi possível registrar os documentos no banco.")
+            else:
+                load_thermography_history.clear()
+                st.session_state["thermography_flash"] = (
+                    f"{len(legacy_records)} coleta(s) legada(s) registrada(s) "
+                    f"com {inserted} medida(s)."
+                )
+                st.rerun()
 
 st.divider()
 st.subheader("Nova análise térmica")
@@ -400,7 +540,7 @@ st.caption(
 )
 
 with st.container(border=True):
-    record_columns = st.columns(3)
+    record_columns = st.columns(4)
     with record_columns[0]:
         selected_player_id = st.selectbox(
             "Jogador *",
@@ -428,6 +568,12 @@ with st.container(border=True):
             key="thermography_mass",
         )
     with record_columns[2]:
+        collection_date = st.date_input(
+            "Data da coleta *",
+            value=date.today(),
+            key="thermography_collection_date",
+        )
+    with record_columns[3]:
         pain_score = st.number_input(
             "EVA Dor *",
             min_value=0,
@@ -442,7 +588,7 @@ with st.container(border=True):
         placeholder="Campo opcional",
         key="thermography_observations",
     )
-    st.caption("* Campos obrigatórios para o futuro envio ao banco.")
+    st.caption("* Campos obrigatórios para o envio ao banco.")
 
 upload_columns = st.columns(2)
 with upload_columns[0]:
@@ -546,7 +692,11 @@ if all(view_metrics.values()):
     )
     selected_player = athletes_by_id.get(selected_player_id)
     record = {
-        "Jogador": athlete_label(selected_player) if selected_player else "",
+        "Jogador": (
+            editor_label_by_athlete_id.get(int(selected_player_id))
+            if selected_player is not None
+            else None
+        ),
         "Massa": mass,
         "EVA Dor": pain_score,
         "Frente": front_pixels,
@@ -572,38 +722,113 @@ if all(view_metrics.values()):
             st.caption("Pixels quentes das duas pernas")
 
     st.subheader("Registro preparado")
-    st.dataframe(
-        pd.DataFrame([record]),
+    st.caption(
+        "Edite Jogador, Massa, EVA Dor e Observações diretamente na tabela. "
+        "Frente e Verso são calculados automaticamente."
+    )
+    prepared_frame = pd.DataFrame([record])
+    prepared_frame["Jogador"] = prepared_frame["Jogador"].astype("string")
+    prepared_frame["Massa"] = pd.to_numeric(
+        prepared_frame["Massa"], errors="coerce"
+    ).astype("Float64")
+    prepared_frame["EVA Dor"] = pd.to_numeric(
+        prepared_frame["EVA Dor"], errors="coerce"
+    ).astype("Int64")
+    prepared_frame["Frente"] = prepared_frame["Frente"].astype("Int64")
+    prepared_frame["Verso"] = prepared_frame["Verso"].astype("Int64")
+    prepared_frame["Observações"] = (
+        prepared_frame["Observações"].fillna("").astype("string")
+    )
+    edited_prepared_frame = st.data_editor(
+        prepared_frame,
         width="stretch",
         hide_index=True,
+        num_rows="fixed",
+        disabled=["Frente", "Verso"],
         column_config={
-            "Massa": st.column_config.NumberColumn(format="%.1f kg"),
-            "EVA Dor": st.column_config.NumberColumn(format="%d"),
+            "Jogador": st.column_config.SelectboxColumn(
+                options=sorted(athlete_id_by_editor_label),
+                required=True,
+            ),
+            "Massa": st.column_config.NumberColumn(
+                min_value=0.1,
+                step=0.1,
+                format="%.1f kg",
+                required=True,
+            ),
+            "EVA Dor": st.column_config.NumberColumn(
+                min_value=0,
+                max_value=10,
+                step=1,
+                format="%d",
+                required=True,
+            ),
             "Frente": st.column_config.NumberColumn(format="%d"),
             "Verso": st.column_config.NumberColumn(format="%d"),
+            "Observações": st.column_config.TextColumn(
+                width="large",
+                default="",
+            ),
         },
+        key=f"thermography_record_editor_{pair_signature}",
     )
+    prepared_record = edited_prepared_frame.iloc[0].to_dict()
+    prepared_player_id = athlete_id_by_editor_label.get(
+        prepared_record.get("Jogador")
+    )
+    prepared_mass = prepared_record.get("Massa")
+    prepared_pain_score = prepared_record.get("EVA Dor")
+    prepared_observations = prepared_record.get("Observações")
+    if prepared_observations is None or pd.isna(prepared_observations):
+        prepared_observations = ""
+    else:
+        prepared_observations = str(prepared_observations).strip()
+
     missing_fields = []
-    if selected_player_id is None:
+    if prepared_player_id is None:
         missing_fields.append("Jogador")
-    if mass is None:
+    if prepared_mass is None or pd.isna(prepared_mass):
         missing_fields.append("Massa")
-    if pain_score is None:
+    if prepared_pain_score is None or pd.isna(prepared_pain_score):
         missing_fields.append("EVA Dor")
 
     if missing_fields:
         st.warning(
-            "Preencha os campos obrigatórios antes do futuro envio ao banco: "
+            "Preencha os campos obrigatórios antes do envio ao banco: "
             + ", ".join(missing_fields)
             + "."
         )
     else:
-        st.success(
-            "Registro completo para futura persistência. "
-            "Observações permanece opcional."
-        )
-    st.caption(
-        "O registro está somente na sessão atual e ainda não é persistido no banco."
-    )
+        st.success("Registro pronto para envio. Observações permanece opcional.")
+
+    if st.button(
+        "Registrar coleta no banco",
+        type="primary",
+        disabled=bool(missing_fields),
+        key="save_image_thermography",
+    ):
+        try:
+            inserted = save_image_thermography(
+                athlete_id=int(prepared_player_id),
+                collected_at=collection_date,
+                mass=prepared_mass,
+                pain_score=prepared_pain_score,
+                front_right=view_metrics["front"]["right"]["hot_pixels"],
+                front_left=view_metrics["front"]["left"]["hot_pixels"],
+                back_right=view_metrics["back"]["right"]["hot_pixels"],
+                back_left=view_metrics["back"]["left"]["hot_pixels"],
+                observations=prepared_observations,
+            )
+        except (ValueError, RuntimeError, DuplicateThermographyError) as error:
+            st.error(str(error))
+        except Exception:
+            st.error("Não foi possível registrar a coleta no banco.")
+        else:
+            load_thermography_history.clear()
+            st.session_state["thermography_flash"] = (
+                f"Coleta registrada com {inserted} medida(s)."
+            )
+            st.rerun()
+    st.caption("As imagens não são armazenadas; somente as medidas são enviadas.")
 else:
     stored_metrics.clear()
