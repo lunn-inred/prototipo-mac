@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+import re
 from typing import Mapping
 
 import cv2
@@ -18,6 +20,82 @@ def extract_colorbar(image: Image.Image) -> np.ndarray:
     if strip.size == 0:
         raise ValueError("Não foi possível extrair a barra térmica da imagem.")
     return strip.mean(axis=1).astype(np.uint8)
+
+
+def _temperature_number(text: str) -> float | None:
+    """Extrai o primeiro número decimal plausível retornado pelo OCR."""
+    match = re.search(r"\d{1,3}[.,]\d{1,2}", text)
+    if match is None:
+        return None
+    value = float(match.group(0).replace(",", "."))
+    return value if -50.0 <= value <= 200.0 else None
+
+
+def extract_temperature_scale(
+    image: Image.Image,
+    ocr: Callable[[np.ndarray], str] | None = None,
+) -> tuple[float, float]:
+    """Lê Tmin/Tmax nas regiões usadas pelo layout HIKMICRO do protótipo.
+
+    Reutiliza a estratégia de ``sol_ia``: Tmax no canto superior direito e
+    Tmin no canto inferior direito, com binarização e OCR restrito a números.
+    Retorna ``(Tmin, Tmax)`` e rejeita resultados incompletos ou invertidos.
+    """
+    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    height, width = rgb.shape[:2]
+    if height < 10 or width < 10:
+        raise ValueError("A imagem é pequena demais para ler a escala térmica.")
+
+    regions = (
+        rgb[int(height * 0.02):int(height * 0.25), int(width * 0.82):width],
+        rgb[int(height * 0.65):int(height * 0.90), int(width * 0.82):width],
+    )
+
+    default_ocr = ocr is None
+    if default_ocr:
+        import pytesseract
+
+        def ocr(processed: np.ndarray) -> str:
+            return pytesseract.image_to_string(
+                processed,
+                config="--psm 11 -c tessedit_char_whitelist=0123456789.,",
+            )
+
+    values: list[float | None] = []
+    for region in regions:
+        if region.size == 0:
+            values.append(None)
+            continue
+        gray = cv2.cvtColor(region, cv2.COLOR_RGB2GRAY)
+        enlarged = cv2.resize(
+            gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC
+        )
+        try:
+            _, threshold = cv2.threshold(
+                enlarged, 200, 255, cv2.THRESH_BINARY
+            )
+            value = _temperature_number(ocr(threshold))
+            if value is None and default_ocr:
+                _, alternate = cv2.threshold(
+                    enlarged, 150, 255, cv2.THRESH_BINARY
+                )
+                value = _temperature_number(ocr(alternate))
+        except Exception as error:
+            raise ValueError(
+                "Não foi possível executar o OCR da escala térmica."
+            ) from error
+        values.append(value)
+
+    maximum_temperature, minimum_temperature = values
+    if maximum_temperature is None or minimum_temperature is None:
+        raise ValueError(
+            "Não foi possível reconhecer automaticamente Tmin e Tmax na imagem."
+        )
+    if maximum_temperature <= minimum_temperature:
+        raise ValueError(
+            "A escala reconhecida é inválida: Tmax deve ser maior que Tmin."
+        )
+    return float(minimum_temperature), float(maximum_temperature)
 
 
 def temperature_matrix(

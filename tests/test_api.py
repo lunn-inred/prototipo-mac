@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from athlete_service import AthleteInUseError
 from mac_api.main import app
+from settings import api_key
 from thermography_service import DuplicateThermographyError
 
 
@@ -34,7 +35,9 @@ class ApiInfrastructureTests(unittest.TestCase):
 
 class AthleteApiTests(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        key = api_key()
+        headers = {"X-API-Key": key} if key else {}
+        self.client = TestClient(app, headers=headers)
 
     @patch("mac_api.main.data_repository.list_athletes")
     def test_lists_athletes(self, list_athletes):
@@ -65,7 +68,9 @@ class AthleteApiTests(unittest.TestCase):
 
 class MeasurementApiTests(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        key = api_key()
+        headers = {"X-API-Key": key} if key else {}
+        self.client = TestClient(app, headers=headers)
 
     @patch("mac_api.main.data_repository.jump_records", return_value=[])
     @patch("mac_api.main.data_repository.gps_records", return_value=[])
@@ -74,6 +79,20 @@ class MeasurementApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/v1/players/dashboard").status_code, 200)
         self.assertEqual(self.client.get("/api/v1/jumps").status_code, 200)
         self.assertEqual(self.client.get("/api/v1/gps").status_code, 200)
+
+    @patch("mac_api.main.extract_thermography_scale")
+    def test_extracts_thermography_scale_without_storing_image(self, extract):
+        extract.return_value = {
+            "minimum_temperature": 26.8,
+            "maximum_temperature": 34.6,
+        }
+        response = self.client.post(
+            "/api/v1/thermography/scale",
+            files={"file": ("frente.jpg", b"imagem", "image/jpeg")},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["minimum_temperature"], 26.8)
+        extract.assert_called_once_with(b"imagem")
 
     @patch("mac_api.main.analyze_thermography_view")
     def test_analyzes_uploaded_thermography_without_storing_image(self, analyze):

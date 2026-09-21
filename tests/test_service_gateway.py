@@ -35,6 +35,25 @@ class ServiceGatewayTests(unittest.TestCase):
         self.assertEqual(athletes[0]["data_nascimento"], date(2000, 1, 2))
         self.assertEqual(measurements[0]["data"], date(2026, 9, 18))
 
+    @patch(
+        "service_gateway._request",
+        return_value={
+            "minimum_temperature": 26.8,
+            "maximum_temperature": 34.6,
+        },
+    )
+    @patch("service_gateway.remote_api_enabled", return_value=True)
+    def test_remote_temperature_scale_uses_upload_endpoint(self, _enabled, request):
+        result = service_gateway.extract_thermography_scale(b"imagem")
+        self.assertEqual(result["maximum_temperature"], 34.6)
+        self.assertEqual(
+            request.call_args.args,
+            ("POST", "/api/v1/thermography/scale"),
+        )
+        self.assertEqual(
+            request.call_args.kwargs["files"]["file"][1], b"imagem"
+        )
+
     @patch("service_gateway._request", return_value={"id_atleta": 8})
     @patch("service_gateway.remote_api_enabled", return_value=True)
     def test_remote_athlete_create_serializes_birth_date(self, _enabled, request):

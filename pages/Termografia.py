@@ -22,6 +22,7 @@ from thermography_data import (
 from thermography_service import DuplicateThermographyError, LegacyThermographyRecord
 from service_gateway import (
     analyze_thermography_view,
+    extract_thermography_scale,
     extract_legacy_documents,
     save_image_thermography,
     save_legacy_thermography,
@@ -35,7 +36,7 @@ st.set_page_config(
 MAX_IMAGE_SIZE = 20 * 1024 * 1024
 DEFAULT_MIN_TEMPERATURE = 20.0
 DEFAULT_MAX_TEMPERATURE = 40.0
-DEFAULT_HOT_FRACTION = 0.20
+DEFAULT_HOT_POSITION = 0.90
 LEGS = {"Perna direita": "right", "Perna esquerda": "left"}
 VIEW_LABELS = {"front": "Frente", "back": "Verso"}
 
@@ -70,6 +71,11 @@ def crop_from_box(image: Image.Image, box: dict[str, int]) -> Image.Image:
 
 
 @st.cache_data(show_spinner=False)
+def cached_temperature_scale(content: bytes) -> dict[str, float]:
+    return extract_thermography_scale(content)
+
+
+@st.cache_data(show_spinner=False)
 def cached_analysis(
     content: bytes, view: str, minimum_temperature: float,
     maximum_temperature: float, threshold: float,
@@ -91,6 +97,13 @@ def render_view(
     view_label = VIEW_LABELS[view_key]
     st.markdown(f"#### Imagem de {view_label.lower()}")
     st.caption(name)
+    if item.get("scale_detected"):
+        st.caption("Tmin e Tmax reconhecidos automaticamente na imagem.")
+    else:
+        st.info(
+            "A escala não foi reconhecida automaticamente. Confira os valores "
+            "iniciais e ajuste-os manualmente, se necessário."
+        )
 
     with st.container(border=True):
         minimum_column, maximum_column = st.columns(2)
@@ -115,7 +128,7 @@ def render_view(
         item["maximum_temperature"] = maximum_temperature
         valid_scale = maximum_temperature > minimum_temperature
         if valid_scale:
-            default_threshold = maximum_temperature - DEFAULT_HOT_FRACTION * (
+            default_threshold = minimum_temperature + DEFAULT_HOT_POSITION * (
                 maximum_temperature - minimum_temperature
             )
             slider_step = max(
@@ -129,11 +142,11 @@ def render_view(
                 step=float(slider_step),
                 key=(
                     f"thermography_threshold_{view_key}_{image_signature(content)}_"
-                    f"{minimum_temperature:.4f}_{maximum_temperature:.4f}"
+                    f"{minimum_temperature:.4f}_{maximum_temperature:.4f}_90pct"
                 ),
             )
             st.caption(
-                "Valor padrão: início dos 20% mais quentes da escala informada."
+                "Valor padrão: 90% da escala térmica informada."
             )
         else:
             threshold = minimum_temperature
@@ -208,131 +221,6 @@ athletes_by_id = {
 }
 athlete_ids = list(athletes_by_id)
 
-st.subheader("Histórico térmico")
-with st.container(border=True):
-    selected_history_athlete_id = st.selectbox(
-        "Jogador",
-        athlete_ids,
-        index=None,
-        placeholder=(
-            "Todos os jogadores"
-            if athlete_ids
-            else "Nenhum jogador disponível"
-        ),
-        format_func=lambda athlete_id: athlete_label(athletes_by_id[athlete_id]),
-        disabled=not athlete_ids,
-        key="thermography_history_player",
-    )
-
-    try:
-        history_records = load_thermography_history(
-            selected_history_athlete_id
-        )
-    except Exception:
-        history_records = []
-        st.error("Não foi possível carregar o histórico térmico do banco.")
-
-    history = pd.DataFrame(
-        [
-            {
-                "Jogador": record["jogador"],
-                "Massa": record["massa"],
-                "EVA Dor": record["eva_dor"],
-                "Frente": record["frente"],
-                "Verso": record["verso"],
-                "Observações": record["observacoes"],
-            }
-            for record in history_records
-        ],
-        columns=["Jogador", "Massa", "EVA Dor", "Frente", "Verso", "Observações"],
-    )
-    st.dataframe(
-        history,
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "Massa": st.column_config.NumberColumn(format="%.1f kg"),
-            "EVA Dor": st.column_config.NumberColumn(format="%d"),
-            "Frente": st.column_config.NumberColumn(format="%d"),
-            "Verso": st.column_config.NumberColumn(format="%d"),
-        },
-    )
-    if not history_records:
-        st.info("Nenhuma coleta térmica encontrada para o filtro selecionado.")
-
-st.subheader("Documentos legados")
-with st.container(border=True):
-    legacy_documents = st.file_uploader(
-        "Planilhas e fichas preenchidas manualmente",
-        type=["pdf", "png", "jpg", "jpeg"],
-        accept_multiple_files=True,
-        help=(
-            "Os documentos são enviados ao LlamaParse Cloud para extração. "
-            "Se o serviço falhar ou a tabela não for reconhecida, o sistema "
-            "usa o OCR local como alternativa."
-        ),
-        key="thermography_legacy_documents",
-    )
-
-    if legacy_documents:
-        batch_signature = hashlib.sha256(
-            b"".join(
-                hashlib.sha256(document.getvalue()).digest()
-                for document in legacy_documents
-            )
-        ).hexdigest()
-        if st.session_state.get("legacy_batch_signature") != batch_signature:
-            st.session_state.pop("legacy_extraction_results", None)
-            st.session_state.pop("legacy_edited_rows", None)
-            st.session_state.pop("legacy_athlete_validation", None)
-
-        if st.button(
-            "Extrair conteúdo",
-            type="primary",
-            key="extract_legacy_documents",
-        ):
-            extracted_documents = []
-            progress = st.progress(0, text="Preparando documentos...")
-            for index, document in enumerate(legacy_documents):
-                try:
-                    _, extraction = extract_legacy_documents(
-                        [(document.name, document.getvalue())]
-                    )[0]
-                    extracted_documents.append(
-                        {
-                            "filename": document.name,
-                            "pages": extraction.pages,
-                            "used_fallback": extraction.used_fallback,
-                            "fallback_reason": extraction.fallback_reason,
-                            "error": None,
-                        }
-                    )
-                except Exception as error:
-                    extracted_documents.append(
-                        {
-                            "filename": document.name,
-                            "pages": [],
-                            "error": str(error),
-                        }
-                    )
-                progress.progress(
-                    (index + 1) / len(legacy_documents),
-                    text=f"Processando {document.name}",
-                )
-            progress.empty()
-            st.session_state["legacy_batch_signature"] = batch_signature
-            st.session_state["legacy_extraction_results"] = extracted_documents
-            st.session_state.pop("legacy_athlete_validation", None)
-    else:
-        st.session_state.pop("legacy_batch_signature", None)
-        st.session_state.pop("legacy_extraction_results", None)
-        st.session_state.pop("legacy_edited_rows", None)
-        st.session_state.pop("legacy_athlete_validation", None)
-        st.caption(
-            "Envie os documentos e execute a extração. "
-            "Nenhum arquivo é persistido pelo protótipo."
-        )
-
 editor_label_by_athlete_id = {
     athlete_id: f"{athlete_label(athlete)} — ID {athlete_id}"
     for athlete_id, athlete in athletes_by_id.items()
@@ -341,242 +229,316 @@ athlete_id_by_editor_label = {
     label: athlete_id for athlete_id, label in editor_label_by_athlete_id.items()
 }
 
-extraction_results = st.session_state.get("legacy_extraction_results", [])
-if extraction_results:
-    extracted_rows = []
-    for document_result in extraction_results:
-        with st.expander(document_result["filename"]):
-            if document_result["error"]:
-                st.error(document_result["error"])
-                continue
-            if document_result.get("used_fallback"):
-                st.warning(
-                    "LlamaParse não pôde concluir a extração; foi utilizado "
-                    "o OCR local (Tesseract). "
-                    + str(document_result.get("fallback_reason") or "")
+def render_forms() -> None:
+    """Renderiza o fluxo opcional de importação de formulários manuscritos."""
+    with st.expander("Formulários", expanded=False):
+        legacy_documents = st.file_uploader(
+            "Planilhas e fichas preenchidas manualmente",
+            type=["pdf", "png", "jpg", "jpeg"],
+            accept_multiple_files=True,
+            help=(
+                "Os documentos são enviados ao LlamaParse Cloud para extração. "
+                "Se o serviço falhar ou a tabela não for reconhecida, o sistema "
+                "usa o OCR local como alternativa."
+            ),
+            key="thermography_legacy_documents",
+        )
+
+        if legacy_documents:
+            batch_signature = hashlib.sha256(
+                b"".join(
+                    hashlib.sha256(document.getvalue()).digest()
+                    for document in legacy_documents
                 )
-            for page_number, page_result in enumerate(
-                document_result["pages"], start=1
+            ).hexdigest()
+            if st.session_state.get("legacy_batch_signature") != batch_signature:
+                st.session_state.pop("legacy_extraction_results", None)
+                st.session_state.pop("legacy_edited_rows", None)
+                st.session_state.pop("legacy_athlete_validation", None)
+
+            if st.button(
+                "Extrair conteúdo",
+                type="primary",
+                key="extract_legacy_documents",
             ):
-                st.markdown(f"**Página {page_number}**")
-                diagnostic = page_result["diagnostic"].copy()
-                diagnostic.thumbnail((900, 700))
-                st.image(
-                    diagnostic,
-                    caption=(
-                        "Linhas candidatas identificadas em verde"
-                        if document_result.get("used_fallback")
-                        else "Página enviada para extração"
-                    ),
-                    width=700,
-                )
-                if page_result.get("error"):
-                    st.error(page_result["error"])
-                    continue
-                if page_result["date"]:
-                    st.caption(f"Data identificada: {page_result['date']}")
-                else:
-                    st.warning("A data da página não foi identificada.")
-                for row in page_result["rows"]:
-                    review_row = {
-                        key: value
-                        for key, value in row.items()
-                        if key not in {
-                            "_raw",
-                            "Confiança OCR",
-                            "Revisão",
-                        }
-                    }
-                    extracted_rows.append(review_row)
-                if not page_result["rows"]:
-                    st.warning("Nenhuma linha preenchida foi identificada.")
-
-    if extracted_rows:
-        st.markdown("#### Revisão da extração")
-        st.caption(
-            "Todas as células abaixo são editáveis. Confira e corrija os "
-            "valores antes de registrar no banco."
-        )
-        review_columns = [
-            "Jogador",
-            "Massa",
-            "EVA Dor",
-            "Frente",
-            "Verso",
-            "Observações",
-            "Data",
-        ]
-        review_frame = pd.DataFrame(extracted_rows).reindex(columns=review_columns)
-        review_frame["Jogador"] = review_frame["Jogador"].astype("string")
-        review_frame["Massa"] = pd.to_numeric(
-            review_frame["Massa"], errors="coerce"
-        ).astype("Float64")
-        for numeric_column in ("EVA Dor", "Frente", "Verso"):
-            review_frame[numeric_column] = pd.to_numeric(
-                review_frame[numeric_column], errors="coerce"
-            ).astype("Int64")
-        review_frame["Observações"] = (
-            review_frame["Observações"].fillna("").astype("string")
-        )
-        review_frame["Data"] = pd.to_datetime(
-            review_frame["Data"], errors="coerce"
-        )
-        editor_batch_key = st.session_state.get(
-            "legacy_batch_signature", "sem_lote"
-        )
-        edited_rows = st.data_editor(
-            review_frame,
-            width="stretch",
-            hide_index=True,
-            num_rows="dynamic",
-            disabled=False,
-            column_order=review_columns,
-            column_config={
-                "Jogador": st.column_config.TextColumn(
-                    required=True,
-                ),
-                "Massa": st.column_config.NumberColumn(
-                    min_value=0.1, format="%.1f"
-                ),
-                "EVA Dor": st.column_config.NumberColumn(
-                    min_value=0, max_value=10, step=1, format="%d"
-                ),
-                "Frente": st.column_config.NumberColumn(
-                    min_value=0, step=1, format="%d"
-                ),
-                "Verso": st.column_config.NumberColumn(
-                    min_value=0, step=1, format="%d"
-                ),
-                "Observações": st.column_config.TextColumn(
-                    width="large",
-                    default="",
-                ),
-                "Data": st.column_config.DateColumn(
-                    format="DD/MM/YYYY",
-                    required=True,
-                ),
-            },
-            key=f"legacy_review_editor_{editor_batch_key}",
-        )
-        edited_records = (
-            edited_rows.astype(object)
-            .where(pd.notna(edited_rows), None)
-            .to_dict("records")
-        )
-        st.session_state["legacy_edited_rows"] = edited_records
-        current_review_signature = review_rows_signature(edited_records)
-        athlete_validation = st.session_state.get("legacy_athlete_validation")
-        if (
-            athlete_validation
-            and athlete_validation["signature"] != current_review_signature
-        ):
+                extracted_documents = []
+                progress = st.progress(0, text="Preparando documentos...")
+                for index, document in enumerate(legacy_documents):
+                    try:
+                        _, extraction = extract_legacy_documents(
+                            [(document.name, document.getvalue())]
+                        )[0]
+                        extracted_documents.append(
+                            {
+                                "filename": document.name,
+                                "pages": extraction.pages,
+                                "used_fallback": extraction.used_fallback,
+                                "fallback_reason": extraction.fallback_reason,
+                                "error": None,
+                            }
+                        )
+                    except Exception as error:
+                        extracted_documents.append(
+                            {
+                                "filename": document.name,
+                                "pages": [],
+                                "error": str(error),
+                            }
+                        )
+                    progress.progress(
+                        (index + 1) / len(legacy_documents),
+                        text=f"Processando {document.name}",
+                    )
+                progress.empty()
+                st.session_state["legacy_batch_signature"] = batch_signature
+                st.session_state["legacy_extraction_results"] = extracted_documents
+                st.session_state.pop("legacy_athlete_validation", None)
+        else:
+            st.session_state.pop("legacy_batch_signature", None)
+            st.session_state.pop("legacy_extraction_results", None)
+            st.session_state.pop("legacy_edited_rows", None)
             st.session_state.pop("legacy_athlete_validation", None)
-            athlete_validation = None
-            st.warning(
-                "Os dados foram alterados. Valide os atletas novamente antes "
-                "de registrar."
+            st.caption(
+                "Envie os documentos e execute a extração. "
+                "Nenhum arquivo é persistido pelo protótipo."
             )
 
-        if st.button(
-            "Validar atletas",
-            key=f"validate_legacy_athletes_{editor_batch_key}",
-            disabled=not athletes,
-        ):
-            resolutions = validate_legacy_athletes(edited_records, athletes)
-            athlete_validation = {
-                "signature": current_review_signature,
-                "resolutions": resolutions,
-            }
-            st.session_state["legacy_athlete_validation"] = athlete_validation
-
-        validation_is_current = bool(
-            athlete_validation
-            and athlete_validation["signature"] == current_review_signature
-        )
-        validated_ids = validated_athlete_ids(
-            athlete_validation, current_review_signature
-        )
-        validation_has_errors = validated_ids is None
-        if validation_is_current:
-            resolutions = athlete_validation["resolutions"]
-            validation_rows = [
-                {
-                    "Linha": item["linha"],
-                    "Nome informado": item["nome_informado"],
-                    "Atleta cadastrado": item["atleta"] or "—",
-                    "ID": item["id_atleta"],
-                    "Status": item["erro"] or "Validado",
-                }
-                for item in resolutions
-            ]
-            st.markdown("#### Validação dos atletas")
-            st.dataframe(
-                pd.DataFrame(validation_rows),
-                width="stretch",
-                hide_index=True,
-            )
-            if validation_has_errors:
-                for item in resolutions:
-                    if item["erro"]:
-                        st.error(f"Linha {item['linha']}: {item['erro']}")
-            else:
-                st.success("Todos os atletas foram validados.")
-
-        st.info(
-            "Frente e Verso dos documentos serão associados às medidas "
-            "SOMA_FRENTE e SOMA_VERSO. As quatro medidas individuais por "
-            "perna permanecerão vazias nos registros legados."
-        )
-        if st.button(
-            "Registrar documentos revisados no banco",
-            type="primary",
-            key="save_legacy_thermography",
-            disabled=not validation_is_current or validation_has_errors,
-        ):
-            try:
-                if validated_ids is None:
-                    raise ValueError("Valide todos os atletas antes de registrar.")
-                legacy_records = []
-                for row_number, (row, athlete_id) in enumerate(
-                    zip(edited_records, validated_ids), start=1
-                ):
-                    raw_date = row.get("Data")
-                    if raw_date is None or pd.isna(raw_date):
-                        raise ValueError(
-                            f"Linha {row_number}: informe a data da coleta."
+        extraction_results = st.session_state.get("legacy_extraction_results", [])
+        if extraction_results:
+            extracted_rows = []
+            for document_result in extraction_results:
+                with st.expander(document_result["filename"]):
+                    if document_result["error"]:
+                        st.error(document_result["error"])
+                        continue
+                    if document_result.get("used_fallback"):
+                        st.warning(
+                            "LlamaParse não pôde concluir a extração; foi utilizado "
+                            "o OCR local (Tesseract). "
+                            + str(document_result.get("fallback_reason") or "")
                         )
-                    parsed_date = pd.to_datetime(raw_date, errors="raise").date()
-                    raw_observations = row.get("Observações")
-                    observations_value = (
-                        None
-                        if raw_observations is None or pd.isna(raw_observations)
-                        else str(raw_observations)
-                    )
-                    legacy_records.append(
-                        LegacyThermographyRecord(
-                            athlete_id=athlete_id,
-                            collected_at=parsed_date,
-                            mass=row.get("Massa"),
-                            pain_score=row.get("EVA Dor"),
-                            front=row.get("Frente"),
-                            back=row.get("Verso"),
-                            observations=observations_value,
+                    for page_number, page_result in enumerate(
+                        document_result["pages"], start=1
+                    ):
+                        st.markdown(f"**Página {page_number}**")
+                        diagnostic = page_result["diagnostic"].copy()
+                        diagnostic.thumbnail((900, 700))
+                        st.image(
+                            diagnostic,
+                            caption=(
+                                "Linhas candidatas identificadas em verde"
+                                if document_result.get("used_fallback")
+                                else "Página enviada para extração"
+                            ),
+                            width=700,
                         )
-                    )
-                inserted = save_legacy_thermography(legacy_records)
-            except (ValueError, RuntimeError, DuplicateThermographyError) as error:
-                st.error(str(error))
-            except Exception:
-                st.error("Não foi possível registrar os documentos no banco.")
-            else:
-                load_thermography_history.clear()
-                st.session_state["thermography_flash"] = (
-                    f"{len(legacy_records)} coleta(s) legada(s) registrada(s) "
-                    f"com {inserted} medida(s)."
+                        if page_result.get("error"):
+                            st.error(page_result["error"])
+                            continue
+                        if page_result["date"]:
+                            st.caption(f"Data identificada: {page_result['date']}")
+                        else:
+                            st.warning("A data da página não foi identificada.")
+                        for row in page_result["rows"]:
+                            review_row = {
+                                key: value
+                                for key, value in row.items()
+                                if key not in {
+                                    "_raw",
+                                    "Confiança OCR",
+                                    "Revisão",
+                                }
+                            }
+                            extracted_rows.append(review_row)
+                        if not page_result["rows"]:
+                            st.warning("Nenhuma linha preenchida foi identificada.")
+
+            if extracted_rows:
+                st.markdown("#### Revisão da extração")
+                st.caption(
+                    "Todas as células abaixo são editáveis. Confira e corrija os "
+                    "valores antes de registrar no banco."
                 )
-                st.rerun()
+                review_columns = [
+                    "Jogador",
+                    "Massa",
+                    "EVA Dor",
+                    "Frente",
+                    "Verso",
+                    "Observações",
+                    "Data",
+                ]
+                review_frame = pd.DataFrame(extracted_rows).reindex(columns=review_columns)
+                review_frame["Jogador"] = review_frame["Jogador"].astype("string")
+                review_frame["Massa"] = pd.to_numeric(
+                    review_frame["Massa"], errors="coerce"
+                ).astype("Float64")
+                for numeric_column in ("EVA Dor", "Frente", "Verso"):
+                    review_frame[numeric_column] = pd.to_numeric(
+                        review_frame[numeric_column], errors="coerce"
+                    ).astype("Int64")
+                review_frame["Observações"] = (
+                    review_frame["Observações"].fillna("").astype("string")
+                )
+                review_frame["Data"] = pd.to_datetime(
+                    review_frame["Data"], errors="coerce"
+                )
+                editor_batch_key = st.session_state.get(
+                    "legacy_batch_signature", "sem_lote"
+                )
+                edited_rows = st.data_editor(
+                    review_frame,
+                    width="stretch",
+                    hide_index=True,
+                    num_rows="dynamic",
+                    disabled=False,
+                    column_order=review_columns,
+                    column_config={
+                        "Jogador": st.column_config.TextColumn(
+                            required=True,
+                        ),
+                        "Massa": st.column_config.NumberColumn(
+                            min_value=0.1, format="%.1f"
+                        ),
+                        "EVA Dor": st.column_config.NumberColumn(
+                            min_value=0, max_value=10, step=1, format="%d"
+                        ),
+                        "Frente": st.column_config.NumberColumn(
+                            min_value=0, step=1, format="%d"
+                        ),
+                        "Verso": st.column_config.NumberColumn(
+                            min_value=0, step=1, format="%d"
+                        ),
+                        "Observações": st.column_config.TextColumn(
+                            width="large",
+                            default="",
+                        ),
+                        "Data": st.column_config.DateColumn(
+                            format="DD/MM/YYYY",
+                            required=True,
+                        ),
+                    },
+                    key=f"legacy_review_editor_{editor_batch_key}",
+                )
+                edited_records = (
+                    edited_rows.astype(object)
+                    .where(pd.notna(edited_rows), None)
+                    .to_dict("records")
+                )
+                st.session_state["legacy_edited_rows"] = edited_records
+                current_review_signature = review_rows_signature(edited_records)
+                athlete_validation = st.session_state.get("legacy_athlete_validation")
+                if (
+                    athlete_validation
+                    and athlete_validation["signature"] != current_review_signature
+                ):
+                    st.session_state.pop("legacy_athlete_validation", None)
+                    athlete_validation = None
+                    st.warning(
+                        "Os dados foram alterados. Valide os atletas novamente antes "
+                        "de registrar."
+                    )
 
-st.divider()
+                if st.button(
+                    "Validar atletas",
+                    key=f"validate_legacy_athletes_{editor_batch_key}",
+                    disabled=not athletes,
+                ):
+                    resolutions = validate_legacy_athletes(edited_records, athletes)
+                    athlete_validation = {
+                        "signature": current_review_signature,
+                        "resolutions": resolutions,
+                    }
+                    st.session_state["legacy_athlete_validation"] = athlete_validation
+
+                validation_is_current = bool(
+                    athlete_validation
+                    and athlete_validation["signature"] == current_review_signature
+                )
+                validated_ids = validated_athlete_ids(
+                    athlete_validation, current_review_signature
+                )
+                validation_has_errors = validated_ids is None
+                if validation_is_current:
+                    resolutions = athlete_validation["resolutions"]
+                    validation_rows = [
+                        {
+                            "Linha": item["linha"],
+                            "Nome informado": item["nome_informado"],
+                            "Atleta cadastrado": item["atleta"] or "—",
+                            "ID": item["id_atleta"],
+                            "Status": item["erro"] or "Validado",
+                        }
+                        for item in resolutions
+                    ]
+                    st.markdown("#### Validação dos atletas")
+                    st.dataframe(
+                        pd.DataFrame(validation_rows),
+                        width="stretch",
+                        hide_index=True,
+                    )
+                    if validation_has_errors:
+                        for item in resolutions:
+                            if item["erro"]:
+                                st.error(f"Linha {item['linha']}: {item['erro']}")
+                    else:
+                        st.success("Todos os atletas foram validados.")
+
+                st.info(
+                    "Frente e Verso dos documentos serão associados às medidas "
+                    "SOMA_FRENTE e SOMA_VERSO. As quatro medidas individuais por "
+                    "perna permanecerão vazias nos registros legados."
+                )
+                if st.button(
+                    "Registrar documentos revisados no banco",
+                    type="primary",
+                    key="save_legacy_thermography",
+                    disabled=not validation_is_current or validation_has_errors,
+                ):
+                    try:
+                        if validated_ids is None:
+                            raise ValueError("Valide todos os atletas antes de registrar.")
+                        legacy_records = []
+                        for row_number, (row, athlete_id) in enumerate(
+                            zip(edited_records, validated_ids), start=1
+                        ):
+                            raw_date = row.get("Data")
+                            if raw_date is None or pd.isna(raw_date):
+                                raise ValueError(
+                                    f"Linha {row_number}: informe a data da coleta."
+                                )
+                            parsed_date = pd.to_datetime(raw_date, errors="raise").date()
+                            raw_observations = row.get("Observações")
+                            observations_value = (
+                                None
+                                if raw_observations is None or pd.isna(raw_observations)
+                                else str(raw_observations)
+                            )
+                            legacy_records.append(
+                                LegacyThermographyRecord(
+                                    athlete_id=athlete_id,
+                                    collected_at=parsed_date,
+                                    mass=row.get("Massa"),
+                                    pain_score=row.get("EVA Dor"),
+                                    front=row.get("Frente"),
+                                    back=row.get("Verso"),
+                                    observations=observations_value,
+                                )
+                            )
+                        inserted = save_legacy_thermography(legacy_records)
+                    except (ValueError, RuntimeError, DuplicateThermographyError) as error:
+                        st.error(str(error))
+                    except Exception:
+                        st.error("Não foi possível registrar os documentos no banco.")
+                    else:
+                        load_thermography_history.clear()
+                        st.session_state["thermography_flash"] = (
+                            f"{len(legacy_records)} coleta(s) legada(s) registrada(s) "
+                            f"com {inserted} medida(s)."
+                        )
+                        st.rerun()
+
+
 st.subheader("Nova análise térmica")
 st.caption(
     "Informe os dados da coleta e envie em conjunto as imagens de frente e verso."
@@ -657,6 +619,8 @@ if not front_upload or not back_upload:
     if not back_upload:
         missing.append("verso")
     st.info(f"Envie a imagem de {' e '.join(missing)} para iniciar a análise.")
+    st.divider()
+    render_forms()
     st.stop()
 
 uploads = {"front": front_upload, "back": back_upload}
@@ -676,6 +640,8 @@ for view_key, uploaded in uploads.items():
     }
 
 if len(views) != 2:
+    st.divider()
+    render_forms()
     st.stop()
 
 if views["front"]["signature"] == views["back"]["signature"]:
@@ -690,14 +656,24 @@ items: dict[str, dict[str, Any]] = st.session_state.setdefault(
 active_item_keys = {
     f"{view_key}:{view['signature']}" for view_key, view in views.items()
 }
-for item_key in active_item_keys:
-    items.setdefault(
-        item_key,
-        {
+for view_key, view in views.items():
+    item_key = f"{view_key}:{view['signature']}"
+    if item_key in items:
+        continue
+    try:
+        detected_scale = cached_temperature_scale(view["content"])
+    except ValueError as error:
+        items[item_key] = {
             "minimum_temperature": DEFAULT_MIN_TEMPERATURE,
             "maximum_temperature": DEFAULT_MAX_TEMPERATURE,
-        },
-    )
+            "scale_detected": False,
+            "scale_error": str(error),
+        }
+    else:
+        items[item_key] = {
+            **detected_scale,
+            "scale_detected": True,
+        }
 for item_key in set(items) - active_item_keys:
     del items[item_key]
 
@@ -875,3 +851,6 @@ if all(view_metrics.values()):
     st.caption("As imagens não são armazenadas; somente as medidas são enviadas.")
 else:
     stored_metrics.clear()
+
+st.divider()
+render_forms()

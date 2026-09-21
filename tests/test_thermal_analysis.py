@@ -3,10 +3,33 @@ import unittest
 import numpy as np
 from PIL import Image
 
-from thermal_analysis import count_hot_pixels, temperature_matrix
+from thermal_analysis import (
+    count_hot_pixels, extract_temperature_scale, temperature_matrix,
+)
 
 
 class ThermalAnalysisTests(unittest.TestCase):
+
+    def test_extracts_temperature_scale_with_sol_ia_regions(self) -> None:
+        image = Image.new("RGB", (1000, 500), "black")
+        outputs = iter(["34.6 C", "26,8 C"])
+
+        minimum, maximum = extract_temperature_scale(
+            image, ocr=lambda _region: next(outputs)
+        )
+
+        self.assertEqual(minimum, 26.8)
+        self.assertEqual(maximum, 34.6)
+
+    def test_rejects_incomplete_or_inverted_ocr_scale(self) -> None:
+        image = Image.new("RGB", (1000, 500), "black")
+        for outputs in (("", "26.8"), ("20.0", "30.0")):
+            values = iter(outputs)
+            with self.assertRaisesRegex(ValueError, "reconhecer|Tmax"):
+                extract_temperature_scale(
+                    image, ocr=lambda _region: next(values)
+                )
+
     def test_maps_extracted_colorbar_extremes_to_temperature_limits(self) -> None:
         pixels = np.zeros((100, 100, 3), dtype=np.uint8)
         gradient = np.linspace(255, 0, 87, dtype=np.uint8)

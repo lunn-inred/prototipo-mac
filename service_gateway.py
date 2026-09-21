@@ -19,7 +19,10 @@ from gps_extraction import extract_uploaded_pdfs as local_extract_uploaded_pdfs
 from gps_import_service import import_gps_documents, prepare_gps_documents, preview_gps_documents
 from legacy_thermography import LegacyDocumentExtraction, extract_document, validate_athlete_rows
 from settings import api_base_url, api_key, setting
-from thermography_analysis_service import analyze_thermography_view as local_analyze
+from thermography_analysis_service import (
+    analyze_thermography_view as local_analyze,
+    extract_thermography_scale as local_extract_scale,
+)
 from thermography_service import LegacyThermographyRecord, save_image_thermography as local_save_image
 from thermography_service import save_legacy_thermography as local_save_legacy
 
@@ -140,6 +143,15 @@ def import_gps_payload(payload: list[dict[str, Any]]) -> list[Any]:
     if not remote_api_enabled():
         return import_gps_documents(prepare_gps_documents(payload))
     return [gps_result_from_dict(item) for item in _request("POST", "/api/v1/gps/import", json={"documents": payload})]
+
+
+def extract_thermography_scale(content: bytes) -> dict[str, float]:
+    if not remote_api_enabled():
+        return local_extract_scale(content)
+    return _request(
+        "POST", "/api/v1/thermography/scale",
+        files={"file": ("termografia.jpg", content, "image/jpeg")},
+    )
 
 
 def analyze_thermography_view(content: bytes, *, view: str, minimum_temperature: float, maximum_temperature: float, threshold: float) -> dict[str, Any]:

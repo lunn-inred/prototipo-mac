@@ -148,6 +148,7 @@ Com a API em execução:
 | `POST /api/v1/gps/preview` | Valida e prevê alterações do lote | Não |
 | `POST /api/v1/gps/import` | Confirma a importação GPS revisada | Sim |
 | `GET /api/v1/thermography?athlete_id=` | Histórico térmico, opcionalmente por atleta | Não |
+| `POST /api/v1/thermography/scale` | Extrai Tmin e Tmax impressos na imagem | Não |
 | `POST /api/v1/thermography/analyze` | Detecta pernas e conta pixels em uma imagem | Não |
 | `POST /api/v1/thermography` | Registra uma coleta de frente e verso | Sim |
 | `POST /api/v1/thermography/legacy/extract` | Extrai documentos manuscritos | Não |
@@ -527,16 +528,21 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 ## Termografia
 
-A página `pages/Termografia.py` possui histórico por jogador, importação de
-fichas manuscritas e registro de uma nova análise a partir das imagens de frente
-e verso. O histórico é consultado exclusivamente pela view
-`public.vw_medida_termografia`.
+A página `pages/Termografia.py` registra uma nova análise a partir das imagens
+de frente e verso. Ao final da página, o componente recolhido **Formulários**
+permite importar fichas manuscritas. O histórico térmico não é exibido nessa
+interface.
 
 Na nova análise, o usuário informa jogador, massa, data da coleta, EVA Dor e,
 opcionalmente, observações. As imagens precisam conter as duas caixas R1/R2 do
 layout HIKMICRO atualmente suportado. O sistema identifica as caixas, inverte a
-lateralidade entre frente e verso, estima a temperatura dos pixels pela barra
-térmica lateral e conta os pixels acima do limiar configurado.
+lateralidade entre frente e verso e aplica OCR às regiões superior e inferior
+do canto direito para preencher automaticamente Tmax e Tmin. Os campos continuam
+editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece uma
+escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
+térmica lateral e conta como quentes os pixels a partir de 90% da escala por
+padrão: `Tmin + 0,90 × (Tmax − Tmin)`. O usuário ainda pode ajustar esse limiar
+no slider antes do cálculo.
 
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,

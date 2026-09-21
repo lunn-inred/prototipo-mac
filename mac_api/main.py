@@ -19,7 +19,9 @@ from gps_extraction import extract_uploaded_pdfs
 from gps_import_service import import_gps_documents, prepare_gps_documents, preview_gps_documents
 from legacy_thermography import extract_document, validate_athlete_rows
 from settings import api_key, cors_origins, setting
-from thermography_analysis_service import analyze_thermography_view
+from thermography_analysis_service import (
+    analyze_thermography_view, extract_thermography_scale,
+)
 from thermography_service import (
     DuplicateThermographyError,
     LegacyThermographyRecord,
@@ -106,6 +108,15 @@ def gps_import(payload: GpsPayload) -> list[dict[str, Any]]:
 @router.get("/thermography", tags=["Termografia"])
 def thermography_history(athlete_id: int | None = Query(default=None)) -> list[dict[str, Any]]:
     return data_repository.thermography_history(athlete_id)
+
+
+@router.post("/thermography/scale", tags=["Termografia"])
+async def thermography_scale(
+    file: Annotated[UploadFile, File()],
+) -> dict[str, float]:
+    return await run_in_threadpool(
+        extract_thermography_scale, await file.read()
+    )
 
 
 @router.post("/thermography/analyze", tags=["Termografia"])

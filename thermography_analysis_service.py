@@ -7,7 +7,10 @@ from typing import Any, Literal
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from thermal_analysis import count_hot_pixels, detect_leg_boxes, temperature_matrix
+from thermal_analysis import (
+    count_hot_pixels, detect_leg_boxes, extract_temperature_scale,
+    temperature_matrix,
+)
 
 MAX_IMAGE_SIZE = 20 * 1024 * 1024
 ViewName = Literal["front", "back"]
@@ -27,6 +30,17 @@ def load_thermography_image(content: bytes) -> Image.Image:
     if image.width < 2 or image.height < 2:
         raise ValueError("A imagem não possui dimensões válidas.")
     return image
+
+
+def extract_thermography_scale(content: bytes) -> dict[str, float]:
+    """Extrai a escala impressa na imagem sem persistir o arquivo."""
+    minimum_temperature, maximum_temperature = extract_temperature_scale(
+        load_thermography_image(content)
+    )
+    return {
+        "minimum_temperature": minimum_temperature,
+        "maximum_temperature": maximum_temperature,
+    }
 
 
 def analyze_thermography_view(
