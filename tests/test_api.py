@@ -10,6 +10,7 @@ from athlete_service import AthleteInUseError
 from mac_api.main import app
 from settings import api_key
 from thermography_service import DuplicateThermographyError
+from jump_service import JumpCollection, JumpImportResult
 
 
 class ApiInfrastructureTests(unittest.TestCase):
@@ -79,6 +80,38 @@ class MeasurementApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/v1/players/dashboard").status_code, 200)
         self.assertEqual(self.client.get("/api/v1/jumps").status_code, 200)
         self.assertEqual(self.client.get("/api/v1/gps").status_code, 200)
+
+    @patch("mac_api.main.create_jump_collection", return_value=3)
+    def test_creates_jump_collection(self, create):
+        response = self.client.post(
+            "/api/v1/jumps/collections",
+            json={
+                "athlete_id": 7, "collected_at": "2026-06-22",
+                "cmj1": 31.2, "maior_cmj": 31.2,
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json(), {"inserted_measurements": 3})
+        collection = create.call_args.args[0]
+        self.assertIsInstance(collection, JumpCollection)
+        self.assertEqual(collection.athlete_id, 7)
+        self.assertEqual(collection.collected_at, date(2026, 6, 22))
+
+    @patch("mac_api.main.import_jump_rows")
+    def test_imports_reviewed_jump_rows(self, import_rows):
+        import_rows.return_value = JumpImportResult(1, 4, 2, 0)
+        response = self.client.post(
+            "/api/v1/jumps/import",
+            json={"rows": [{
+                "arquivo": "saltos.xlsx", "aba": "22062026", "linha": 2,
+                "athlete_id": 7, "jogador": "Mari — ID 7",
+                "nome_reconhecido": "MARI", "data_coleta": "2026-06-22",
+                "cmj1": 31.2,
+            }]},
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["inserted_collections"], 1)
+        self.assertEqual(response.json()["duplicate_collections"], 2)
 
     @patch("mac_api.main.extract_thermography_scale")
     def test_extracts_thermography_scale_without_storing_image(self, extract):

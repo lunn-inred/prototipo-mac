@@ -82,6 +82,8 @@ Navegador → Streamlit → service_gateway.py → FastAPI → serviços/reposit
 - `data_repository.py`: consultas PostgreSQL de leitura;
 - `athlete_service.py`, `gps_import_service.py` e `thermography_service.py`: regras
   transacionais de escrita;
+- `jump_service.py`: CRUD transacional de coletas de salto e importação de XLSX;
+- `jump_crud_ui.py`: formulários e conferência da importação na página de saltos;
 - `thermography_analysis_service.py`: validação e análise das imagens em memória;
 - `service_gateway.py`: único ponto usado pelo Streamlit para escolher HTTP ou
   modo local;
@@ -143,6 +145,13 @@ Com a API em execução:
 | `DELETE /api/v1/athletes/{id}` | Exclui atleta sem medições | Sim |
 | `GET /api/v1/players/dashboard` | Dados do mural | Não |
 | `GET /api/v1/jumps` | Registros da view de saltos | Não |
+| `GET /api/v1/jumps/collections` | Lista coletas de salto editáveis | Não |
+| `POST /api/v1/jumps/collections` | Cadastra uma coleta de salto | Sim |
+| `PUT /api/v1/jumps/collections/{athlete_id}/{date}` | Substitui uma coleta de salto | Sim |
+| `DELETE /api/v1/jumps/collections/{athlete_id}/{date}` | Exclui uma coleta de salto | Sim |
+| `POST /api/v1/jumps/import/extract` | Extrai planilhas XLSX sem persistir | Não |
+| `POST /api/v1/jumps/import/preview` | Valida duplicatas e conflitos do lote | Não |
+| `POST /api/v1/jumps/import` | Confirma o lote XLSX revisado | Sim |
 | `GET /api/v1/gps` | Registros da view GPS | Não |
 | `POST /api/v1/gps/extract` | Extrai um lote de PDFs | Não |
 | `POST /api/v1/gps/preview` | Valida e prevê alterações do lote | Não |
@@ -202,6 +211,28 @@ e-mails deles em **App settings > Sharing**.
 A página `pages/Metricas_de_Salto.py` utiliza dados reais da view
 `public.vw_medidas_saltos`. Os dados são carregados por `jump_data.py` e ficam
 em cache no Streamlit por cinco minutos.
+
+### CRUD e importação de planilhas
+
+O painel **Gerenciar coletas de salto** permite cadastrar, editar e excluir uma
+coleta identificada pelo par jogador/data. Cada coleta pode conter `CMJ1`,
+`CMJ2`, `CMJ3`, `MAIOR_CMJ`, `SJ1`, `SJ2`, `SJ3` e `MAIOR_SJ`; ao menos uma
+medida positiva é obrigatória. Os valores de maior CMJ e maior SJ são gravados
+como fornecidos, sem serem recalculados no consumo.
+
+A aba **Importar planilha** aceita vários arquivos `.xlsx`. Somente abas cujo
+nome está no formato `DDMMAAAA` são interpretadas como coletas; abas de modelo
+como `EM BRANCO` são ignoradas. Linhas de média, valores `S/D`, campos vazios e
+zeros não viram medições. A posição, o grupo e o peso presentes na planilha não
+são importados: o atleta precisa existir e é correlacionado por nome, apelido ou
+nome alternativo. Correspondências ausentes ou ambíguas podem ser corrigidas no
+editor antes da validação.
+
+O envio tem três etapas separadas: extração, validação e confirmação. Uma coleta
+idêntica à existente é marcada como duplicada e ignorada; valores diferentes
+para o mesmo jogador/data são marcados como conflito e bloqueiam o envio, para
+evitar sobrescritas silenciosas. A confirmação grava o lote em uma única
+transação.
 
 ### Consulta SQL
 

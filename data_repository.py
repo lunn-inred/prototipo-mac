@@ -71,6 +71,34 @@ def jump_records() -> list[dict[str, Any]]:
     )
 
 
+def jump_collections() -> list[dict[str, Any]]:
+    """Lista coletas editáveis com os IDs necessários ao CRUD."""
+    return _fetch_all(
+        """
+        SELECT a.id_atleta, a.nome AS atleta, a.apelido, a.posicao, a.grupo,
+               mv.data::date AS data_coleta,
+               MAX(CASE WHEN UPPER(TRIM(m.nome)) = 'CMJ1' THEN mv.valor END) AS cmj1,
+               MAX(CASE WHEN UPPER(TRIM(m.nome)) = 'CMJ2' THEN mv.valor END) AS cmj2,
+               MAX(CASE WHEN UPPER(TRIM(m.nome)) = 'CMJ3' THEN mv.valor END) AS cmj3,
+               MAX(CASE WHEN UPPER(TRIM(m.nome)) = 'MAIOR_CMJ' THEN mv.valor END) AS maior_cmj,
+               MAX(CASE WHEN UPPER(TRIM(m.nome)) = 'SJ1' THEN mv.valor END) AS sj1,
+               MAX(CASE WHEN UPPER(TRIM(m.nome)) = 'SJ2' THEN mv.valor END) AS sj2,
+               MAX(CASE WHEN UPPER(TRIM(m.nome)) = 'SJ3' THEN mv.valor END) AS sj3,
+               MAX(CASE WHEN UPPER(TRIM(m.nome)) = 'MAIOR_SJ' THEN mv.valor END) AS maior_sj
+        FROM public.medida_valor mv
+        JOIN public.atleta a ON a.id_atleta = mv.id_atleta
+        JOIN public.medida m ON m.id_medida = mv.id_medida
+        JOIN public.grupo_medida gm ON gm.id_grupo_medida = m.id_grupo_medida
+        WHERE LOWER(TRIM(gm.nome)) = LOWER('Saltos')
+          AND UPPER(TRIM(m.nome)) = ANY(%s)
+        GROUP BY a.id_atleta, a.nome, a.apelido, a.posicao, a.grupo, mv.data::date
+        ORDER BY mv.data::date DESC, a.nome, a.id_atleta
+        """,
+        (["CMJ1", "CMJ2", "CMJ3", "MAIOR_CMJ",
+          "SJ1", "SJ2", "SJ3", "MAIOR_SJ"],),
+    )
+
+
 def gps_records() -> list[dict[str, Any]]:
     return _fetch_all(
         """

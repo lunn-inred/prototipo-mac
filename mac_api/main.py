@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import io
 import secrets
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
@@ -17,6 +18,11 @@ from api_serialization import gps_preview_to_dict, gps_result_to_dict
 from athlete_service import AthleteInUseError, create_athlete, delete_athlete, update_athlete
 from gps_extraction import extract_uploaded_pdfs
 from gps_import_service import import_gps_documents, prepare_gps_documents, preview_gps_documents
+from jump_service import (
+    DuplicateJumpCollectionError, JumpCollection, create_jump_collection,
+    delete_jump_collection, extract_jump_workbook, import_jump_rows,
+    prepare_jump_rows, preview_jump_import, update_jump_collection,
+)
 from legacy_thermography import extract_document, validate_athlete_rows
 from settings import api_key, cors_origins, setting
 from thermography_analysis_service import (
@@ -29,8 +35,8 @@ from thermography_service import (
     save_legacy_thermography,
 )
 from .schemas import (
-    AthleteCreated, AthleteInput, GpsPayload, LegacyImport, LegacyValidation,
-    ThermographyInput,
+    AthleteCreated, AthleteInput, GpsPayload, JumpCollectionInput,
+    JumpRowsPayload, LegacyImport, LegacyValidation, ThermographyInput,
 )
 
 
@@ -80,6 +86,90 @@ def dashboard() -> dict[str, Any]:
 @router.get("/jumps", tags=["Medições"])
 def jumps() -> list[dict[str, Any]]:
     return data_repository.jump_records()
+
+
+@router.get("/jumps/collections", tags=["Saltos"])
+def jump_collection_list() -> list[dict[str, Any]]:
+    return data_repository.jump_collections()
+
+
+def _jump_collection(payload: JumpCollectionInput) -> JumpCollection:
+    return JumpCollection(**payload.model_dump())
+
+
+@router.post("/jumps/collections", status_code=201, tags=["Saltos"])
+def jump_collection_create(payload: JumpCollectionInput) -> dict[str, int]:
+    return {"inserted_measurements": create_jump_collection(_jump_collection(payload))}
+
+
+@router.put(
+    "/jumps/collections/{athlete_id}/{collected_at}", tags=["Saltos"]
+)
+def jump_collection_update(
+    athlete_id: int, collected_at: date, payload: JumpCollectionInput
+) -> dict[str, int]:
+    return {
+        "inserted_measurements": update_jump_collection(
+            athlete_id, collected_at, _jump_collection(payload)
+        )
+    }
+
+
+@router.delete(
+    "/jumps/collections/{athlete_id}/{collected_at}", tags=["Saltos"]
+)
+def jump_collection_delete(athlete_id: int, collected_at: date) -> dict[str, int]:
+    return {
+        "deleted_measurements": delete_jump_collection(athlete_id, collected_at)
+    }
+
+
+@router.post("/jumps/import/extract", tags=["Saltos"])
+async def jump_import_extract(
+    files: Annotated[list[UploadFile], File()],
+) -> list[dict[str, Any]]:
+    athletes = data_repository.list_athletes()
+    results = []
+    for item in files:
+        results.append(await run_in_threadpool(
+            extract_jump_workbook, await item.read(),
+            item.filename or "saltos.xlsx", athletes,
+        ))
+    return results
+
+
+def _jump_preview_dict(item: Any) -> dict[str, Any]:
+    row = item.row
+    return {
+        "arquivo": row.filename, "aba": row.sheet, "linha": row.row_number,
+        "athlete_id": row.athlete_id, "jogador": row.athlete,
+        "nome_reconhecido": row.recognized_name,
+        "data_coleta": row.collected_at,
+        **{name.lower(): row.measurements.get(name) for name in (
+            "CMJ1", "CMJ2", "CMJ3", "MAIOR_CMJ",
+            "SJ1", "SJ2", "SJ3", "MAIOR_SJ",
+        )},
+        "status": item.status, "erros": list(item.errors),
+    }
+
+
+@router.post("/jumps/import/preview", tags=["Saltos"])
+def jump_import_preview(payload: JumpRowsPayload) -> list[dict[str, Any]]:
+    return [
+        _jump_preview_dict(item)
+        for item in preview_jump_import(prepare_jump_rows(payload.rows))
+    ]
+
+
+@router.post("/jumps/import", status_code=201, tags=["Saltos"])
+def jump_import_confirm(payload: JumpRowsPayload) -> dict[str, int]:
+    result = import_jump_rows(prepare_jump_rows(payload.rows))
+    return {
+        "inserted_collections": result.inserted_collections,
+        "inserted_measurements": result.inserted_measurements,
+        "duplicate_collections": result.duplicate_collections,
+        "conflicts": result.conflicts,
+    }
 
 
 @router.get("/gps", tags=["GPS"])
@@ -196,6 +286,12 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(AthleteInUseError)
     async def athlete_in_use_handler(_request: Any, error: AthleteInUseError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(error)})
+
+    @app.exception_handler(DuplicateJumpCollectionError)
+    async def duplicate_jump_handler(
+        _request: Any, error: DuplicateJumpCollectionError
+    ) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(error)})
 
     @app.exception_handler(DuplicateThermographyError)
