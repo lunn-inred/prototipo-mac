@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from athlete_matching import athlete_display_name
 from service_gateway import load_athletes, load_thermography_history as gateway_load_history
 
 
@@ -15,9 +16,7 @@ def load_thermography_athletes() -> list[dict[str, object]]:
 
 def athlete_label(athlete: dict[str, object]) -> str:
     """Define o nome apresentado nos seletores sem perder o ID do cadastro."""
-    nickname = str(athlete.get("apelido") or "").strip()
-    name = str(athlete.get("nome") or "").strip()
-    return nickname or name or f"Jogador {athlete['id_atleta']}"
+    return athlete_display_name(athlete)
 
 
 @st.cache_data(ttl=60, show_spinner="Carregando histórico térmico...")

@@ -9,10 +9,11 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from thermal_analysis import annotate_boxes
-from legacy_thermography import (
-    review_rows_signature,
-    validated_athlete_ids,
+from athlete_matching import unique_matching_athlete_id
+from thermal_analysis import (
+    annotate_boxes,
+    scale_percentage_from_temperature,
+    temperature_from_scale_percentage,
 )
 from thermography_data import (
     athlete_label,
@@ -26,7 +27,6 @@ from service_gateway import (
     extract_legacy_documents,
     save_image_thermography,
     save_legacy_thermography,
-    validate_legacy_athletes,
 )
 
 st.set_page_config(
@@ -37,8 +37,25 @@ MAX_IMAGE_SIZE = 20 * 1024 * 1024
 DEFAULT_MIN_TEMPERATURE = 20.0
 DEFAULT_MAX_TEMPERATURE = 40.0
 DEFAULT_HOT_POSITION = 0.90
+PERCENTAGE_MODE = "Porcentagem da escala"
+TEMPERATURE_MODE = "Temperatura (°C)"
+THRESHOLD_MODE_KEY = "thermography_threshold_mode"
 LEGS = {"Perna direita": "right", "Perna esquerda": "left"}
 VIEW_LABELS = {"front": "Frente", "back": "Verso"}
+
+
+def threshold_mode_key(view_key: str) -> str:
+    return f"{THRESHOLD_MODE_KEY}_{view_key}"
+
+
+def synchronize_threshold_mode(source_key: str) -> None:
+    """Mantém os seletores de frente e verso com a mesma opção."""
+    selected_mode = st.session_state[source_key]
+    st.session_state[THRESHOLD_MODE_KEY] = selected_mode
+    for view_key in VIEW_LABELS:
+        target_key = threshold_mode_key(view_key)
+        if target_key != source_key:
+            st.session_state[target_key] = selected_mode
 
 
 def load_thermography(content: bytes) -> Image.Image:
@@ -106,6 +123,15 @@ def render_view(
         )
 
     with st.container(border=True):
+        mode_key = threshold_mode_key(view_key)
+        threshold_mode = st.radio(
+            "Escala do limiar de pixels quentes:",
+            options=(PERCENTAGE_MODE, TEMPERATURE_MODE),
+            horizontal=True,
+            key=mode_key,
+            on_change=synchronize_threshold_mode,
+            args=(mode_key,),
+        )
         minimum_column, maximum_column = st.columns(2)
         with minimum_column:
             minimum_temperature = st.number_input(
@@ -128,26 +154,78 @@ def render_view(
         item["maximum_temperature"] = maximum_temperature
         valid_scale = maximum_temperature > minimum_temperature
         if valid_scale:
-            default_threshold = minimum_temperature + DEFAULT_HOT_POSITION * (
-                maximum_temperature - minimum_temperature
+            signature = image_signature(content)
+            percentage_key = f"thermography_threshold_percentage_{view_key}_{signature}"
+            temperature_key = f"thermography_threshold_temperature_{view_key}_{signature}"
+            previous_mode = item.get("threshold_mode")
+            stored_percentage = float(
+                item.get("threshold_percentage", DEFAULT_HOT_POSITION * 100)
             )
-            slider_step = max(
-                (maximum_temperature - minimum_temperature) / 200, 0.01
-            )
-            threshold = st.slider(
-                "Temperatura mínima para considerar um pixel quente (°C)",
-                min_value=float(minimum_temperature),
-                max_value=float(maximum_temperature),
-                value=float(default_threshold),
-                step=float(slider_step),
-                key=(
-                    f"thermography_threshold_{view_key}_{image_signature(content)}_"
-                    f"{minimum_temperature:.4f}_{maximum_temperature:.4f}_90pct"
+            stored_temperature = float(item.get(
+                "threshold_temperature",
+                temperature_from_scale_percentage(
+                    minimum_temperature, maximum_temperature, stored_percentage
                 ),
-            )
-            st.caption(
-                "Valor padrão: 90% da escala térmica informada."
-            )
+            ))
+
+            if threshold_mode == PERCENTAGE_MODE:
+                if previous_mode == TEMPERATURE_MODE:
+                    converted_temperature = min(
+                        maximum_temperature,
+                        max(minimum_temperature, stored_temperature),
+                    )
+                    stored_percentage = scale_percentage_from_temperature(
+                        minimum_temperature,
+                        maximum_temperature,
+                        converted_temperature,
+                    )
+                    st.session_state[percentage_key] = stored_percentage
+                percentage = st.slider(
+                    "Posição mínima na escala para considerar um pixel quente",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=stored_percentage,
+                    step=1.0,
+                    format="%d%%",
+                    key=percentage_key,
+                )
+                threshold = temperature_from_scale_percentage(
+                    minimum_temperature, maximum_temperature, percentage
+                )
+                item["threshold_percentage"] = percentage
+                item["threshold_temperature"] = threshold
+                st.caption("Valor padrão: 90% da escala térmica informada.")
+            else:
+                if previous_mode == PERCENTAGE_MODE:
+                    stored_temperature = temperature_from_scale_percentage(
+                        minimum_temperature, maximum_temperature, stored_percentage
+                    )
+                    st.session_state[temperature_key] = stored_temperature
+                slider_step = max(
+                    (maximum_temperature - minimum_temperature) / 200, 0.01
+                )
+                widget_temperature = float(
+                    st.session_state.get(temperature_key, stored_temperature)
+                )
+                clamped_temperature = min(
+                    maximum_temperature,
+                    max(minimum_temperature, widget_temperature),
+                )
+                if widget_temperature != clamped_temperature:
+                    st.session_state[temperature_key] = clamped_temperature
+                threshold = st.slider(
+                    "Temperatura mínima para considerar um pixel quente (°C)",
+                    min_value=float(minimum_temperature),
+                    max_value=float(maximum_temperature),
+                    value=float(clamped_temperature),
+                    step=float(slider_step),
+                    key=temperature_key,
+                )
+                item["threshold_temperature"] = threshold
+                item["threshold_percentage"] = scale_percentage_from_temperature(
+                    minimum_temperature, maximum_temperature, threshold
+                )
+            item["threshold_mode"] = threshold_mode
         else:
             threshold = minimum_temperature
             st.error("Tmax deve ser maior que Tmin.")
@@ -254,7 +332,6 @@ def render_forms() -> None:
             if st.session_state.get("legacy_batch_signature") != batch_signature:
                 st.session_state.pop("legacy_extraction_results", None)
                 st.session_state.pop("legacy_edited_rows", None)
-                st.session_state.pop("legacy_athlete_validation", None)
 
             if st.button(
                 "Extrair conteúdo",
@@ -292,12 +369,10 @@ def render_forms() -> None:
                 progress.empty()
                 st.session_state["legacy_batch_signature"] = batch_signature
                 st.session_state["legacy_extraction_results"] = extracted_documents
-                st.session_state.pop("legacy_athlete_validation", None)
         else:
             st.session_state.pop("legacy_batch_signature", None)
             st.session_state.pop("legacy_extraction_results", None)
             st.session_state.pop("legacy_edited_rows", None)
-            st.session_state.pop("legacy_athlete_validation", None)
             st.caption(
                 "Envie os documentos e execute a extração. "
                 "Nenhum arquivo é persistido pelo protótipo."
@@ -349,6 +424,15 @@ def render_forms() -> None:
                                     "Revisão",
                                 }
                             }
+                            recognized_name = review_row.get("Jogador", "")
+                            matched_athlete_id = unique_matching_athlete_id(
+                                recognized_name, athletes
+                            )
+                            review_row["Nome reconhecido"] = recognized_name
+                            review_row["Jogador"] = (
+                                editor_label_by_athlete_id.get(matched_athlete_id)
+                                if matched_athlete_id is not None else None
+                            )
                             extracted_rows.append(review_row)
                         if not page_result["rows"]:
                             st.warning("Nenhuma linha preenchida foi identificada.")
@@ -356,10 +440,11 @@ def render_forms() -> None:
             if extracted_rows:
                 st.markdown("#### Revisão da extração")
                 st.caption(
-                    "Todas as células abaixo são editáveis. Confira e corrija os "
-                    "valores antes de registrar no banco."
+                    "Confira os valores e selecione um jogador cadastrado em todas "
+                    "as linhas antes de registrar no banco."
                 )
                 review_columns = [
+                    "Nome reconhecido",
                     "Jogador",
                     "Massa",
                     "EVA Dor",
@@ -369,6 +454,9 @@ def render_forms() -> None:
                     "Data",
                 ]
                 review_frame = pd.DataFrame(extracted_rows).reindex(columns=review_columns)
+                review_frame["Nome reconhecido"] = review_frame[
+                    "Nome reconhecido"
+                ].astype("string")
                 review_frame["Jogador"] = review_frame["Jogador"].astype("string")
                 review_frame["Massa"] = pd.to_numeric(
                     review_frame["Massa"], errors="coerce"
@@ -391,10 +479,12 @@ def render_forms() -> None:
                     width="stretch",
                     hide_index=True,
                     num_rows="dynamic",
-                    disabled=False,
+                    disabled=["Nome reconhecido"],
                     column_order=review_columns,
                     column_config={
-                        "Jogador": st.column_config.TextColumn(
+                        "Nome reconhecido": st.column_config.TextColumn(),
+                        "Jogador": st.column_config.SelectboxColumn(
+                            options=sorted(athlete_id_by_editor_label),
                             required=True,
                         ),
                         "Massa": st.column_config.NumberColumn(
@@ -426,63 +516,19 @@ def render_forms() -> None:
                     .to_dict("records")
                 )
                 st.session_state["legacy_edited_rows"] = edited_records
-                current_review_signature = review_rows_signature(edited_records)
-                athlete_validation = st.session_state.get("legacy_athlete_validation")
-                if (
-                    athlete_validation
-                    and athlete_validation["signature"] != current_review_signature
-                ):
-                    st.session_state.pop("legacy_athlete_validation", None)
-                    athlete_validation = None
+                selected_athlete_ids = [
+                    athlete_id_by_editor_label.get(row.get("Jogador"))
+                    for row in edited_records
+                ]
+                has_unselected_athletes = any(
+                    athlete_id is None for athlete_id in selected_athlete_ids
+                )
+                if has_unselected_athletes:
                     st.warning(
-                        "Os dados foram alterados. Valide os atletas novamente antes "
-                        "de registrar."
+                        "Selecione um jogador cadastrado para todas as linhas."
                     )
-
-                if st.button(
-                    "Validar atletas",
-                    key=f"validate_legacy_athletes_{editor_batch_key}",
-                    disabled=not athletes,
-                ):
-                    resolutions = validate_legacy_athletes(edited_records, athletes)
-                    athlete_validation = {
-                        "signature": current_review_signature,
-                        "resolutions": resolutions,
-                    }
-                    st.session_state["legacy_athlete_validation"] = athlete_validation
-
-                validation_is_current = bool(
-                    athlete_validation
-                    and athlete_validation["signature"] == current_review_signature
-                )
-                validated_ids = validated_athlete_ids(
-                    athlete_validation, current_review_signature
-                )
-                validation_has_errors = validated_ids is None
-                if validation_is_current:
-                    resolutions = athlete_validation["resolutions"]
-                    validation_rows = [
-                        {
-                            "Linha": item["linha"],
-                            "Nome informado": item["nome_informado"],
-                            "Atleta cadastrado": item["atleta"] or "—",
-                            "ID": item["id_atleta"],
-                            "Status": item["erro"] or "Validado",
-                        }
-                        for item in resolutions
-                    ]
-                    st.markdown("#### Validação dos atletas")
-                    st.dataframe(
-                        pd.DataFrame(validation_rows),
-                        width="stretch",
-                        hide_index=True,
-                    )
-                    if validation_has_errors:
-                        for item in resolutions:
-                            if item["erro"]:
-                                st.error(f"Linha {item['linha']}: {item['erro']}")
-                    else:
-                        st.success("Todos os atletas foram validados.")
+                else:
+                    st.success("Todos os jogadores estão vinculados a cadastros.")
 
                 st.info(
                     "Frente e Verso dos documentos serão associados às medidas "
@@ -493,15 +539,17 @@ def render_forms() -> None:
                     "Registrar documentos revisados no banco",
                     type="primary",
                     key="save_legacy_thermography",
-                    disabled=not validation_is_current or validation_has_errors,
+                    disabled=has_unselected_athletes or not athletes,
                 ):
                     try:
-                        if validated_ids is None:
-                            raise ValueError("Valide todos os atletas antes de registrar.")
                         legacy_records = []
                         for row_number, (row, athlete_id) in enumerate(
-                            zip(edited_records, validated_ids), start=1
+                            zip(edited_records, selected_athlete_ids), start=1
                         ):
+                            if athlete_id is None:
+                                raise ValueError(
+                                    f"Linha {row_number}: selecione um jogador."
+                                )
                             raw_date = row.get("Data")
                             if raw_date is None or pd.isna(raw_date):
                                 raise ValueError(
@@ -684,6 +732,14 @@ st.warning(
     "Conversão experimental: a paleta é estimada pela barra térmica lateral "
     "presente em cada imagem."
 )
+
+selected_threshold_mode = st.session_state.setdefault(
+    THRESHOLD_MODE_KEY, PERCENTAGE_MODE
+)
+for view_key in VIEW_LABELS:
+    st.session_state.setdefault(
+        threshold_mode_key(view_key), selected_threshold_mode
+    )
 
 tabs = st.tabs(["Frente", "Verso"])
 view_metrics: dict[str, dict[str, dict[str, float | int]] | None] = {}

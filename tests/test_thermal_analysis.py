@@ -4,11 +4,45 @@ import numpy as np
 from PIL import Image
 
 from thermal_analysis import (
-    count_hot_pixels, extract_temperature_scale, temperature_matrix,
+    count_hot_pixels,
+    extract_temperature_scale,
+    scale_percentage_from_temperature,
+    temperature_from_scale_percentage,
+    temperature_matrix,
 )
 
 
 class ThermalAnalysisTests(unittest.TestCase):
+
+    def test_converts_scale_percentage_to_temperature(self) -> None:
+        self.assertEqual(temperature_from_scale_percentage(20.0, 40.0, 0), 20.0)
+        self.assertEqual(temperature_from_scale_percentage(20.0, 40.0, 90), 38.0)
+        self.assertEqual(temperature_from_scale_percentage(20.0, 40.0, 100), 40.0)
+        self.assertAlmostEqual(
+            temperature_from_scale_percentage(26.8, 34.6, 90), 33.82
+        )
+
+    def test_same_percentage_respects_each_view_scale(self) -> None:
+        front = temperature_from_scale_percentage(20.0, 40.0, 90)
+        back = temperature_from_scale_percentage(25.0, 35.0, 90)
+
+        self.assertEqual(front, 38.0)
+        self.assertEqual(back, 34.0)
+
+    def test_temperature_and_percentage_conversions_are_inverse(self) -> None:
+        percentage = scale_percentage_from_temperature(26.8, 34.6, 33.82)
+        restored = temperature_from_scale_percentage(26.8, 34.6, percentage)
+
+        self.assertAlmostEqual(percentage, 90.0)
+        self.assertAlmostEqual(restored, 33.82)
+
+    def test_rejects_invalid_scale_percentage_inputs(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Tmax"):
+            temperature_from_scale_percentage(30.0, 30.0, 90)
+        with self.assertRaisesRegex(ValueError, "porcentagem"):
+            temperature_from_scale_percentage(20.0, 40.0, 101)
+        with self.assertRaisesRegex(ValueError, "entre Tmin e Tmax"):
+            scale_percentage_from_temperature(20.0, 40.0, 41.0)
 
     def test_extracts_temperature_scale_with_sol_ia_regions(self) -> None:
         image = Image.new("RGB", (1000, 500), "black")

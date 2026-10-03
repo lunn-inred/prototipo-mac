@@ -94,7 +94,13 @@ class GpsHeaderTests(unittest.TestCase):
             patch("gps_extraction.convert_table", return_value=table),
         ):
             document = extract_pdf(Path("qualquer.pdf"), None, "tesseract")
-        rows = extracted_rows_to_gps_view("qualquer.pdf", flatten([document]))
+        athletes = [{
+            "id_atleta": 3, "nome": "Caio", "apelido": "CAIO",
+            "nome_alternativo": "", "posicao": "Atacante",
+        }]
+        rows = extracted_rows_to_gps_view(
+            "qualquer.pdf", flatten([document]), athletes
+        )
         prepared = prepare_gps_documents([{"arquivo": "qualquer.pdf", "linhas": rows}])[0]
         self.assertEqual(document["erros_extracao"], [])
         self.assertEqual(prepared.errors, ())
@@ -105,7 +111,7 @@ class GpsHeaderTests(unittest.TestCase):
         with (
             patch("gps_import_service._get_or_create_group", return_value=(1, False)),
             patch("gps_import_service._get_or_create_match", return_value=(2, True)) as match,
-            patch("gps_import_service._get_or_create_athlete", return_value=(3, False)),
+            patch("gps_import_service._fetch_existing_athletes", return_value={3: ("CAIO", "Atacante")}),
             patch("gps_import_service._get_or_create_metric", return_value=(4, False)),
             patch("gps_import_service._fetch_duplicate_pairs", return_value=set()),
             patch("gps_import_service.execute_values") as insert,

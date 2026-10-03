@@ -33,6 +33,7 @@ def gps_document_to_dict(document: PreparedGpsDocument) -> dict[str, Any]:
                 "value": item.value,
                 "text_value": item.text_value,
                 "row_number": item.row_number,
+                "athlete_id": item.athlete_id,
             }
             for item in document.measurements
         ],
@@ -61,6 +62,10 @@ def gps_document_from_dict(payload: dict[str, Any]) -> PreparedGpsDocument:
                 value=float(item["value"]),
                 text_value=str(item["text_value"]),
                 row_number=int(item["row_number"]),
+                athlete_id=(
+                    int(item["athlete_id"])
+                    if item.get("athlete_id") is not None else None
+                ),
             )
             for item in payload.get("measurements", [])
         ),

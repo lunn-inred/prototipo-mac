@@ -33,7 +33,7 @@ else:
 
 META = ["_arquivo"]
 # Incrementar quando mudanças na extração exigirem reprocessar sessões existentes.
-EXTRACTION_VERSION = 2
+EXTRACTION_VERSION = 3
 DPI = 300
 HEADERS = {
     8: [

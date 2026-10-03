@@ -453,7 +453,7 @@ não indicam falha.
 ### Envio dos dados revisados ao banco
 
 Depois da conferência na grade, o botão **Validar para envio** verifica os dados
-dos cabeçalhos, os valores numéricos, os cadastros que serão criados e as medições
+dos cabeçalhos, os valores numéricos, os cadastros auxiliares e as medições
 já existentes. O nome do PDF é livre e serve apenas para identificar a origem.
 Exemplo de primeira linha reconhecida na página:
 
@@ -478,12 +478,12 @@ edições anteriores são preservados até a substituição por uma nova extraç
 uma tentativa que falhe não apaga esses dados. Ao modificar a lógica de extração
 de forma incompatível, incremente `EXTRACTION_VERSION` em `gps_extraction.py`.
 
-As posições extraídas são normalizadas antes da revisão e do envio: `CA` vira
-`Centroavante`, `EXT` vira `Extrema`, `GOL` vira `Goleiro`, `VOL` vira
-`Volante`, `MEI` vira `Meia`, `LD` e `LE` viram `Lateral`, `ZAG` vira
-`Zagueiro` e `ATA` vira `Atacante`. `Ponta` permanece `Ponta`. A normalização
-ignora caixa, acentos, espaços e pontuação; valores desconhecidos precisam ser
-corrigidos na grade.
+O nome reconhecido no PDF permanece visível e bloqueado para conferência. O
+sistema tenta associá-lo a um jogador existente por `nome`, `apelido` ou
+`nome_alternativo`, ignorando caixa, acentos e pontuação. A grade aceita apenas a
+seleção de jogadores cadastrados, usa a posição do cadastro e bloqueia validação
+e envio enquanto houver linhas sem associação única. A importação GPS nunca cria
+jogadores automaticamente.
 
 As operações de escrita reutilizam as credenciais `SUPABASE_DB_*` já configuradas
 para as consultas do painel. A separação continua existindo nas conexões: o
@@ -542,7 +542,11 @@ editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece 
 escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
 térmica lateral e conta como quentes os pixels a partir de 90% da escala por
 padrão: `Tmin + 0,90 × (Tmax − Tmin)`. O usuário ainda pode ajustar esse limiar
-no slider antes do cálculo.
+no slider antes do cálculo. Um seletor global, aplicado às imagens de frente e
+verso, permite controlar o limiar pela porcentagem da escala (modo padrão) ou
+diretamente pela temperatura em °C. Ao alternar o modo, o sistema preserva o
+limiar equivalente; a análise e os resultados continuam usando a temperatura
+convertida em °C.
 
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
@@ -556,7 +560,9 @@ o modo `agentic`, e apresentadas em uma grade editável. Configure
 `LLAMA_CLOUD_API_KEY` nos secrets do Streamlit. Se a chave estiver ausente, a
 API falhar ou a resposta não contiver a tabela esperada, o sistema utiliza
 automaticamente o extrator local com OpenCV e Tesseract e informa o fallback na
-tela. Após revisão, as fichas podem ser gravadas em lote usando
+tela. O nome reconhecido é preservado para conferência e a coluna Jogador aceita
+somente cadastros existentes, sugeridos pelas mesmas regras de correspondência
+de nome usadas no GPS. Após revisão, as fichas podem ser gravadas em lote usando
 `MASSA`, `EVA_DOR`, `SOMA_FRENTE`, `SOMA_VERSO` e `OBSERVACOES`; as quatro
 medidas individuais das pernas permanecem ausentes porque o documento original
 não possui essa separação. O lote é atômico: qualquer erro impede todas as
