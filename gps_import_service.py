@@ -13,6 +13,11 @@ from typing import Any, Callable, Iterable
 
 from psycopg2.extras import execute_values
 
+from athlete_matching import (
+    athlete_display_name,
+    athlete_selection_label,
+    unique_matching_athlete_id,
+)
 from database import database_write_connection
 
 
@@ -37,6 +42,12 @@ GPS_VIEW_COLUMNS = (
     "meterage_per_minute",
     "player_load_per_minute",
     "sprint_efforts",
+)
+GPS_EDITOR_COLUMNS = (
+    "nome_reconhecido",
+    "jogador",
+    "athlete_id",
+    *(column for column in GPS_VIEW_COLUMNS if column != "atleta"),
 )
 GPS_METRIC_VIEW_COLUMNS = {
     "Accel&Decel Efforts": "accel_de_cel_efforts",
@@ -104,6 +115,7 @@ class GpsMeasurement:
     value: float
     text_value: str
     row_number: int
+    athlete_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -233,17 +245,32 @@ def gps_view_preview_rows(document: PreparedGpsDocument) -> list[dict[str, objec
 
 
 def extracted_rows_to_gps_view(
-    filename: str, rows: list[dict[str, object]]
+    filename: str,
+    rows: list[dict[str, object]],
+    athletes: list[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     """Converte as linhas horizontais do OCR para o formato editável da view."""
+    athletes = athletes or []
+    athletes_by_id = {
+        int(athlete["id_atleta"]): athlete for athlete in athletes
+    }
     view_rows: list[dict[str, object]] = []
     for source in rows:
         if is_summary_athlete_name(source.get("Nome", "")):
             continue
+        recognized_name = clean_athlete_name(source.get("Nome", ""))
+        athlete_id = unique_matching_athlete_id(recognized_name, athletes)
+        athlete = athletes_by_id.get(athlete_id) if athlete_id is not None else None
         row: dict[str, object] = {
             **dict.fromkeys(GPS_VIEW_COLUMNS),
-            "atleta": clean_athlete_name(source.get("Nome", "")),
-            "posicao": normalize_position_if_known(source.get("Posição", "")),
+            "nome_reconhecido": recognized_name,
+            "jogador": athlete_selection_label(athlete) if athlete else None,
+            "athlete_id": athlete_id,
+            "atleta": athlete_display_name(athlete) if athlete else "",
+            "posicao": (
+                str(athlete.get("posicao") or "").strip()
+                if athlete else normalize_position_if_known(source.get("Posição", ""))
+            ),
             "grupo": GPS_GROUP,
             "data_coleta": source.get("data_coleta"),
             "equipe": source.get("equipe"),
@@ -306,12 +333,24 @@ def prepare_gps_documents(
             if not isinstance(row, dict):
                 errors.append(f"{filename}, linha {row_number}: formato inválido")
                 continue
-            is_view_row = "atleta" in row or "posicao" in row
+            is_view_row = any(
+                key in row for key in ("atleta", "jogador", "athlete_id", "posicao")
+            )
             athlete = clean_athlete_name(
-                row.get("atleta", "") if is_view_row else row.get("Nome", "")
+                (row.get("atleta") or row.get("jogador") or "")
+                if is_view_row else row.get("Nome", "")
             )
             if is_summary_athlete_name(athlete):
                 continue
+            athlete_id = None
+            try:
+                athlete_id = int(row.get("athlete_id"))
+                if athlete_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                errors.append(
+                    f"{filename}, linha {row_number}: selecione um jogador cadastrado"
+                )
             try:
                 position = normalize_position(
                     row.get("posicao", "") if is_view_row else row.get("Posição", "")
@@ -344,7 +383,7 @@ def prepare_gps_documents(
                         f"{filename}, linha {row_number}, {metric_name}: {error}"
                     )
                     continue
-                key = (athlete, metric_name)
+                key = (str(athlete_id), metric_name)
                 if key in seen_measurements:
                     errors.append(
                         f"{filename}: medição repetida de {metric_name} para {athlete}"
@@ -360,6 +399,7 @@ def prepare_gps_documents(
                             value=number,
                             text_value=text_value,
                             row_number=row_number,
+                            athlete_id=athlete_id,
                         )
                     )
             if metric_count == 0:
@@ -377,16 +417,20 @@ def prepare_gps_documents(
 
 
 def _fetch_existing_athletes(
-    cursor: Any, names: Iterable[str]
-) -> dict[str, tuple[int, str | None]]:
-    athlete_names = sorted(set(names))
-    if not athlete_names:
+    cursor: Any, athlete_ids: Iterable[int | None]
+) -> dict[int, tuple[str, str | None]]:
+    ids = sorted({int(value) for value in athlete_ids if value is not None})
+    if not ids:
         return {}
     cursor.execute(
-        'SELECT id_atleta, apelido, posicao FROM public."atleta" WHERE apelido = ANY(%s)',
-        (athlete_names,),
+        'SELECT id_atleta, nome, apelido, posicao FROM public."atleta" '
+        'WHERE id_atleta = ANY(%s)',
+        (ids,),
     )
-    return {row[1]: (row[0], row[2]) for row in cursor.fetchall()}
+    return {
+        int(row[0]): (str(row[2] or row[1] or f"Jogador {row[0]}"), row[3])
+        for row in cursor.fetchall()
+    }
 
 
 def _fetch_match(cursor: Any, metadata: GpsFileMetadata) -> int | None:
@@ -462,8 +506,17 @@ def preview_gps_documents(
         try:
             with connection_factory() as connection, connection.cursor() as cursor:
                 athletes = _fetch_existing_athletes(
-                    cursor, (item.athlete for item in document.measurements)
+                    cursor, (item.athlete_id for item in document.measurements)
                 )
+                requested_athlete_ids = {
+                    int(item.athlete_id)
+                    for item in document.measurements
+                    if item.athlete_id is not None
+                }
+                missing_athlete_ids = requested_athlete_ids - set(athletes)
+                if missing_athlete_ids:
+                    missing = ", ".join(map(str, sorted(missing_athlete_ids)))
+                    raise ValueError(f"Jogador(es) cadastrado(s) não encontrado(s): {missing}.")
                 match_id = _fetch_match(cursor, document.metadata)
                 group_id = _fetch_group(cursor)
                 metrics = _fetch_metrics(
@@ -475,31 +528,27 @@ def preview_gps_documents(
                     cursor,
                     match_id,
                     document.metadata.collected_at,
-                    (value[0] for value in athletes.values()),
+                    athletes,
                     metrics.values(),
                 )
                 duplicates = sum(
                     1
                     for item in document.measurements
-                    if item.athlete in athletes
+                    if item.athlete_id in athletes
                     and item.metric in metrics
-                    and (athletes[item.athlete][0], metrics[item.metric])
+                    and (int(item.athlete_id), metrics[item.metric])
                     in duplicate_pairs
                 )
                 extracted_positions = {
-                    item.athlete: item.position for item in document.measurements
+                    int(item.athlete_id): item.position
+                    for item in document.measurements
+                    if item.athlete_id is not None
                 }
                 warnings = tuple(
-                    f"{name}: posição existente '{position}' difere da extraída "
-                    f"'{extracted_positions[name]}'"
-                    for name, (_, position) in athletes.items()
-                    if position and position != extracted_positions[name]
-                )
-                new_athletes = tuple(
-                    sorted(
-                        {item.athlete for item in document.measurements}
-                        - set(athletes)
-                    )
+                    f"{name}: posição cadastrada '{position}' difere da extraída "
+                    f"'{extracted_positions[athlete_id]}'"
+                    for athlete_id, (name, position) in athletes.items()
+                    if position and position != extracted_positions[athlete_id]
                 )
                 new_metrics = tuple(
                     sorted(
@@ -509,7 +558,7 @@ def preview_gps_documents(
                 previews.append(
                     GpsImportPreview(
                         document=document,
-                        new_athletes=new_athletes,
+                        new_athletes=(),
                         new_match=match_id is None,
                         new_metrics=new_metrics,
                         new_measurements=len(document.measurements) - duplicates,
@@ -534,17 +583,6 @@ def _get_or_create_group(cursor: Any) -> tuple[int, bool]:
     cursor.execute(
         'INSERT INTO public."grupo_medida" (nome) VALUES (%s) RETURNING id_grupo_medida',
         (GPS_GROUP,),
-    )
-    return cursor.fetchone()[0], True
-
-
-def _get_or_create_athlete(cursor: Any, name: str, position: str) -> tuple[int, bool]:
-    existing = _fetch_existing_athletes(cursor, [name])
-    if name in existing:
-        return existing[name][0], False
-    cursor.execute(
-        'INSERT INTO public."atleta" (apelido, posicao) VALUES (%s, %s) RETURNING id_atleta',
-        (name, position),
     )
     return cursor.fetchone()[0], True
 
@@ -602,13 +640,20 @@ def import_gps_documents(
                 group_id, _ = _get_or_create_group(cursor)
                 match_id, created_match = _get_or_create_match(cursor, document.metadata)
 
-                athlete_ids: dict[str, int] = {}
-                created_athletes = 0
-                positions = {item.athlete: item.position for item in document.measurements}
-                for athlete, position in sorted(positions.items()):
-                    athlete_id, created = _get_or_create_athlete(cursor, athlete, position)
-                    athlete_ids[athlete] = athlete_id
-                    created_athletes += int(created)
+                requested_athlete_ids = {
+                    int(item.athlete_id)
+                    for item in document.measurements
+                    if item.athlete_id is not None
+                }
+                existing_athletes = _fetch_existing_athletes(
+                    cursor, requested_athlete_ids
+                )
+                missing_athlete_ids = requested_athlete_ids - set(existing_athletes)
+                if missing_athlete_ids:
+                    missing = ", ".join(map(str, sorted(missing_athlete_ids)))
+                    raise ValueError(
+                        f"Jogador(es) cadastrado(s) não encontrado(s): {missing}."
+                    )
 
                 metric_ids: dict[str, int] = {}
                 created_metrics = 0
@@ -621,13 +666,15 @@ def import_gps_documents(
                     cursor,
                     match_id,
                     document.metadata.collected_at,
-                    athlete_ids.values(),
+                    requested_athlete_ids,
                     metric_ids.values(),
                 )
                 values = []
                 duplicates = 0
                 for item in document.measurements:
-                    pair = (athlete_ids[item.athlete], metric_ids[item.metric])
+                    if item.athlete_id is None:
+                        raise ValueError("Selecione um jogador cadastrado para cada linha.")
+                    pair = (int(item.athlete_id), metric_ids[item.metric])
                     if pair in duplicate_pairs:
                         duplicates += 1
                         continue
@@ -657,7 +704,7 @@ def import_gps_documents(
                         filename=document.filename,
                         inserted_measurements=len(values),
                         duplicate_measurements=duplicates,
-                        created_athletes=created_athletes,
+                        created_athletes=0,
                         created_match=created_match,
                         created_metrics=created_metrics,
                     )

@@ -55,8 +55,8 @@ def document(filename="01.02.2026_16_00h_MAC X LUMINENSE.pdf"):
         metadata=metadata,
         filename=filename,
         measurements=(
-            GpsMeasurement("CAIO", "ATA", "Distance (km)", 5.2, "5,2", 1),
-            GpsMeasurement("CAIO", "ATA", "Sprint Efforts", 3.0, "3", 1),
+            GpsMeasurement("CAIO", "ATA", "Distance (km)", 5.2, "5,2", 1, 1),
+            GpsMeasurement("CAIO", "ATA", "Sprint Efforts", 3.0, "3", 1, 1),
         ),
         errors=(),
     )
@@ -97,13 +97,14 @@ class GpsImportPreparationTests(unittest.TestCase):
                     "linhas": [
                         {
                             "_arquivo": "ignorado.pdf",
-                            "Nome": "CAIO, CAIO",
-                            "Posição": "ATA",
-                            "Distance (km)": "5,2",
-                            "Sprint Efforts": "",
+                            "atleta": "CAIO",
+                            "posicao": "ATA",
+                            "distance_km": "5,2",
+                            "sprint_efforts": "",
                             "equipe": "MAC",
                             "adversario": "LUMINENSE",
                             "data_coleta": datetime(2026, 2, 1, 16),
+                            "athlete_id": 1,
                         }
                     ],
                 }
@@ -132,6 +133,10 @@ class GpsImportPreparationTests(unittest.TestCase):
         self.assertIsNone(rows[0]["high_speed_distance"])
 
     def test_converts_extracted_rows_to_editable_view_order(self) -> None:
+        athletes = [{
+            "id_atleta": 1, "nome": "Caio Silva", "apelido": "CAIO",
+            "nome_alternativo": "", "posicao": "Atacante",
+        }]
         rows = extracted_rows_to_gps_view(
             "01.02.2026_16_00h_MAC X LUMINENSE.pdf",
             [
@@ -141,11 +146,13 @@ class GpsImportPreparationTests(unittest.TestCase):
                     "Distance (km)": "5,2",
                     "Sprint Efforts": "3",
                 }
-            ],
+            ], athletes,
         )
 
-        self.assertEqual(tuple(rows[0]), GPS_VIEW_COLUMNS)
+        self.assertEqual(tuple(rows[0]), (*GPS_VIEW_COLUMNS, "nome_reconhecido", "jogador", "athlete_id"))
         self.assertEqual(rows[0]["atleta"], "CAIO")
+        self.assertEqual(rows[0]["athlete_id"], 1)
+        self.assertEqual(rows[0]["jogador"], "CAIO — ID 1")
         self.assertEqual(rows[0]["posicao"], "Atacante")
         self.assertEqual(rows[0]["distance_km"], 5.2)
         self.assertEqual(rows[0]["sprint_efforts"], 3.0)
@@ -161,9 +168,13 @@ class GpsImportPreparationTests(unittest.TestCase):
             {"Nome": "AVERAGES", "Posição": "ATA", "Distance (km)": "4,8", **metadata},
         ]
 
-        view_rows = extracted_rows_to_gps_view("relatorio.pdf", extracted)
+        athletes = [{
+            "id_atleta": 1, "nome": "Caio", "apelido": "CAIO",
+            "nome_alternativo": "", "posicao": "Atacante",
+        }]
+        view_rows = extracted_rows_to_gps_view("relatorio.pdf", extracted, athletes)
         prepared = prepare_gps_documents(
-            [{"arquivo": "relatorio.pdf", "linhas": extracted}]
+            [{"arquivo": "relatorio.pdf", "linhas": view_rows}]
         )[0]
 
         self.assertEqual([row["atleta"] for row in view_rows], ["CAIO"])
@@ -174,10 +185,15 @@ class GpsImportPreparationTests(unittest.TestCase):
         self.assertEqual(prepared.errors, ())
 
     def test_prepares_rows_edited_in_view_format(self) -> None:
+        athletes = [{
+            "id_atleta": 1, "nome": "Caio", "apelido": "CAIO",
+            "nome_alternativo": "", "posicao": "Atacante",
+        }]
         view_row = extracted_rows_to_gps_view(
             "01.02.2026_16_00h_MAC X LUMINENSE.pdf",
             [{"Nome": "CAIO", "Posição": "ATA", "Distance (km)": "5,2",
               "equipe": "IAPE", "adversario": "MAC", "data_coleta": datetime(2026, 3, 1, 16)}],
+            athletes,
         )[0]
 
         prepared = prepare_gps_documents(
@@ -199,12 +215,29 @@ class GpsImportPreparationTests(unittest.TestCase):
 
 
 class GpsImportDatabaseTests(unittest.TestCase):
+    def test_import_rejects_unknown_athlete_without_creating_one(self) -> None:
+        connection = FakeConnection()
+        with (
+            patch("gps_import_service._get_or_create_group", return_value=(3, False)),
+            patch("gps_import_service._get_or_create_match", return_value=(2, False)),
+            patch("gps_import_service._fetch_existing_athletes", return_value={}),
+        ):
+            result = import_gps_documents(
+                [document()], connection_factory(connection)
+            )[0]
+
+        self.assertIn("não encontrado", result.error)
+        self.assertFalse(any(
+            "INSERT INTO public.\"atleta\"" in query
+            for query, _params in connection.cursor_instance.executions
+        ))
+
     def test_preview_reports_creations_and_duplicates_without_writes(self) -> None:
         connection = FakeConnection()
         with (
             patch(
                 "gps_import_service._fetch_existing_athletes",
-                return_value={"CAIO": (1, "ATA")},
+                return_value={1: ("CAIO", "ATA")},
             ),
             patch("gps_import_service._fetch_match", return_value=2),
             patch("gps_import_service._fetch_group", return_value=3),
@@ -233,7 +266,7 @@ class GpsImportDatabaseTests(unittest.TestCase):
         with (
             patch("gps_import_service._get_or_create_group", return_value=(3, False)),
             patch("gps_import_service._get_or_create_match", return_value=(2, True)),
-            patch("gps_import_service._get_or_create_athlete", return_value=(1, True)),
+            patch("gps_import_service._fetch_existing_athletes", return_value={1: ("CAIO", "ATA")}),
             patch(
                 "gps_import_service._get_or_create_metric",
                 side_effect=[(10, False), (11, True)],
@@ -251,7 +284,7 @@ class GpsImportDatabaseTests(unittest.TestCase):
         self.assertIn("pg_advisory_xact_lock", connection.cursor_instance.executions[0][0])
         self.assertEqual(result.inserted_measurements, 1)
         self.assertEqual(result.duplicate_measurements, 1)
-        self.assertEqual(result.created_athletes, 1)
+        self.assertEqual(result.created_athletes, 0)
         batch_insert.assert_called_once()
 
     def test_failure_in_one_pdf_does_not_prevent_the_next(self) -> None:
@@ -269,7 +302,7 @@ class GpsImportDatabaseTests(unittest.TestCase):
                 side_effect=[RuntimeError("falha simulada"), (3, False)],
             ),
             patch("gps_import_service._get_or_create_match", return_value=(2, False)),
-            patch("gps_import_service._get_or_create_athlete", return_value=(1, False)),
+            patch("gps_import_service._fetch_existing_athletes", return_value={1: ("CAIO", "ATA")}),
             patch(
                 "gps_import_service._get_or_create_metric",
                 side_effect=[(10, False), (11, False)],

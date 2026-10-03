@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
-from unicodedata import combining, normalize
 
 import cv2
 import numpy as np
@@ -20,6 +19,12 @@ import pypdfium2 as pdfium
 import pytesseract
 from PIL import Image, ImageOps
 from pytesseract import Output
+
+from athlete_matching import (
+    athlete_display_name,
+    matching_athlete_ids,
+    normalized_athlete_name,
+)
 
 
 EXPECTED_COLUMNS = (
@@ -475,12 +480,7 @@ def parse_llamaparse_page(
 
 
 def normalized_name(value: str) -> str:
-    decomposed = normalize("NFKD", value.casefold().strip())
-    return "".join(
-        character
-        for character in decomposed
-        if not combining(character) and character.isalnum()
-    )
+    return normalized_athlete_name(value)
 
 
 def resolve_athlete_name(
@@ -493,30 +493,17 @@ def resolve_athlete_name(
     if not target:
         return None, "", "Informe o nome do jogador."
 
-    matches: dict[int, str] = {}
-    for athlete in athletes:
-        alternatives = [
-            str(athlete.get("nome") or ""),
-            str(athlete.get("apelido") or ""),
-        ]
-        alternatives.extend(
-            part.strip()
-            for part in str(athlete.get("nome_alternativo") or "").split(",")
-        )
-        if any(normalized_name(alternative) == target for alternative in alternatives):
-            athlete_id = int(athlete["id_atleta"])
-            matches[athlete_id] = (
-                str(athlete.get("apelido") or "").strip()
-                or str(athlete.get("nome") or "").strip()
-                or f"Jogador {athlete_id}"
-            )
+    matches = matching_athlete_ids(text, athletes)
 
     if not matches:
         return None, "", f'Jogador "{text}" não encontrado.'
     if len(matches) > 1:
         return None, "", f'Jogador "{text}" corresponde a mais de um cadastro.'
-    athlete_id, label = next(iter(matches.items()))
-    return athlete_id, label, None
+    athlete_id = matches[0]
+    athlete = next(
+        item for item in athletes if int(item["id_atleta"]) == athlete_id
+    )
+    return athlete_id, athlete_display_name(athlete), None
 
 
 def validate_athlete_rows(
