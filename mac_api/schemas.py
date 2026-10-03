@@ -51,3 +51,20 @@ class LegacyImport(BaseModel):
 
 class LegacyValidation(BaseModel):
     rows: list[dict[str, Any]]
+
+
+class JumpCollectionInput(BaseModel):
+    athlete_id: int
+    collected_at: date | datetime
+    cmj1: float | None = None
+    cmj2: float | None = None
+    cmj3: float | None = None
+    maior_cmj: float | None = None
+    sj1: float | None = None
+    sj2: float | None = None
+    sj3: float | None = None
+    maior_sj: float | None = None
+
+
+class JumpRowsPayload(BaseModel):
+    rows: list[dict[str, Any]]

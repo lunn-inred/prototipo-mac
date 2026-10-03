@@ -16,6 +16,7 @@ from jump_data import (
     metric_summary,
     recorded_best,
 )
+from jump_crud_ui import render_jump_management
 
 
 st.set_page_config(
@@ -147,6 +148,7 @@ def add_athlete_period_deviation(
 
 
 st.title("Métricas de Salto")
+render_jump_management()
 
 try:
     all_records = load_jump_records()

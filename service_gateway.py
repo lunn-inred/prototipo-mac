@@ -17,6 +17,14 @@ from athlete_service import delete_athlete as local_delete_athlete
 from athlete_service import update_athlete as local_update_athlete
 from gps_extraction import extract_uploaded_pdfs as local_extract_uploaded_pdfs
 from gps_import_service import import_gps_documents, prepare_gps_documents, preview_gps_documents
+from jump_service import (
+    JumpCollection, create_jump_collection as local_create_jump,
+    delete_jump_collection as local_delete_jump,
+    extract_jump_workbook as local_extract_jump_workbook,
+    import_jump_rows as local_import_jump_rows,
+    prepare_jump_rows, preview_jump_import as local_preview_jump_import,
+    update_jump_collection as local_update_jump,
+)
 from legacy_thermography import LegacyDocumentExtraction, extract_document, validate_athlete_rows
 from settings import api_base_url, api_key, setting
 from thermography_analysis_service import (
@@ -92,6 +100,104 @@ def load_athletes() -> list[dict[str, Any]]:
 def load_jump_records() -> list[dict[str, Any]]:
     records = _request("GET", "/api/v1/jumps") if remote_api_enabled() else data_repository.jump_records()
     return _parse_date_fields(records, "data_coleta")
+
+
+def load_jump_collections() -> list[dict[str, Any]]:
+    records = (
+        _request("GET", "/api/v1/jumps/collections")
+        if remote_api_enabled() else data_repository.jump_collections()
+    )
+    return _parse_date_fields(records, "data_coleta")
+
+
+def create_jump(values: dict[str, Any]) -> int:
+    if not remote_api_enabled():
+        return local_create_jump(JumpCollection(**values))
+    return int(_request(
+        "POST", "/api/v1/jumps/collections", json=_json_value(values)
+    )["inserted_measurements"])
+
+
+def update_jump(
+    original_athlete_id: int, original_collected_at: date,
+    values: dict[str, Any],
+) -> int:
+    if not remote_api_enabled():
+        return local_update_jump(
+            original_athlete_id, original_collected_at, JumpCollection(**values)
+        )
+    return int(_request(
+        "PUT",
+        f"/api/v1/jumps/collections/{original_athlete_id}/"
+        f"{original_collected_at.isoformat()}",
+        json=_json_value(values),
+    )["inserted_measurements"])
+
+
+def delete_jump(athlete_id: int, collected_at: date) -> int:
+    if not remote_api_enabled():
+        return local_delete_jump(athlete_id, collected_at)
+    return int(_request(
+        "DELETE",
+        f"/api/v1/jumps/collections/{athlete_id}/{collected_at.isoformat()}",
+    )["deleted_measurements"])
+
+
+def extract_jump_workbooks(
+    files: list[tuple[str, bytes]], athletes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not remote_api_enabled():
+        return [
+            local_extract_jump_workbook(content, name, athletes)
+            for name, content in files
+        ]
+    multipart = [
+        ("files", (name, content,
+                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+        for name, content in files
+    ]
+    response = _request("POST", "/api/v1/jumps/import/extract", files=multipart)
+    for document in response:
+        _parse_date_fields(document.get("linhas", []), "data_coleta")
+    return response
+
+
+def preview_jump_payload(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not remote_api_enabled():
+        return [
+            {
+                "arquivo": item.row.filename, "aba": item.row.sheet,
+                "linha": item.row.row_number, "athlete_id": item.row.athlete_id,
+                "jogador": item.row.athlete,
+                "nome_reconhecido": item.row.recognized_name,
+                "data_coleta": item.row.collected_at,
+                **{name.lower(): item.row.measurements.get(name) for name in (
+                    "CMJ1", "CMJ2", "CMJ3", "MAIOR_CMJ",
+                    "SJ1", "SJ2", "SJ3", "MAIOR_SJ",
+                )},
+                "status": item.status, "erros": list(item.errors),
+            }
+            for item in local_preview_jump_import(prepare_jump_rows(rows))
+        ]
+    response = _request(
+        "POST", "/api/v1/jumps/import/preview",
+        json={"rows": _json_value(rows)},
+    )
+    return _parse_date_fields(response, "data_coleta")
+
+
+def import_jump_payload(rows: list[dict[str, Any]]) -> dict[str, int]:
+    if not remote_api_enabled():
+        result = local_import_jump_rows(prepare_jump_rows(rows))
+        return {
+            "inserted_collections": result.inserted_collections,
+            "inserted_measurements": result.inserted_measurements,
+            "duplicate_collections": result.duplicate_collections,
+            "conflicts": result.conflicts,
+        }
+    return _request(
+        "POST", "/api/v1/jumps/import", json={"rows": _json_value(rows)}
+    )
 
 
 def load_gps_records() -> list[dict[str, Any]]:
