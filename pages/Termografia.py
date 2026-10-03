@@ -9,7 +9,11 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from thermal_analysis import annotate_boxes
+from thermal_analysis import (
+    annotate_boxes,
+    scale_percentage_from_temperature,
+    temperature_from_scale_percentage,
+)
 from legacy_thermography import (
     review_rows_signature,
     validated_athlete_ids,
@@ -37,8 +41,25 @@ MAX_IMAGE_SIZE = 20 * 1024 * 1024
 DEFAULT_MIN_TEMPERATURE = 20.0
 DEFAULT_MAX_TEMPERATURE = 40.0
 DEFAULT_HOT_POSITION = 0.90
+PERCENTAGE_MODE = "Porcentagem da escala"
+TEMPERATURE_MODE = "Temperatura (°C)"
+THRESHOLD_MODE_KEY = "thermography_threshold_mode"
 LEGS = {"Perna direita": "right", "Perna esquerda": "left"}
 VIEW_LABELS = {"front": "Frente", "back": "Verso"}
+
+
+def threshold_mode_key(view_key: str) -> str:
+    return f"{THRESHOLD_MODE_KEY}_{view_key}"
+
+
+def synchronize_threshold_mode(source_key: str) -> None:
+    """Mantém os seletores de frente e verso com a mesma opção."""
+    selected_mode = st.session_state[source_key]
+    st.session_state[THRESHOLD_MODE_KEY] = selected_mode
+    for view_key in VIEW_LABELS:
+        target_key = threshold_mode_key(view_key)
+        if target_key != source_key:
+            st.session_state[target_key] = selected_mode
 
 
 def load_thermography(content: bytes) -> Image.Image:
@@ -106,6 +127,15 @@ def render_view(
         )
 
     with st.container(border=True):
+        mode_key = threshold_mode_key(view_key)
+        threshold_mode = st.radio(
+            "Escala do limiar de pixels quentes:",
+            options=(PERCENTAGE_MODE, TEMPERATURE_MODE),
+            horizontal=True,
+            key=mode_key,
+            on_change=synchronize_threshold_mode,
+            args=(mode_key,),
+        )
         minimum_column, maximum_column = st.columns(2)
         with minimum_column:
             minimum_temperature = st.number_input(
@@ -128,26 +158,78 @@ def render_view(
         item["maximum_temperature"] = maximum_temperature
         valid_scale = maximum_temperature > minimum_temperature
         if valid_scale:
-            default_threshold = minimum_temperature + DEFAULT_HOT_POSITION * (
-                maximum_temperature - minimum_temperature
+            signature = image_signature(content)
+            percentage_key = f"thermography_threshold_percentage_{view_key}_{signature}"
+            temperature_key = f"thermography_threshold_temperature_{view_key}_{signature}"
+            previous_mode = item.get("threshold_mode")
+            stored_percentage = float(
+                item.get("threshold_percentage", DEFAULT_HOT_POSITION * 100)
             )
-            slider_step = max(
-                (maximum_temperature - minimum_temperature) / 200, 0.01
-            )
-            threshold = st.slider(
-                "Temperatura mínima para considerar um pixel quente (°C)",
-                min_value=float(minimum_temperature),
-                max_value=float(maximum_temperature),
-                value=float(default_threshold),
-                step=float(slider_step),
-                key=(
-                    f"thermography_threshold_{view_key}_{image_signature(content)}_"
-                    f"{minimum_temperature:.4f}_{maximum_temperature:.4f}_90pct"
+            stored_temperature = float(item.get(
+                "threshold_temperature",
+                temperature_from_scale_percentage(
+                    minimum_temperature, maximum_temperature, stored_percentage
                 ),
-            )
-            st.caption(
-                "Valor padrão: 90% da escala térmica informada."
-            )
+            ))
+
+            if threshold_mode == PERCENTAGE_MODE:
+                if previous_mode == TEMPERATURE_MODE:
+                    converted_temperature = min(
+                        maximum_temperature,
+                        max(minimum_temperature, stored_temperature),
+                    )
+                    stored_percentage = scale_percentage_from_temperature(
+                        minimum_temperature,
+                        maximum_temperature,
+                        converted_temperature,
+                    )
+                    st.session_state[percentage_key] = stored_percentage
+                percentage = st.slider(
+                    "Posição mínima na escala para considerar um pixel quente",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=stored_percentage,
+                    step=1.0,
+                    format="%d%%",
+                    key=percentage_key,
+                )
+                threshold = temperature_from_scale_percentage(
+                    minimum_temperature, maximum_temperature, percentage
+                )
+                item["threshold_percentage"] = percentage
+                item["threshold_temperature"] = threshold
+                st.caption("Valor padrão: 90% da escala térmica informada.")
+            else:
+                if previous_mode == PERCENTAGE_MODE:
+                    stored_temperature = temperature_from_scale_percentage(
+                        minimum_temperature, maximum_temperature, stored_percentage
+                    )
+                    st.session_state[temperature_key] = stored_temperature
+                slider_step = max(
+                    (maximum_temperature - minimum_temperature) / 200, 0.01
+                )
+                widget_temperature = float(
+                    st.session_state.get(temperature_key, stored_temperature)
+                )
+                clamped_temperature = min(
+                    maximum_temperature,
+                    max(minimum_temperature, widget_temperature),
+                )
+                if widget_temperature != clamped_temperature:
+                    st.session_state[temperature_key] = clamped_temperature
+                threshold = st.slider(
+                    "Temperatura mínima para considerar um pixel quente (°C)",
+                    min_value=float(minimum_temperature),
+                    max_value=float(maximum_temperature),
+                    value=float(clamped_temperature),
+                    step=float(slider_step),
+                    key=temperature_key,
+                )
+                item["threshold_temperature"] = threshold
+                item["threshold_percentage"] = scale_percentage_from_temperature(
+                    minimum_temperature, maximum_temperature, threshold
+                )
+            item["threshold_mode"] = threshold_mode
         else:
             threshold = minimum_temperature
             st.error("Tmax deve ser maior que Tmin.")
@@ -684,6 +766,14 @@ st.warning(
     "Conversão experimental: a paleta é estimada pela barra térmica lateral "
     "presente em cada imagem."
 )
+
+selected_threshold_mode = st.session_state.setdefault(
+    THRESHOLD_MODE_KEY, PERCENTAGE_MODE
+)
+for view_key in VIEW_LABELS:
+    st.session_state.setdefault(
+        threshold_mode_key(view_key), selected_threshold_mode
+    )
 
 tabs = st.tabs(["Frente", "Verso"])
 view_metrics: dict[str, dict[str, dict[str, float | int]] | None] = {}

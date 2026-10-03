@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import math
 import re
 from typing import Mapping
 
@@ -10,6 +11,50 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 from scipy.spatial import cKDTree
+
+
+def temperature_from_scale_percentage(
+    minimum_temperature: float,
+    maximum_temperature: float,
+    percentage: float,
+) -> float:
+    """Converte uma posicao percentual da escala termica em graus Celsius."""
+    minimum_temperature = float(minimum_temperature)
+    maximum_temperature = float(maximum_temperature)
+    percentage = float(percentage)
+    if not all(map(math.isfinite, (
+        minimum_temperature, maximum_temperature, percentage,
+    ))):
+        raise ValueError("A escala e a porcentagem devem ser valores finitos.")
+    if maximum_temperature <= minimum_temperature:
+        raise ValueError("Tmax deve ser maior que Tmin.")
+    if not 0.0 <= percentage <= 100.0:
+        raise ValueError("A porcentagem deve estar entre 0% e 100%.")
+    return minimum_temperature + percentage / 100.0 * (
+        maximum_temperature - minimum_temperature
+    )
+
+
+def scale_percentage_from_temperature(
+    minimum_temperature: float,
+    maximum_temperature: float,
+    temperature: float,
+) -> float:
+    """Converte uma temperatura em sua posicao percentual na escala termica."""
+    minimum_temperature = float(minimum_temperature)
+    maximum_temperature = float(maximum_temperature)
+    temperature = float(temperature)
+    if not all(map(math.isfinite, (
+        minimum_temperature, maximum_temperature, temperature,
+    ))):
+        raise ValueError("A escala e a temperatura devem ser valores finitos.")
+    if maximum_temperature <= minimum_temperature:
+        raise ValueError("Tmax deve ser maior que Tmin.")
+    if not minimum_temperature <= temperature <= maximum_temperature:
+        raise ValueError("A temperatura deve estar entre Tmin e Tmax.")
+    return (temperature - minimum_temperature) / (
+        maximum_temperature - minimum_temperature
+    ) * 100.0
 
 
 def extract_colorbar(image: Image.Image) -> np.ndarray:

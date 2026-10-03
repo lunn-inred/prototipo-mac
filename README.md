@@ -542,7 +542,11 @@ editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece 
 escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
 térmica lateral e conta como quentes os pixels a partir de 90% da escala por
 padrão: `Tmin + 0,90 × (Tmax − Tmin)`. O usuário ainda pode ajustar esse limiar
-no slider antes do cálculo.
+no slider antes do cálculo. Um seletor global, aplicado às imagens de frente e
+verso, permite controlar o limiar pela porcentagem da escala (modo padrão) ou
+diretamente pela temperatura em °C. Ao alternar o modo, o sistema preserva o
+limiar equivalente; a análise e os resultados continuam usando a temperatura
+convertida em °C.
 
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
