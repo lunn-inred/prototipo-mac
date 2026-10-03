@@ -85,6 +85,7 @@ POSITION_NAMES = {
     "ata": "Atacante",
     "atacante": "Atacante",
 }
+SUMMARY_ATHLETE_NAMES = {"average", "averages"}
 
 
 @dataclass(frozen=True)
@@ -160,6 +161,17 @@ def clean_athlete_name(value: object) -> str:
     return str(value).split(",", 1)[0].strip()
 
 
+def is_summary_athlete_name(value: object) -> bool:
+    """Identifica linhas de média do relatório que não representam atletas."""
+    name = clean_athlete_name(value)
+    normalized = unicodedata.normalize("NFKD", name.casefold())
+    key = "".join(
+        character for character in normalized
+        if not unicodedata.combining(character) and character.isalnum()
+    )
+    return key in SUMMARY_ATHLETE_NAMES
+
+
 def normalize_position(value: object) -> str:
     text = str(value).strip()
     normalized = unicodedata.normalize("NFKD", text.casefold())
@@ -226,6 +238,8 @@ def extracted_rows_to_gps_view(
     """Converte as linhas horizontais do OCR para o formato editável da view."""
     view_rows: list[dict[str, object]] = []
     for source in rows:
+        if is_summary_athlete_name(source.get("Nome", "")):
+            continue
         row: dict[str, object] = {
             **dict.fromkeys(GPS_VIEW_COLUMNS),
             "atleta": clean_athlete_name(source.get("Nome", "")),
@@ -296,6 +310,8 @@ def prepare_gps_documents(
             athlete = clean_athlete_name(
                 row.get("atleta", "") if is_view_row else row.get("Nome", "")
             )
+            if is_summary_athlete_name(athlete):
+                continue
             try:
                 position = normalize_position(
                     row.get("posicao", "") if is_view_row else row.get("Posição", "")

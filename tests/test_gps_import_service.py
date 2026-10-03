@@ -150,6 +150,29 @@ class GpsImportPreparationTests(unittest.TestCase):
         self.assertEqual(rows[0]["distance_km"], 5.2)
         self.assertEqual(rows[0]["sprint_efforts"], 3.0)
 
+    def test_ignores_averages_summary_row_in_preview_and_import(self) -> None:
+        metadata = {
+            "equipe": "MAC",
+            "adversario": "IAPE",
+            "data_coleta": datetime(2026, 3, 1, 16),
+        }
+        extracted = [
+            {"Nome": "CAIO", "Posição": "ATA", "Distance (km)": "5,2", **metadata},
+            {"Nome": "AVERAGES", "Posição": "ATA", "Distance (km)": "4,8", **metadata},
+        ]
+
+        view_rows = extracted_rows_to_gps_view("relatorio.pdf", extracted)
+        prepared = prepare_gps_documents(
+            [{"arquivo": "relatorio.pdf", "linhas": extracted}]
+        )[0]
+
+        self.assertEqual([row["atleta"] for row in view_rows], ["CAIO"])
+        self.assertEqual(
+            {measurement.athlete for measurement in prepared.measurements},
+            {"CAIO"},
+        )
+        self.assertEqual(prepared.errors, ())
+
     def test_prepares_rows_edited_in_view_format(self) -> None:
         view_row = extracted_rows_to_gps_view(
             "01.02.2026_16_00h_MAC X LUMINENSE.pdf",
