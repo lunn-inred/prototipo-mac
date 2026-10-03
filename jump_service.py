@@ -522,6 +522,7 @@ def import_jump_rows(
     with connection_factory() as db, db.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", (IMPORT_LOCK_ID,))
         metric_ids = _metric_ids(cursor)
+        pending: list[PreparedJumpRow] = []
         for row in rows:
             if row.athlete_id is None or row.collected_at is None:
                 raise ValueError("O lote possui jogador ou data inválidos.")
