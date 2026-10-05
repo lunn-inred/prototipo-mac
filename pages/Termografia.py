@@ -82,16 +82,15 @@ def image_signature(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def crop_from_box(image: Image.Image, box: dict[str, int]) -> Image.Image:
-    left = int(box["left"])
-    top = int(box["top"])
-    return image.crop(
-        (left, top, left + int(box["width"]), top + int(box["height"]))
-    )
-
-
-def _display_image(image: Image.Image, max_width: int = 850) -> tuple[Image.Image, float]:
-    scale = min(2.0, max(1.0, max_width / image.width))
+def _display_image(
+    image: Image.Image,
+    max_width: int = 850,
+    max_height: int | None = None,
+) -> tuple[Image.Image, float]:
+    limits = [2.0, max_width / image.width]
+    if max_height is not None:
+        limits.append(max_height / image.height)
+    scale = min(limits)
     if scale == 1.0:
         return image, scale
     return image.resize(
@@ -170,7 +169,7 @@ def edit_thermal_boxes(
     preview = annotate_boxes(image, {
         "Perna direita": boxes["right"], "Perna esquerda": boxes["left"]
     })
-    background, scale = _display_image(preview)
+    background, scale = _display_image(preview, max_width=620, max_height=360)
     st.caption("Desenhe um retângulo sobre toda a área da perna selecionada.")
     canvas = st_canvas(
         fill_color="rgba(0,255,255,0.12)", stroke_color="#00FFFF",
@@ -216,17 +215,19 @@ def edit_thermal_mask(
     )
     side = "right" if target_label == "Perna direita" else "left"
     brush_label = st.radio(
-        "Pincel", ("Incluir perna", "Excluir fundo"), horizontal=True,
+        "Pincel", ("Incluir área", "Excluir área"), horizontal=True,
         key=f"thermal_brush_{item_key}",
     )
     brush_size = st.slider(
         "Tamanho do pincel", 2, 40, 10, key=f"thermal_brush_size_{item_key}"
     )
-    st.caption("Verde inclui pixels na perna; vermelho remove pixels do fundo.")
-    background, _ = _display_image(analysis["overlay"])
+    st.caption("Verde inclui pixels na área; vermelho exclui pixels da área.")
+    background, _ = _display_image(
+        analysis["overlay"], max_width=620, max_height=360
+    )
     canvas = st_canvas(
         fill_color="rgba(0,0,0,0)",
-        stroke_color="#00FF00" if brush_label == "Incluir perna" else "#FF0000",
+        stroke_color="#00FF00" if brush_label == "Incluir área" else "#FF0000",
         stroke_width=brush_size, background_image=background,
         height=background.height, width=background.width,
         drawing_mode="freedraw", display_toolbar=True,
@@ -498,18 +499,13 @@ def render_view(
         convention = "Verso: R1 superior = esquerda; R2 inferior = direita."
 
     st.markdown("##### Segmentação das pernas")
-    image_columns = st.columns([2, 1, 1], gap="small")
-    with image_columns[0]:
+    preview_left, preview_center, preview_right = st.columns([1, 2, 1])
+    with preview_center:
         st.image(
             analysis["overlay"],
             caption=f"Área segmentada — {convention}",
-            width=520,
+            width="stretch",
         )
-    for column, (label, key) in zip(image_columns[1:], LEGS.items()):
-        with column:
-            preview = crop_from_box(image, boxes[key])
-            preview.thumbnail((260, 190))
-            st.image(preview, caption=label, width=260)
     st.caption(convention)
     edit_columns = st.columns(2)
     if edit_columns[0].button(
