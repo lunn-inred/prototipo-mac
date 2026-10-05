@@ -165,88 +165,66 @@ def _highlight_colorbar(
     return annotate_boxes(Image.fromarray(preview), {"Barra térmica": box})
 
 
-@st.dialog("Corrigir áreas das pernas", width="large")
+@st.dialog("Corrigir áreas", width="large")
 def edit_thermal_boxes(
-    item_key: str, image: Image.Image, automatic: dict[str, dict[str, int]]
+    item_key: str,
+    image: Image.Image,
+    automatic: dict[str, dict[str, int]],
+    automatic_colorbar: dict[str, int],
 ) -> None:
     item = st.session_state["thermography_items"][item_key]
     if message := st.session_state.pop(f"thermal_box_message_{item_key}", None):
         st.success(message)
     target_label = st.radio(
-        "Área", ("Perna direita", "Perna esquerda"), horizontal=True,
+        "Área", ("Perna direita", "Perna esquerda", "Barra de cores"),
+        horizontal=True,
         key=f"thermal_box_target_{item_key}",
     )
+    is_colorbar = target_label == "Barra de cores"
     side = "right" if target_label == "Perna direita" else "left"
     boxes = {**automatic, **item.get("manual_boxes", {})}
+    colorbar = item.get("manual_colorbar_box", automatic_colorbar)
     preview = annotate_boxes(image, {
-        "Perna direita": boxes["right"], "Perna esquerda": boxes["left"]
+        "Perna direita": boxes["right"], "Perna esquerda": boxes["left"],
+        "Barra térmica": colorbar,
     })
     background, scale = _display_image(preview, max_width=620, max_height=360)
-    st.caption("Desenhe um retângulo sobre toda a área da perna selecionada.")
+    st.caption(
+        "Desenhe um retângulo somente sobre a faixa colorida vertical."
+        if is_colorbar else
+        "Desenhe um retângulo sobre toda a área da perna selecionada."
+    )
     canvas = st_canvas(
         fill_color="rgba(0,255,255,0.12)", stroke_color="#00FFFF",
         stroke_width=3, background_image=background,
         height=background.height, width=background.width,
         drawing_mode="rect_crop", display_toolbar=True,
         enable_viewport_controls=True,
-        key=f"thermal_box_canvas_{item_key}_{side}",
+        key=f"thermal_box_canvas_{item_key}_{'colorbar' if is_colorbar else side}",
     )
     crop = crop_box_from_json(canvas.json_data)
     apply_column, reset_column, finish_column = st.columns([2, 2, 1])
     if apply_column.button("Aplicar área", type="primary", disabled=crop is None):
-        item.setdefault("manual_boxes", {})[side] = _scaled_box(crop, scale, image)
-        item.setdefault("mask_seeds", {}).pop(side, None)
+        selected_box = _scaled_box(crop, scale, image)
+        if is_colorbar:
+            item["manual_colorbar_box"] = selected_box
+        else:
+            item.setdefault("manual_boxes", {})[side] = selected_box
+            item.setdefault("mask_seeds", {}).pop(side, None)
         _invalidate_segmentation(item)
         st.session_state[f"thermal_box_message_{item_key}"] = (
             f"Área de {target_label.lower()} atualizada."
         )
         st.rerun(scope="fragment")
     if reset_column.button("Restaurar detecção automática"):
-        item.setdefault("manual_boxes", {}).pop(side, None)
-        item.setdefault("mask_seeds", {}).pop(side, None)
+        if is_colorbar:
+            item.pop("manual_colorbar_box", None)
+        else:
+            item.setdefault("manual_boxes", {}).pop(side, None)
+            item.setdefault("mask_seeds", {}).pop(side, None)
         _invalidate_segmentation(item)
         st.session_state[f"thermal_box_message_{item_key}"] = (
             f"Área de {target_label.lower()} restaurada."
-        )
-        st.rerun(scope="fragment")
-    if finish_column.button("Concluir"):
-        st.rerun()
-
-
-@st.dialog("Corrigir barra de cores", width="large")
-def edit_colorbar_box(
-    item_key: str, image: Image.Image, automatic_box: dict[str, int]
-) -> None:
-    item = st.session_state["thermography_items"][item_key]
-    if message := st.session_state.pop(f"thermal_colorbar_message_{item_key}", None):
-        st.success(message)
-    current = item.get("manual_colorbar_box", automatic_box)
-    preview = annotate_boxes(image, {"Barra térmica": current})
-    background, scale = _display_image(preview, max_width=620, max_height=360)
-    st.caption(
-        "Desenhe um retângulo somente sobre a faixa colorida vertical. "
-        "Ela será usada para estimar a temperatura dos pixels."
-    )
-    canvas = st_canvas(
-        fill_color="rgba(0,255,255,0.12)", stroke_color="#00FFFF",
-        stroke_width=3, background_image=background,
-        height=background.height, width=background.width,
-        drawing_mode="rect_crop", display_toolbar=True,
-        enable_viewport_controls=True,
-        key=f"thermal_colorbar_canvas_{item_key}",
-    )
-    crop = crop_box_from_json(canvas.json_data)
-    apply_column, reset_column, finish_column = st.columns([2, 2, 1])
-    if apply_column.button("Aplicar barra", type="primary", disabled=crop is None):
-        item["manual_colorbar_box"] = _scaled_box(crop, scale, image)
-        _invalidate_segmentation(item)
-        st.session_state[f"thermal_colorbar_message_{item_key}"] = "Barra térmica atualizada."
-        st.rerun(scope="fragment")
-    if reset_column.button("Restaurar automática"):
-        item.pop("manual_colorbar_box", None)
-        _invalidate_segmentation(item)
-        st.session_state[f"thermal_colorbar_message_{item_key}"] = (
-            "Detecção automática da barra restaurada."
         )
         st.rerun(scope="fragment")
     if finish_column.button("Concluir"):
@@ -574,26 +552,20 @@ def render_view(
         "Barra térmica detectada automaticamente · confiança heurística: "
         f"{analysis['colorbar_confidence']:.0%}."
     )
-    edit_columns = st.columns(3)
+    edit_columns = st.columns(2)
     if edit_columns[0].button(
         "Corrigir áreas", key=f"thermal_edit_boxes_{item_key}",
         width="stretch",
     ):
-        edit_thermal_boxes(item_key, image, analysis["automatic_boxes"])
+        edit_thermal_boxes(
+            item_key, image, analysis["automatic_boxes"],
+            analysis["automatic_colorbar_box"],
+        )
     if edit_columns[1].button(
         "Corrigir segmentação", key=f"thermal_edit_masks_{item_key}",
         width="stretch",
     ):
         edit_thermal_mask(item_key, image, analysis)
-    if edit_columns[2].button(
-        "Corrigir barra de cores",
-        key=f"thermal_edit_colorbar_{item_key}",
-        width="stretch",
-    ):
-        edit_colorbar_box(
-            item_key, image, analysis["automatic_colorbar_box"]
-        )
-
     metrics = analysis["metrics"]
 
     st.markdown("##### Métricas da área segmentada")
