@@ -5,13 +5,17 @@ import io
 from datetime import date
 from typing import Any
 
+import cv2
+import numpy as np
 import pandas as pd
 import streamlit as st
 from PIL import Image, ImageOps, UnidentifiedImageError
+from streamlit_drawable_konva import crop_box_from_json, st_canvas
 
 from athlete_matching import unique_matching_athlete_id
 from thermal_analysis import (
-    annotate_boxes,
+    annotate_boxes, count_hot_pixels, detect_colorbar_box, detect_leg_boxes,
+    hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix,
     scale_percentage_from_temperature,
     temperature_from_scale_percentage,
 )
@@ -22,7 +26,6 @@ from thermography_data import (
 )
 from thermography_service import DuplicateThermographyError, LegacyThermographyRecord
 from service_gateway import (
-    analyze_thermography_view,
     extract_thermography_scale,
     extract_legacy_documents,
     save_image_thermography,
@@ -79,12 +82,251 @@ def image_signature(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def crop_from_box(image: Image.Image, box: dict[str, int]) -> Image.Image:
-    left = int(box["left"])
-    top = int(box["top"])
-    return image.crop(
-        (left, top, left + int(box["width"]), top + int(box["height"]))
+def _display_image(
+    image: Image.Image,
+    max_width: int = 850,
+    max_height: int | None = None,
+) -> tuple[Image.Image, float]:
+    limits = [2.0, max_width / image.width]
+    if max_height is not None:
+        limits.append(max_height / image.height)
+    scale = min(limits)
+    if scale == 1.0:
+        return image, scale
+    return image.resize(
+        (int(round(image.width * scale)), int(round(image.height * scale))),
+        Image.Resampling.NEAREST,
+    ), scale
+
+
+def _scaled_box(
+    crop: tuple[int, int, int, int], scale: float, image: Image.Image
+) -> dict[str, int]:
+    x, y, width, height = crop
+    left = max(0, min(image.width - 1, int(round(x / scale))))
+    top = max(0, min(image.height - 1, int(round(y / scale))))
+    right = max(left + 1, min(image.width, int(round((x + width) / scale))))
+    bottom = max(top + 1, min(image.height, int(round((y + height) / scale))))
+    return {"left": left, "top": top, "width": right - left, "height": bottom - top}
+
+
+def _automatic_boxes(image: Image.Image, view_key: str) -> dict[str, dict[str, int]]:
+    detected = detect_leg_boxes(image)
+    if len(detected) < 2:
+        width, height = image.size
+        defaults = [
+            {"left": int(width * .12), "top": int(height * .28),
+             "width": int(width * .62), "height": int(height * .30)},
+            {"left": int(width * .12), "top": int(height * .60),
+             "width": int(width * .62), "height": int(height * .30)},
+        ]
+        detected = [*detected, *defaults[len(detected):]]
+    first, second = detected[:2]
+    return (
+        {"right": first, "left": second}
+        if view_key == "front" else {"left": first, "right": second}
     )
+
+
+def _canvas_seeds(
+    image_data: np.ndarray, image: Image.Image, box: dict[str, int]
+) -> tuple[np.ndarray, int, int]:
+    rgba = np.asarray(image_data, dtype=np.uint8)
+    rgba = cv2.resize(rgba, image.size, interpolation=cv2.INTER_NEAREST)
+    red, green, blue = rgba[:, :, 0], rgba[:, :, 1], rgba[:, :, 2]
+    alpha = rgba[:, :, 3] if rgba.shape[2] > 3 else np.full(red.shape, 255, np.uint8)
+    foreground = (alpha > 20) & (green > 245) & (red < 35) & (blue < 35)
+    background = (alpha > 20) & (red > 245) & (green < 35) & (blue < 35)
+    inside = np.zeros(red.shape, dtype=bool)
+    left, top = box["left"], box["top"]
+    inside[top:top + box["height"], left:left + box["width"]] = True
+    foreground &= inside
+    background &= inside
+    seeds = np.zeros(red.shape, dtype=np.int8)
+    seeds[foreground] = 1
+    seeds[background] = -1
+    return seeds, int(foreground.sum()), int(background.sum())
+
+
+def _invalidate_segmentation(item: dict[str, Any]) -> None:
+    item.pop("analysis", None)
+    item.pop("analysis_config", None)
+
+
+def _highlight_colorbar(
+    overlay: Image.Image, original: Image.Image, box: dict[str, int]
+) -> Image.Image:
+    preview = np.asarray(overlay.convert("RGB"), dtype=np.uint8).copy()
+    source = np.asarray(original.convert("RGB"), dtype=np.uint8)
+    left, top = box["left"], box["top"]
+    right = min(original.width, left + box["width"])
+    bottom = min(original.height, top + box["height"])
+    preview[top:bottom, left:right] = source[top:bottom, left:right]
+    return annotate_boxes(Image.fromarray(preview), {"Barra térmica": box})
+
+
+@st.dialog("Corrigir áreas", width="large")
+def edit_thermal_boxes(
+    item_key: str,
+    image: Image.Image,
+    automatic: dict[str, dict[str, int]],
+    automatic_colorbar: dict[str, int],
+) -> None:
+    item = st.session_state["thermography_items"][item_key]
+    if message := st.session_state.pop(f"thermal_box_message_{item_key}", None):
+        st.success(message)
+    target_label = st.radio(
+        "Área", ("Perna direita", "Perna esquerda", "Barra de cores"),
+        horizontal=True,
+        key=f"thermal_box_target_{item_key}",
+    )
+    is_colorbar = target_label == "Barra de cores"
+    side = "right" if target_label == "Perna direita" else "left"
+    boxes = {**automatic, **item.get("manual_boxes", {})}
+    colorbar = item.get("manual_colorbar_box", automatic_colorbar)
+    preview = annotate_boxes(image, {
+        "Perna direita": boxes["right"], "Perna esquerda": boxes["left"],
+        "Barra térmica": colorbar,
+    })
+    background, scale = _display_image(preview, max_width=620, max_height=360)
+    st.caption(
+        "Desenhe um retângulo somente sobre a faixa colorida vertical."
+        if is_colorbar else
+        "Desenhe um retângulo sobre toda a área da perna selecionada."
+    )
+    canvas = st_canvas(
+        fill_color="rgba(0,255,255,0.12)", stroke_color="#00FFFF",
+        stroke_width=3, background_image=background,
+        height=background.height, width=background.width,
+        drawing_mode="rect_crop", display_toolbar=True,
+        enable_viewport_controls=True,
+        key=f"thermal_box_canvas_{item_key}_{'colorbar' if is_colorbar else side}",
+    )
+    crop = crop_box_from_json(canvas.json_data)
+    apply_column, reset_column, finish_column = st.columns([2, 2, 1])
+    if apply_column.button("Aplicar área", type="primary", disabled=crop is None):
+        selected_box = _scaled_box(crop, scale, image)
+        if is_colorbar:
+            item["manual_colorbar_box"] = selected_box
+        else:
+            item.setdefault("manual_boxes", {})[side] = selected_box
+            item.setdefault("mask_seeds", {}).pop(side, None)
+        _invalidate_segmentation(item)
+        st.session_state[f"thermal_box_message_{item_key}"] = (
+            f"Área de {target_label.lower()} atualizada."
+        )
+        st.rerun(scope="fragment")
+    if reset_column.button("Restaurar detecção automática"):
+        if is_colorbar:
+            item.pop("manual_colorbar_box", None)
+        else:
+            item.setdefault("manual_boxes", {}).pop(side, None)
+            item.setdefault("mask_seeds", {}).pop(side, None)
+        _invalidate_segmentation(item)
+        st.session_state[f"thermal_box_message_{item_key}"] = (
+            f"Área de {target_label.lower()} restaurada."
+        )
+        st.rerun(scope="fragment")
+    if finish_column.button("Concluir"):
+        st.rerun()
+
+
+@st.dialog("Corrigir segmentação", width="large")
+def edit_thermal_mask(
+    item_key: str, image: Image.Image, analysis: dict[str, Any]
+) -> None:
+    item = st.session_state["thermography_items"][item_key]
+    analysis = item.get("analysis", analysis)
+    if message := st.session_state.pop(f"thermal_mask_message_{item_key}", None):
+        st.success(message)
+    target_label = st.radio(
+        "Perna", ("Perna direita", "Perna esquerda"), horizontal=True,
+        key=f"thermal_mask_target_{item_key}",
+    )
+    side = "right" if target_label == "Perna direita" else "left"
+    brush_label = st.radio(
+        "Pincel", ("Incluir área", "Excluir área"), horizontal=True,
+        key=f"thermal_brush_{item_key}",
+    )
+    brush_size = st.slider(
+        "Tamanho do pincel", 2, 40, 10, key=f"thermal_brush_size_{item_key}"
+    )
+    st.caption("Verde inclui pixels na área; vermelho exclui pixels da área.")
+    background, _ = _display_image(
+        analysis["overlay"], max_width=620, max_height=360
+    )
+    canvas = st_canvas(
+        fill_color="rgba(0,0,0,0)",
+        stroke_color="#00FF00" if brush_label == "Incluir área" else "#FF0000",
+        stroke_width=brush_size, background_image=background,
+        height=background.height, width=background.width,
+        drawing_mode="freedraw", display_toolbar=True,
+        enable_viewport_controls=True,
+        key=f"thermal_mask_canvas_{item_key}_{side}",
+    )
+    def recalculate(selected_side: str) -> None:
+        selected_mask = segment_leg_mask(
+            image,
+            analysis["boxes"][selected_side],
+            item.get("mask_seeds", {}).get(selected_side),
+        )
+        analysis["masks"][selected_side] = selected_mask
+        hot_pixels, total_pixels = count_hot_pixels(
+            analysis["temperatures"],
+            analysis["boxes"][selected_side],
+            analysis["threshold"],
+            selected_mask,
+        )
+        analysis["metrics"][selected_side] = {
+            "hot_pixels": hot_pixels,
+            "total_pixels": total_pixels,
+            "hot_percentage": hot_pixels / total_pixels * 100,
+            "threshold": analysis["threshold"],
+        }
+        analysis["overlay"] = segmentation_overlay(
+            image, analysis["boxes"], analysis["masks"]
+        )
+        analysis["overlay"] = _highlight_colorbar(
+            analysis["overlay"], image, analysis["colorbar_box"]
+        )
+        analysis["hot_overlay"] = hot_pixels_overlay(
+            image, analysis["temperatures"], analysis["masks"],
+            analysis["threshold"],
+        )
+        item["analysis"] = analysis
+
+    apply_column, reset_column, finish_column = st.columns([2, 2, 1])
+    if apply_column.button("Aplicar traços e recalcular", type="primary"):
+        if canvas.image_data is None:
+            st.warning("Faça ao menos um traço antes de aplicar.")
+            return
+        seeds, included, excluded = _canvas_seeds(
+            canvas.image_data, image, analysis["boxes"][side]
+        )
+        if included + excluded == 0:
+            st.warning("Nenhum traço verde ou vermelho foi identificado.")
+            return
+        previous = item.setdefault("mask_seeds", {}).get(side)
+        if previous is not None:
+            seeds[(seeds == 0) & (previous != 0)] = previous[(seeds == 0) & (previous != 0)]
+        item["mask_seeds"][side] = seeds
+        recalculate(side)
+        item.pop("analysis_config", None)
+        st.session_state[f"thermal_mask_message_{item_key}"] = (
+            f"Segmentação de {target_label.lower()} recalculada. "
+            "Você pode continuar corrigindo."
+        )
+        st.rerun(scope="fragment")
+    if reset_column.button("Restaurar máscara automática"):
+        item.setdefault("mask_seeds", {}).pop(side, None)
+        recalculate(side)
+        item.pop("analysis_config", None)
+        st.session_state[f"thermal_mask_message_{item_key}"] = (
+            f"Máscara automática de {target_label.lower()} restaurada."
+        )
+        st.rerun(scope="fragment")
+    if finish_column.button("Concluir"):
+        st.rerun()
 
 
 @st.cache_data(show_spinner=False)
@@ -92,15 +334,68 @@ def cached_temperature_scale(content: bytes) -> dict[str, float]:
     return extract_thermography_scale(content)
 
 
-@st.cache_data(show_spinner=False)
-def cached_analysis(
-    content: bytes, view: str, minimum_temperature: float,
-    maximum_temperature: float, threshold: float,
+def segmented_analysis(
+    image: Image.Image,
+    view_key: str,
+    minimum_temperature: float,
+    maximum_temperature: float,
+    threshold: float,
+    item: dict[str, Any],
 ) -> dict[str, Any]:
-    return analyze_thermography_view(
-        content, view=view, minimum_temperature=minimum_temperature,
-        maximum_temperature=maximum_temperature, threshold=threshold,
+    automatic = _automatic_boxes(image, view_key)
+    boxes = {**automatic, **item.get("manual_boxes", {})}
+    automatic_colorbar, colorbar_confidence = detect_colorbar_box(image)
+    colorbar = item.get("manual_colorbar_box", automatic_colorbar)
+    seeds = item.get("mask_seeds", {})
+    config = (
+        minimum_temperature, maximum_temperature, threshold,
+        tuple(colorbar.items()),
+        tuple((side, tuple(boxes[side].items())) for side in ("right", "left")),
+        tuple(
+            (side, hashlib.sha256(seed.tobytes()).hexdigest())
+            for side, seed in sorted(seeds.items())
+        ),
     )
+    if item.get("analysis_config") == config and item.get("analysis") is not None:
+        return item["analysis"]
+
+    temperatures = temperature_matrix(
+        image, minimum_temperature, maximum_temperature, colorbar
+    )
+    masks = {
+        side: segment_leg_mask(image, box, seeds.get(side))
+        for side, box in boxes.items()
+    }
+    metrics: dict[str, dict[str, float | int]] = {}
+    for side, box in boxes.items():
+        hot_pixels, total_pixels = count_hot_pixels(
+            temperatures, box, threshold, masks[side]
+        )
+        metrics[side] = {
+            "hot_pixels": hot_pixels,
+            "total_pixels": total_pixels,
+            "hot_percentage": hot_pixels / total_pixels * 100,
+            "threshold": threshold,
+        }
+    overlay = segmentation_overlay(image, boxes, masks)
+    overlay = _highlight_colorbar(overlay, image, colorbar)
+    analysis = {
+        "view": view_key, "boxes": boxes, "masks": masks,
+        "metrics": metrics,
+        "overlay": overlay,
+        "hot_overlay": hot_pixels_overlay(
+            image, temperatures, masks, threshold
+        ),
+        "automatic_boxes": automatic,
+        "colorbar_box": colorbar,
+        "automatic_colorbar_box": automatic_colorbar,
+        "colorbar_confidence": colorbar_confidence,
+        "temperatures": temperatures,
+        "threshold": threshold,
+    }
+    item["analysis_config"] = config
+    item["analysis"] = analysis
+    return analysis
 
 
 def render_view(
@@ -109,6 +404,7 @@ def render_view(
     content: bytes,
     image: Image.Image,
     item: dict[str, Any],
+    item_key: str,
 ) -> dict[str, dict[str, float | int]] | None:
     """Renderiza uma vista e retorna as métricas das duas pernas."""
     view_label = VIEW_LABELS[view_key]
@@ -234,51 +530,74 @@ def render_view(
         return None
     try:
         with st.spinner(f"Analisando a imagem de {view_label.lower()}..."):
-            analysis = cached_analysis(
-                content, view_key, minimum_temperature, maximum_temperature, threshold
+            analysis = segmented_analysis(
+                image, view_key, minimum_temperature, maximum_temperature,
+                threshold, item,
             )
     except ValueError as error:
         st.image(image, caption=f"Imagem de {view_label.lower()}", width="stretch")
         st.error(str(error))
-        st.info("Nesta etapa, somente imagens com as duas caixas são processadas.")
+        st.info("Corrija as áreas das pernas e tente processar novamente.")
         return None
 
     boxes = analysis["boxes"]
     if view_key == "front":
-        labels = {"R1 — direita": boxes["right"], "R2 — esquerda": boxes["left"]}
         convention = "Frente: R1 superior = direita; R2 inferior = esquerda."
     else:
-        labels = {"R1 — esquerda": boxes["left"], "R2 — direita": boxes["right"]}
         convention = "Verso: R1 superior = esquerda; R2 inferior = direita."
 
-    image_columns = st.columns([2, 1, 1], gap="small")
-    with image_columns[0]:
+    st.markdown("##### Segmentação das pernas")
+    segmentation_column, temperature_column = st.columns(2, gap="medium")
+    with segmentation_column:
         st.image(
-            annotate_boxes(image, labels),
-            caption=f"Detecção automática — {convention}",
-            width=520,
+            analysis["overlay"],
+            caption=f"Área segmentada — {convention}",
+            width="stretch",
         )
-    for column, (label, key) in zip(image_columns[1:], LEGS.items()):
-        with column:
-            preview = crop_from_box(image, boxes[key])
-            preview.thumbnail((260, 190))
-            st.image(preview, caption=label, width=260)
+    with temperature_column:
+        st.image(
+            analysis["hot_overlay"],
+            caption=f"Pixels quentes detectados — temperatura ≥ {threshold:.1f} °C",
+            width="stretch",
+        )
     st.caption(convention)
-
+    st.caption(
+        "Barra térmica detectada automaticamente · confiança heurística: "
+        f"{analysis['colorbar_confidence']:.0%}."
+    )
+    edit_columns = st.columns(2)
+    if edit_columns[0].button(
+        "Corrigir áreas", key=f"thermal_edit_boxes_{item_key}",
+        width="stretch",
+    ):
+        edit_thermal_boxes(
+            item_key, image, analysis["automatic_boxes"],
+            analysis["automatic_colorbar_box"],
+        )
+    if edit_columns[1].button(
+        "Corrigir segmentação", key=f"thermal_edit_masks_{item_key}",
+        width="stretch",
+    ):
+        edit_thermal_mask(item_key, image, analysis)
     metrics = analysis["metrics"]
 
-    st.markdown("##### Pixels quentes")
+    st.markdown("##### Métricas da área segmentada")
     metric_columns = st.columns(2)
     for column, (label, key) in zip(metric_columns, LEGS.items()):
         metric = metrics[key]
         with column:
             with st.container(border=True):
-                st.metric(label, f"{metric['hot_pixels']:,}".replace(",", "."))
-                st.caption(
-                    f"{metric['hot_percentage']:.1f}% de "
-                    f"{metric['total_pixels']:,} pixels · "
+                st.metric(
+                    f"Pixels quentes — {label}",
+                    f"{metric['hot_pixels']:,} px".replace(",", "."),
+                    help="Quantidade de pixels quentes dentro da máscara da perna.",
+                )
+                metric_caption = (
+                    f"Área da perna: {metric['total_pixels']:,} pixels · "
+                    f"Pixels quentes: {metric['hot_percentage']:.1f}% · "
                     f"temperatura ≥ {threshold:.1f} °C"
                 )
+                st.caption(metric_caption.replace(",", "."))
     return metrics
 
 
@@ -753,6 +1072,7 @@ for tab, view_key in zip(tabs, ("front", "back")):
             view["content"],
             view["image"],
             items[item_key],
+            item_key,
         )
 
 stored_metrics: dict[str, Any] = st.session_state.setdefault(
@@ -765,6 +1085,14 @@ if all(view_metrics.values()):
     back_pixels = sum(
         int(view_metrics["back"][key]["hot_pixels"]) for key in LEGS.values()
     )
+    front_area = sum(
+        int(view_metrics["front"][key]["total_pixels"]) for key in LEGS.values()
+    )
+    back_area = sum(
+        int(view_metrics["back"][key]["total_pixels"]) for key in LEGS.values()
+    )
+    front_percentage = front_pixels / front_area * 100
+    back_percentage = back_pixels / back_area * 100
     selected_player = athletes_by_id.get(selected_player_id)
     record = {
         "Jogador": (
@@ -789,12 +1117,24 @@ if all(view_metrics.values()):
     summary_columns = st.columns(2)
     with summary_columns[0]:
         with st.container(border=True):
-            st.metric("Frente", f"{front_pixels:,}".replace(",", "."))
-            st.caption("Pixels quentes das duas pernas")
+            st.metric(
+                "Pixels quentes — Frente (duas pernas)",
+                f"{front_pixels:,} px".replace(",", "."),
+            )
+            st.caption(
+                f"{front_percentage:.1f}% quentes · área segmentada: "
+                f"{front_area:,} pixels".replace(",", ".")
+            )
     with summary_columns[1]:
         with st.container(border=True):
-            st.metric("Verso", f"{back_pixels:,}".replace(",", "."))
-            st.caption("Pixels quentes das duas pernas")
+            st.metric(
+                "Pixels quentes — Verso (duas pernas)",
+                f"{back_pixels:,} px".replace(",", "."),
+            )
+            st.caption(
+                f"{back_percentage:.1f}% quentes · área segmentada: "
+                f"{back_area:,} pixels".replace(",", ".")
+            )
 
     st.subheader("Registro preparado")
     st.caption(

@@ -57,14 +57,118 @@ def scale_percentage_from_temperature(
     ) * 100.0
 
 
-def extract_colorbar(image: Image.Image) -> np.ndarray:
-    """Extrai a paleta vertical do layout HIKMICRO usado no protótipo."""
+def _boolean_runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    padded = np.r_[False, mask.astype(bool), False]
+    changes = np.flatnonzero(padded[1:] != padded[:-1])
+    return list(zip(changes[::2], changes[1::2]))
+
+
+def detect_colorbar_box(image: Image.Image) -> tuple[dict[str, int], float]:
+    """Localiza a barra térmica vertical pela continuidade e variação cromática."""
     rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
     height, width = rgb.shape[:2]
-    strip = rgb[int(height * 0.05):int(height * 0.92), int(width * 0.96):width]
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+    # Caso preferencial da HIKMICRO: duas bordas verticais claras em torno da barra.
+    right_offset = int(width * .60)
+    edges = cv2.Canny(gray[:, right_offset:], 80, 180)
+    lines = cv2.HoughLinesP(
+        edges, 1, np.pi / 180, threshold=max(35, height // 10),
+        minLineLength=int(height * .24), maxLineGap=18,
+    )
+    verticals: list[tuple[int, int, int]] = []
+    if lines is not None:
+        for x1, y1, x2, y2 in lines.reshape(-1, 4):
+            if abs(int(x2) - int(x1)) <= 4:
+                verticals.append((
+                    right_offset + (int(x1) + int(x2)) // 2,
+                    min(int(y1), int(y2)), max(int(y1), int(y2)),
+                ))
+    candidates = []
+    for index, first in enumerate(verticals):
+        for second in verticals[index + 1:]:
+            left_line, right_line = sorted((first, second))
+            separation = right_line[0] - left_line[0]
+            overlap = min(left_line[2], right_line[2]) - max(left_line[1], right_line[1])
+            if 8 <= separation <= max(28, int(width * .05)) and overlap > height * .12:
+                candidates.append((left_line, right_line, overlap))
+    if candidates:
+        left_line, right_line, overlap = max(
+            candidates, key=lambda item: (item[0][0] + item[1][0], item[2])
+        )
+        left, right = left_line[0] + 1, right_line[0]
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        inner = hsv[:, left:right]
+        saturation = np.median(inner[:, :, 1], axis=1)
+        value = np.median(inner[:, :, 2], axis=1)
+        colorful = (saturation > 30) & (value > 55)
+        colorful[:int(height * .04)] = False
+        colorful[int(height * .92):] = False
+        runs = [pair for pair in _boolean_runs(colorful) if pair[1] - pair[0] > height * .20]
+        if runs:
+            top, bottom = max(runs, key=lambda pair: pair[1] - pair[0])
+            extension = int((bottom - top) * .14)
+            top, bottom = max(0, top - extension), min(height, bottom + extension)
+            return {
+                "left": int(left), "top": int(top),
+                "width": int(right - left), "height": int(bottom - top),
+            }, float(np.clip(.65 + overlap / height, 0, 1))
+
+    # Fallback cromático: procura, no lado direito, colunas com grande amplitude
+    # de cor vertical e pouca variação horizontal.
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    x_start, x_end = int(width * .60), int(width * .985)
+    y_start, y_end = int(height * .08), int(height * .92)
+    crop = lab[y_start:y_end, x_start:x_end]
+    vertical_change = np.linalg.norm(np.diff(crop, axis=0), axis=2).mean(axis=0)
+    horizontal_change = np.linalg.norm(np.diff(crop, axis=1), axis=2).mean(axis=0)
+    horizontal_change = np.r_[horizontal_change, horizontal_change[-1]]
+    chroma = crop[:, :, 1:]
+    amplitude = np.linalg.norm(
+        np.percentile(chroma, 95, axis=0) - np.percentile(chroma, 5, axis=0), axis=1
+    )
+    score = amplitude + 4 * vertical_change - .6 * horizontal_change
+    peak = int(np.argmax(score))
+    cutoff = max(float(score[peak]) * .42, float(np.percentile(score, 80)))
+    left, right = peak, peak + 1
+    while left > 0 and score[left - 1] >= cutoff and peak - left < 24:
+        left -= 1
+    while right < len(score) and score[right] >= cutoff and right - peak < 24:
+        right += 1
+    if right - left < 4:
+        left, right = max(0, peak - 5), min(len(score), peak + 6)
+    box = {
+        "left": x_start + left, "top": y_start,
+        "width": right - left, "height": y_end - y_start,
+    }
+    confidence = float(np.clip(
+        (score[peak] - np.median(score)) / (np.std(score) * 4 + 1e-6), 0, 1
+    ))
+    return box, confidence
+
+
+def extract_colorbar(
+    image: Image.Image,
+    box: Mapping[str, int | float] | None = None,
+) -> np.ndarray:
+    """Extrai a paleta vertical da caixa detectada ou corrigida pelo usuário."""
+    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    height, width = rgb.shape[:2]
+    if box is None:
+        box, _confidence = detect_colorbar_box(image)
+    left = max(0, min(width - 1, int(box["left"])))
+    top = max(0, min(height - 1, int(box["top"])))
+    right = max(left + 1, min(width, left + int(box["width"])))
+    bottom = max(top + 1, min(height, top + int(box["height"])))
+    lateral_padding = max(1, int(round((right - left) * .16)))
+    inner_left, inner_right = left + lateral_padding, right - lateral_padding
+    if inner_right <= inner_left:
+        inner_left, inner_right = left, right
+    strip = rgb[top:bottom, inner_left:inner_right]
     if strip.size == 0:
         raise ValueError("Não foi possível extrair a barra térmica da imagem.")
-    return strip.mean(axis=1).astype(np.uint8)
+    return np.median(strip, axis=1).astype(np.uint8)
 
 
 def _temperature_number(text: str) -> float | None:
@@ -147,12 +251,13 @@ def temperature_matrix(
     image: Image.Image,
     minimum_temperature: float,
     maximum_temperature: float,
+    colorbar_box: Mapping[str, int | float] | None = None,
 ) -> np.ndarray:
     """Mapeia os pixels RGB à barra da imagem e retorna temperaturas em °C."""
     if maximum_temperature <= minimum_temperature:
         raise ValueError("Tmax deve ser maior que Tmin.")
     rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    palette = extract_colorbar(image)
+    palette = extract_colorbar(image, colorbar_box)
     positions = np.linspace(1.0, 0.0, len(palette), dtype=np.float32)
     _, indexes = cKDTree(palette.astype(np.float32)).query(
         rgb.reshape(-1, 3).astype(np.float32), workers=-1
@@ -232,7 +337,112 @@ def count_hot_pixels(
     matrix: np.ndarray,
     box: Mapping[str, int | float],
     threshold: float,
+    mask: np.ndarray | None = None,
 ) -> tuple[int, int]:
-    """Retorna pixels no limiar ou acima dele e o total da região."""
+    """Retorna pixels quentes e área total da perna segmentada."""
     region = matrix_region(matrix, box)
-    return int(np.count_nonzero(region >= threshold)), int(region.size)
+    if mask is None:
+        return int(np.count_nonzero(region >= threshold)), int(region.size)
+    mask_region = matrix_region(mask, box).astype(bool)
+    if mask_region.shape != region.shape:
+        raise ValueError("A máscara segmentada não corresponde à região da perna.")
+    total = int(np.count_nonzero(mask_region))
+    if total == 0:
+        raise ValueError("A segmentação não encontrou pixels da perna.")
+    return int(np.count_nonzero((region >= threshold) & mask_region)), total
+
+
+def segment_leg_mask(
+    image: Image.Image,
+    box: Mapping[str, int | float],
+    seed_mask: np.ndarray | None = None,
+    iterations: int = 5,
+) -> np.ndarray:
+    """Segmenta a perna dentro da caixa com GrabCut e ajustes manuais opcionais.
+
+    ``seed_mask`` usa ``1`` para inclusão, ``-1`` para exclusão e ``0`` para
+    pixels ainda desconhecidos.
+    """
+    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    height, width = rgb.shape[:2]
+    left = max(0, min(width - 1, int(box["left"])))
+    top = max(0, min(height - 1, int(box["top"])))
+    right = max(left + 1, min(width, left + int(box["width"])))
+    bottom = max(top + 1, min(height, top + int(box["height"])))
+    inset = 3
+    left, top = min(right - 1, left + inset), min(bottom - 1, top + inset)
+    right, bottom = max(left + 1, right - inset), max(top + 1, bottom - inset)
+
+    grabcut = np.full((height, width), cv2.GC_BGD, dtype=np.uint8)
+    grabcut[top:bottom, left:right] = cv2.GC_PR_FGD
+    margin = max(2, min(8, (bottom - top) // 12))
+    grabcut[top:top + margin, left:right] = cv2.GC_PR_BGD
+    grabcut[bottom - margin:bottom, left:right] = cv2.GC_PR_BGD
+
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    patch = lab[top:bottom, left:right]
+    edges = np.concatenate(
+        (patch[:margin].reshape(-1, 3), patch[-margin:].reshape(-1, 3)), axis=0
+    )
+    background = np.median(edges, axis=0)
+    distance = np.linalg.norm(patch - background, axis=2)
+    local = grabcut[top:bottom, left:right]
+    local[distance < 9.0] = cv2.GC_BGD
+    foreground = distance > max(18.0, float(np.percentile(distance, 68)))
+    border = max(5, margin)
+    foreground[:border] = foreground[-border:] = False
+    foreground[:, :border] = foreground[:, -border:] = False
+    local[foreground] = cv2.GC_FGD
+
+    if seed_mask is not None:
+        if seed_mask.shape != (height, width):
+            raise ValueError("A máscara de correção possui dimensões inválidas.")
+        grabcut[seed_mask < 0] = cv2.GC_BGD
+        grabcut[seed_mask > 0] = cv2.GC_FGD
+
+    background_model = np.zeros((1, 65), np.float64)
+    foreground_model = np.zeros((1, 65), np.float64)
+    cv2.grabCut(
+        bgr, grabcut, None, background_model, foreground_model,
+        iterations, cv2.GC_INIT_WITH_MASK,
+    )
+    result = np.isin(grabcut, (cv2.GC_FGD, cv2.GC_PR_FGD)).astype(np.uint8)
+    result[:top] = result[bottom:] = 0
+    result[:, :left] = result[:, right:] = 0
+    result = cv2.morphologyEx(result, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+    return result.astype(bool)
+
+
+def segmentation_overlay(
+    image: Image.Image,
+    boxes: Mapping[str, Mapping[str, int | float]],
+    masks: Mapping[str, np.ndarray],
+) -> Image.Image:
+    """Cria uma prévia com as máscaras segmentadas e suas caixas."""
+    original = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    preview = np.clip(original.astype(np.float32) * 0.28, 0, 255).astype(np.uint8)
+    for mask in masks.values():
+        preview[mask] = original[mask]
+    return annotate_boxes(Image.fromarray(preview), {
+        ("Perna direita" if side == "right" else "Perna esquerda"): box
+        for side, box in boxes.items()
+    })
+
+
+def hot_pixels_overlay(
+    image: Image.Image,
+    temperature_map: np.ndarray,
+    masks: Mapping[str, np.ndarray],
+    threshold: float,
+) -> Image.Image:
+    """Mantém visíveis somente os pixels quentes das áreas segmentadas."""
+    original = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    union = np.zeros(original.shape[:2], dtype=bool)
+    for mask in masks.values():
+        union |= mask.astype(bool)
+    hot = union & np.isfinite(temperature_map) & (temperature_map >= threshold)
+    preview = np.zeros_like(original)
+    preview[hot] = original[hot]
+    return Image.fromarray(preview)

@@ -9,7 +9,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from thermal_analysis import (
     count_hot_pixels, detect_leg_boxes, extract_temperature_scale,
-    temperature_matrix,
+    segment_leg_mask, temperature_matrix,
 )
 
 MAX_IMAGE_SIZE = 20 * 1024 * 1024
@@ -80,7 +80,10 @@ def analyze_thermography_view(
     )
     metrics: dict[str, dict[str, float | int]] = {}
     for side, box in boxes.items():
-        hot_pixels, total_pixels = count_hot_pixels(temperatures, box, threshold)
+        mask = segment_leg_mask(image, box)
+        hot_pixels, total_pixels = count_hot_pixels(
+            temperatures, box, threshold, mask
+        )
         metrics[side] = {
             "hot_pixels": hot_pixels,
             "total_pixels": total_pixels,
