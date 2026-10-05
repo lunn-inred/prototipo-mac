@@ -569,11 +569,12 @@ data padrão é aplicada pelo serviço.
 Durante a sessão, o botão **Adicionar à timeline** mantém temporariamente as
 imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
 pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
-real pelos controles de limiar de T0 e Ti. Os cartões da timeline permitem marcar
-uma coleta basal T0 e uma coleta atual Ti do mesmo jogador, sempre respeitando a
-ordem temporal (e a ordem de inclusão quando as datas são iguais). Nas abas de
+real pelos controles das coletas basal e atual. Os cartões da timeline permitem
+marcar independentemente uma coleta **Basal** e uma coleta **Atual** do mesmo
+jogador. A interface alerta quando a Atual antecede a Basal, sem bloquear a
+comparação. Nas abas de
 frente e verso, a comparação exibe as duas imagens, mapas normalizados por perna
-e as métricas de Ti com deltas em relação a T0. Vermelho identifica pixels que
+e as métricas atuais com deltas em relação à basal. Vermelho identifica pixels que
 ficaram quentes, amarelo os persistentes e azul os resolvidos.
 
 Na nova análise, o usuário informa jogador, massa, data da coleta, EVA Dor e,

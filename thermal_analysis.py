@@ -389,7 +389,7 @@ def compare_hot_masks(
     current_box: Mapping[str, int | float],
     canvas_size: tuple[int, int] = (180, 320),
 ) -> dict[str, Image.Image | int]:
-    """Compara máscaras quentes T0/Ti em uma geometria normalizada comum."""
+    """Compara máscaras quentes basal/atual em uma geometria normalizada comum."""
     baseline = normalize_binary_region(baseline_mask, baseline_box, canvas_size)
     current = normalize_binary_region(current_mask, current_box, canvas_size)
     persistent = baseline & current
