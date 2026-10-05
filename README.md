@@ -756,6 +756,16 @@ denominador. Ao lado da máscara, uma segunda prévia usa fundo preto e mantém
 visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
 limiar térmico selecionado.
 
+Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
+**Divisão anatômica**, selecione a orientação horizontal ou vertical, indique
+onde começa a coxa e ajuste os três limites percentuais de cada perna e vista.
+Por padrão, a coxa começa à direita nas imagens horizontais. Os percentuais
+crescem da coxa ao pé mesmo em imagens invertidas. As linhas e
+os números das partes aparecem na prévia; a contagem usa somente pixels da
+máscara. A soma das quatro regiões corresponde ao total da perna. Uma região
+com área zero indica que ela não está visível na máscara. Essas métricas são
+temporárias na interface; não são enviadas ao banco.
+
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
 `PERNA_ESQUERDA_FRENTE`, `PERNA_DIREITA_VERSO`,

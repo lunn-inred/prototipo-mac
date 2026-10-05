@@ -7,6 +7,7 @@ from thermal_analysis import (
     count_hot_pixels,
     extract_temperature_scale,
     hot_pixels_overlay,
+    leg_part_metrics,
     segmentation_overlay,
     scale_percentage_from_temperature,
     temperature_from_scale_percentage,
@@ -15,6 +16,63 @@ from thermal_analysis import (
 
 
 class ThermalAnalysisTests(unittest.TestCase):
+
+    def test_anatomical_parts_partition_mask_in_both_directions(self) -> None:
+        mask = np.ones((2, 20), dtype=bool)
+        mask[0, 0] = False
+        temperatures = np.tile(np.arange(20, dtype=np.float32), (2, 1))
+        for axis in ("horizontal", "vertical"):
+            for foot_at_end in (True, False):
+                cuts = (25, 50, 75)
+                parts, _ = leg_part_metrics(
+                    temperatures, mask, 10, cuts,
+                    axis=axis, foot_at_end=foot_at_end,
+                )
+                self.assertEqual(
+                    sum(value["total_pixels"] for value in parts.values()),
+                    int(mask.sum()),
+                )
+                self.assertEqual(
+                    sum(value["hot_pixels"] for value in parts.values()),
+                    int(np.count_nonzero(mask & (temperatures >= 10))),
+                )
+
+        left_foot, _ = leg_part_metrics(
+            temperatures, mask, 10, (25, 50, 75), foot_at_end=False,
+        )
+        right_foot, _ = leg_part_metrics(temperatures, mask, 10, (25, 50, 75))
+        self.assertGreater(left_foot["coxa"]["hot_pixels"],
+                           right_foot["coxa"]["hot_pixels"])
+
+        vertical_mask = np.ones((20, 2), dtype=bool)
+        vertical_temperatures = np.tile(
+            np.arange(20, dtype=np.float32)[:, None], (1, 2)
+        )
+        top_foot, _ = leg_part_metrics(
+            vertical_temperatures, vertical_mask, 10, (25, 50, 75),
+            axis="vertical", foot_at_end=False,
+        )
+        bottom_foot, _ = leg_part_metrics(
+            vertical_temperatures, vertical_mask, 10, (25, 50, 75),
+            axis="vertical", foot_at_end=True,
+        )
+        self.assertGreater(top_foot["coxa"]["hot_pixels"],
+                           bottom_foot["coxa"]["hot_pixels"])
+
+    def test_shin_limit_only_changes_shin_and_foot_in_reversed_image(self) -> None:
+        mask = np.ones((2, 100), dtype=bool)
+        temperatures = np.full(mask.shape, 40.0, dtype=np.float32)
+        before, before_lines = leg_part_metrics(
+            temperatures, mask, 30, (45, 57, 88), foot_at_end=False,
+        )
+        after, after_lines = leg_part_metrics(
+            temperatures, mask, 30, (45, 57, 80), foot_at_end=False,
+        )
+        self.assertEqual(before_lines[:2], after_lines[:2])
+        self.assertEqual(before["coxa"], after["coxa"])
+        self.assertEqual(before["joelho"], after["joelho"])
+        self.assertNotEqual(before["canela"], after["canela"])
+        self.assertNotEqual(before["pe"], after["pe"])
 
     def test_converts_scale_percentage_to_temperature(self) -> None:
         self.assertEqual(temperature_from_scale_percentage(20.0, 40.0, 0), 20.0)

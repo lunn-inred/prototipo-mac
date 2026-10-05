@@ -9,13 +9,14 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 from streamlit_drawable_konva import crop_box_from_json, st_canvas
 
 from athlete_matching import unique_matching_athlete_id
 from thermal_analysis import (
     annotate_boxes, count_hot_pixels, detect_colorbar_box, detect_leg_boxes,
     hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix,
+    DEFAULT_PART_CUTS, LEG_PARTS, leg_part_metrics,
     scale_percentage_from_temperature,
     temperature_from_scale_percentage,
 )
@@ -163,6 +164,45 @@ def _highlight_colorbar(
     bottom = min(original.height, top + box["height"])
     preview[top:bottom, left:right] = source[top:bottom, left:right]
     return annotate_boxes(Image.fromarray(preview), {"Barra térmica": box})
+
+
+def _parts_preview(image: Image.Image, analysis: dict[str, Any],
+                   settings: dict[str, dict[str, Any]]) -> Image.Image:
+    preview = analysis["overlay"].copy()
+    draw = ImageDraw.Draw(preview)
+    colors = ("#00e5ff", "#ffff00", "#ff9f1c")
+    for side, setting in settings.items():
+        _, boundaries = leg_part_metrics(
+            analysis["temperatures"], analysis["masks"][side],
+            analysis["threshold"], tuple(setting["cuts"]),
+            axis=setting["axis"], foot_at_end=setting["foot_at_end"],
+        )
+        box = analysis["boxes"][side]
+        occupied = np.flatnonzero(np.any(
+            analysis["masks"][side], axis=0 if setting["axis"] == "horizontal" else 1
+        ))
+        near, far = int(occupied[0]), int(occupied[-1]) + 1
+        endpoints = ((near, *boundaries, far) if setting["foot_at_end"]
+                     else (far, *boundaries, near))
+        for coordinate, color in zip(boundaries, colors):
+            if setting["axis"] == "horizontal":
+                line = (coordinate, box["top"], coordinate,
+                        box["top"] + box["height"])
+            else:
+                line = (box["left"], coordinate,
+                        box["left"] + box["width"], coordinate)
+            draw.line(line, fill=color, width=max(2, image.width // 300))
+        for number, (first, last) in enumerate(
+            zip(endpoints, endpoints[1:]), start=1
+        ):
+            middle = (first + last) // 2
+            if setting["axis"] == "horizontal":
+                label_position = (middle, box["top"] + box["height"] // 2)
+            else:
+                label_position = (box["left"] + box["width"] // 2, middle)
+            draw.text(label_position, str(number), fill="white", anchor="mm",
+                      stroke_width=2, stroke_fill="black")
+    return preview
 
 
 @st.dialog("Corrigir áreas", width="large")
@@ -546,11 +586,77 @@ def render_view(
     else:
         convention = "Verso: R1 superior = esquerda; R2 inferior = direita."
 
+    settings = item.setdefault("part_settings_v4", {
+        side: {"cuts": list(DEFAULT_PART_CUTS), "axis": "horizontal",
+               "foot_at_end": False}
+        for side in ("right", "left")
+    })
+    st.markdown("##### Divisão anatômica")
+    st.caption(
+        "Escolha onde começa a coxa. Os percentuais vão da coxa ao pé, "
+        "mesmo quando a imagem está invertida. Cada parte usa apenas "
+        "os pixels da máscara."
+    )
+    part_columns = st.columns(2)
+    invalid_cuts = False
+    for column, (label, side) in zip(part_columns, LEGS.items()):
+        setting = settings.setdefault(
+            side, {"cuts": list(DEFAULT_PART_CUTS), "axis": "horizontal",
+                   "foot_at_end": False}
+        )
+        with column:
+            with st.expander(label, expanded=False):
+                axis_label = st.radio(
+                    "Orientação da perna", ("Horizontal", "Vertical"),
+                    index=0 if setting["axis"] == "horizontal" else 1,
+                    horizontal=True, key=f"part_axis_v4_{item_key}_{side}",
+                )
+                axis = axis_label.lower()
+                directions = (("Esquerda", "Direita") if axis == "horizontal"
+                              else ("Cima", "Baixo"))
+                direction = st.radio(
+                    "Onde começa a coxa", directions,
+                    index=0 if setting["foot_at_end"] else 1,
+                    horizontal=True,
+                    key=f"part_direction_v4_{item_key}_{side}_{axis}",
+                )
+                foot_at_end = direction == directions[0]
+                setting["axis"] = axis
+                setting["foot_at_end"] = foot_at_end
+                cuts = setting["cuts"]
+                st.caption("Posição percentual a partir da coxa.")
+                first = st.slider(
+                    "Fim da coxa (%)", 1, 99, cuts[0],
+                    key=f"part_thigh_v4_{item_key}_{side}_{axis}_{direction}",
+                )
+                second = st.slider(
+                    "Fim do joelho (%)", 1, 99, cuts[1],
+                    key=f"part_knee_v4_{item_key}_{side}_{axis}_{direction}",
+                )
+                third = st.slider(
+                    "Fim da canela (%)", 1, 99, cuts[2],
+                    key=f"part_shin_v4_{item_key}_{side}_{axis}_{direction}",
+                )
+                if first < second < third:
+                    setting["cuts"] = [first, second, third]
+                else:
+                    st.error("Os percentuais devem crescer da coxa ao pé.")
+                    invalid_cuts = True
+    part_metrics = {}
+    for side in LEGS.values():
+        setting = settings[side]
+        part_metrics[side], _ = leg_part_metrics(
+            analysis["temperatures"], analysis["masks"][side], threshold,
+            tuple(setting["cuts"]), axis=setting["axis"],
+            foot_at_end=setting["foot_at_end"],
+        )
+
     st.markdown("##### Segmentação das pernas")
+    st.caption("Na prévia: 1 coxa · 2 joelho · 3 canela · 4 pé.")
     segmentation_column, temperature_column = st.columns(2, gap="medium")
     with segmentation_column:
         st.image(
-            analysis["overlay"],
+            _parts_preview(image, analysis, settings),
             caption=f"Área segmentada — {convention}",
             width="stretch",
         )
@@ -598,7 +704,20 @@ def render_view(
                     f"temperatura ≥ {threshold:.1f} °C"
                 )
                 st.caption(metric_caption.replace(",", "."))
-    return metrics
+                for part, part_metric in part_metrics[key].items():
+                    if part_metric["total_pixels"] == 0:
+                        st.write(
+                            f"**{part.capitalize() if part != 'pe' else 'Pé'}:** "
+                            "sem área visível; ajuste os limites."
+                        )
+                        continue
+                    st.write(
+                        f"**{part.capitalize() if part != 'pe' else 'Pé'}:** "
+                        f"{part_metric['hot_pixels']:,} px quentes · "
+                        f"{part_metric['total_pixels']:,} px de área · "
+                        f"{part_metric['hot_percentage']:.1f}%".replace(",", ".")
+                    )
+    return None if invalid_cuts else metrics
 
 
 st.title("Termografia")
