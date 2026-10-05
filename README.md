@@ -33,11 +33,12 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 cp .env.example .env
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 ```
 
-No Windows PowerShell, ative com `.venv\Scripts\Activate.ps1`. Nunca versione
-`.env` nem `.streamlit/secrets.toml`: os dois arquivos estão no `.gitignore`.
+No Windows PowerShell, ative com `.venv\Scripts\Activate.ps1`. Nunca versione o
+`.env`: ele está no `.gitignore`. O arquivo `.streamlit/secrets.toml` é apenas
+uma alternativa para ambientes hospedados do Streamlit, não sendo necessário
+para a execução local ou desktop.
 
 ### Execução separada da API e do Streamlit
 
@@ -60,9 +61,9 @@ use os dois processos separados.
 
 O cliente também pode ser executado em uma janela nativa com
 `streamlit-desktop-app`. O conteúdo continua sendo renderizado pelo Streamlit,
-mas fica dentro de uma WebView, sem abrir uma aba do navegador. A API permanece
-um processo separado: o aplicativo desktop deve apontar para uma API local ou
-hospedada.
+mas fica dentro de uma WebView, sem abrir uma aba do navegador. O inicializador
+abre automaticamente a API FastAPI e o Streamlit em portas locais livres. Ao
+fechar a janela, os dois processos são encerrados.
 
 #### 1. Instale as dependências
 
@@ -82,37 +83,49 @@ sudo apt install tesseract-ocr tesseract-ocr-por libxcb-cursor0
 
 No Windows e no macOS essas bibliotecas Linux não são necessárias.
 
-#### 2. Configure a comunicação com a API
+#### 2. Configure o `.env`
 
-Crie um arquivo chamado `desktop.env` na raiz do projeto e copie exatamente este
-conteúdo para usar a API local:
-
-```env
-MAC_API_BASE_URL=http://127.0.0.1:8000
-MAC_API_KEY=mac-local-dev-7f2c9a41d8e64b30b53f
-MAC_API_TIMEOUT_SECONDS=300
-```
-
-No arquivo `.env` da API, use a mesma chave:
-
-```env
-MAC_API_KEY=mac-local-dev-7f2c9a41d8e64b30b53f
-```
-
-Essa chave é destinada somente ao desenvolvimento local. Para uma API publicada,
-troque `MAC_API_BASE_URL` pela URL HTTPS real e gere uma nova chave secreta. Não
-coloque credenciais PostgreSQL ou do Supabase em `desktop.env`.
-
-#### 3. Inicie a API e o desktop
-
-No primeiro terminal:
+API, Streamlit e launcher desktop utilizam o mesmo arquivo `.env` na raiz do
+projeto. Você pode copiá-lo do modelo:
 
 ```bash
-source .venv/bin/activate
-uvicorn mac_api.main:app --host 127.0.0.1 --port 8000 --env-file .env
+cp .env.example .env
 ```
 
-No segundo terminal:
+Ou criar `.env` e copiar todo o modelo semipronto abaixo. Preencha somente os
+campos vazios do Supabase. A chave do Llama Cloud é opcional:
+
+```env
+# PostgreSQL/Supabase
+SUPABASE_DB_HOST=
+SUPABASE_DB_PORT=5432
+SUPABASE_DB_NAME=postgres
+SUPABASE_DB_USER=
+SUPABASE_DB_PASSWORD=
+SUPABASE_DB_SSLMODE=require
+
+# Extração de formulários legados — opcional
+LLAMA_CLOUD_API_KEY=
+
+# API local integrada
+MAC_API_KEY=mac-local-dev-7f2c9a41d8e64b30b53f
+MAC_API_CORS_ORIGINS=http://localhost:8501
+MAC_API_TIMEOUT_SECONDS=300
+
+# Utilizada apenas no modo web com API e Streamlit separados.
+# No desktop, o launcher substitui automaticamente esta porta.
+MAC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+O inicializador repassa automaticamente a URL e a chave da API local para o
+Streamlit. Não é necessário criar ou repetir configurações em outro arquivo.
+Os campos `SUPABASE_DB_HOST`, `SUPABASE_DB_USER` e `SUPABASE_DB_PASSWORD` são
+obrigatórios para acessar os dados; os valores reais não devem ser enviados ao
+Git.
+
+#### 3. Inicie o aplicativo desktop
+
+Um único comando inicia API, Streamlit e WebView:
 
 ```bash
 source .venv/bin/activate
@@ -134,9 +147,33 @@ python -m PyInstaller --clean --noconfirm desktop.spec
 ```
 
 O resultado fica em `dist/MAC Performance` no Linux. No Windows, o arquivo terá
-extensão `.exe`. Copie `desktop.env` para o mesmo diretório do executável antes
-de abri-lo. O arquivo de configuração não é incluído no pacote nem versionado,
-evitando que chaves sejam gravadas no binário.
+extensão `.exe`. Antes de executá-lo, copie o mesmo `.env` para o diretório do
+binário:
+
+```bash
+cp .env "dist/.env"
+```
+
+Abra o executável Linux:
+
+```bash
+"./dist/MAC Performance"
+```
+
+No Windows PowerShell, copie a configuração e abra o `.exe` com:
+
+```powershell
+Copy-Item .env "dist\.env"
+& ".\dist\MAC Performance.exe"
+```
+
+O `.env` não é incluído no pacote nem versionado, evitando que credenciais sejam
+gravadas no binário. O executável inicia a API automaticamente usando esse
+arquivo único.
+
+O `.env` concede acesso ao banco e deve ser entregue somente a máquinas
+confiáveis. Para distribuição fora de um ambiente controlado, prefira hospedar
+a API e não distribuir credenciais do Supabase.
 
 O build é específico do sistema operacional: gere a versão Windows no Windows,
 a versão Linux no Linux e a versão macOS no macOS. No Linux, a interface usa
@@ -147,10 +184,10 @@ para empacotar, necessários à leitura dos formulários legados.
 
 Arquivos relacionados:
 
-- `desktop.py`: inicia o Streamlit interno e abre a janela desktop;
+- `desktop.py`: inicia FastAPI, Streamlit e a janela desktop, e encerra os processos;
 - `desktop.spec`: inclui páginas, assets, dependências dinâmicas e Tesseract;
 - `requirements-desktop.txt`: dependências adicionais do cliente desktop;
-- `desktop.env.example`: modelo de configuração externa da API.
+- `.env.example`: único modelo de configuração da aplicação completa.
 
 O primeiro início do executável único pode demorar alguns segundos enquanto os
 arquivos internos são extraídos. A versão web e os comandos existentes não são
@@ -196,8 +233,9 @@ As leituras de salto, GPS e termografia usam as views públicas correspondentes.
 
 ## Configuração
 
-A API aceita variáveis de ambiente ou, no desenvolvimento, os valores de
-`.streamlit/secrets.toml`. O ambiente tem prioridade.
+A execução local, a API integrada e o aplicativo desktop utilizam o único arquivo
+`.env`. Em hospedagens do Streamlit, os mesmos nomes podem ser cadastrados em
+`.streamlit/secrets.toml`; variáveis de ambiente têm prioridade.
 
 | Variável | Processo | Finalidade |
 |---|---|---|

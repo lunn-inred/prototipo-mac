@@ -28,8 +28,6 @@ coverage.xml
 build/
 dist/
 *.egg-info/
-desktop.env
-
 # Streamlit runtime files
 streamlit*.log
 
