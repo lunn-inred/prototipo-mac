@@ -9,6 +9,7 @@ da API e mantém um modo local de compatibilidade para a transição de hospedag
 
 - [Como executar](#como-executar)
   - [Execução separada da API e do Streamlit](#execução-separada-da-api-e-do-streamlit)
+  - [Como executar o aplicativo desktop](#como-executar-o-aplicativo-desktop)
   - [Testes](#testes)
 - [Arquitetura](#arquitetura)
 - [Configuração](#configuração)
@@ -54,6 +55,106 @@ Se `MAC_API_BASE_URL` não estiver definido, o Streamlit utiliza os mesmos
 repositórios e serviços no próprio processo. Esse modo existe para manter o
 deploy atual funcionando durante a transição; para uma implantação definitiva,
 use os dois processos separados.
+
+### Como executar o aplicativo desktop
+
+O cliente também pode ser executado em uma janela nativa com
+`streamlit-desktop-app`. O conteúdo continua sendo renderizado pelo Streamlit,
+mas fica dentro de uma WebView, sem abrir uma aba do navegador. A API permanece
+um processo separado: o aplicativo desktop deve apontar para uma API local ou
+hospedada.
+
+#### 1. Instale as dependências
+
+Com o ambiente virtual ativado, instale as dependências do desktop. Esse arquivo
+também instala o conteúdo de `requirements.txt`:
+
+```bash
+python -m pip install -r requirements-desktop.txt
+```
+
+No Ubuntu/Debian, instale também as bibliotecas do sistema:
+
+```bash
+sudo apt update
+sudo apt install tesseract-ocr tesseract-ocr-por libxcb-cursor0
+```
+
+No Windows e no macOS essas bibliotecas Linux não são necessárias.
+
+#### 2. Configure a comunicação com a API
+
+Crie um arquivo chamado `desktop.env` na raiz do projeto e copie exatamente este
+conteúdo para usar a API local:
+
+```env
+MAC_API_BASE_URL=http://127.0.0.1:8000
+MAC_API_KEY=mac-local-dev-7f2c9a41d8e64b30b53f
+MAC_API_TIMEOUT_SECONDS=300
+```
+
+No arquivo `.env` da API, use a mesma chave:
+
+```env
+MAC_API_KEY=mac-local-dev-7f2c9a41d8e64b30b53f
+```
+
+Essa chave é destinada somente ao desenvolvimento local. Para uma API publicada,
+troque `MAC_API_BASE_URL` pela URL HTTPS real e gere uma nova chave secreta. Não
+coloque credenciais PostgreSQL ou do Supabase em `desktop.env`.
+
+#### 3. Inicie a API e o desktop
+
+No primeiro terminal:
+
+```bash
+source .venv/bin/activate
+uvicorn mac_api.main:app --host 127.0.0.1 --port 8000 --env-file .env
+```
+
+No segundo terminal:
+
+```bash
+source .venv/bin/activate
+python desktop.py
+```
+
+No Windows PowerShell, substitua `source .venv/bin/activate` por:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+#### 4. Gere um executável
+
+Para gerar o executável da plataforma atual:
+
+```bash
+python -m PyInstaller --clean --noconfirm desktop.spec
+```
+
+O resultado fica em `dist/MAC Performance` no Linux. No Windows, o arquivo terá
+extensão `.exe`. Copie `desktop.env` para o mesmo diretório do executável antes
+de abri-lo. O arquivo de configuração não é incluído no pacote nem versionado,
+evitando que chaves sejam gravadas no binário.
+
+O build é específico do sistema operacional: gere a versão Windows no Windows,
+a versão Linux no Linux e a versão macOS no macOS. No Linux, a interface usa
+PySide6/Qt6; no Windows, a WebView depende do Microsoft Edge WebView2,
+normalmente já instalado. O build inclui o
+Tesseract e os dados de idioma quando eles estão instalados na máquina usada
+para empacotar, necessários à leitura dos formulários legados.
+
+Arquivos relacionados:
+
+- `desktop.py`: inicia o Streamlit interno e abre a janela desktop;
+- `desktop.spec`: inclui páginas, assets, dependências dinâmicas e Tesseract;
+- `requirements-desktop.txt`: dependências adicionais do cliente desktop;
+- `desktop.env.example`: modelo de configuração externa da API.
+
+O primeiro início do executável único pode demorar alguns segundos enquanto os
+arquivos internos são extraídos. A versão web e os comandos existentes não são
+alterados por essa modalidade.
 
 ### Testes
 
