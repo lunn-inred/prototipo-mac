@@ -57,14 +57,118 @@ def scale_percentage_from_temperature(
     ) * 100.0
 
 
-def extract_colorbar(image: Image.Image) -> np.ndarray:
-    """Extrai a paleta vertical do layout HIKMICRO usado no protótipo."""
+def _boolean_runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    padded = np.r_[False, mask.astype(bool), False]
+    changes = np.flatnonzero(padded[1:] != padded[:-1])
+    return list(zip(changes[::2], changes[1::2]))
+
+
+def detect_colorbar_box(image: Image.Image) -> tuple[dict[str, int], float]:
+    """Localiza a barra térmica vertical pela continuidade e variação cromática."""
     rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
     height, width = rgb.shape[:2]
-    strip = rgb[int(height * 0.05):int(height * 0.92), int(width * 0.96):width]
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+    # Caso preferencial da HIKMICRO: duas bordas verticais claras em torno da barra.
+    right_offset = int(width * .60)
+    edges = cv2.Canny(gray[:, right_offset:], 80, 180)
+    lines = cv2.HoughLinesP(
+        edges, 1, np.pi / 180, threshold=max(35, height // 10),
+        minLineLength=int(height * .24), maxLineGap=18,
+    )
+    verticals: list[tuple[int, int, int]] = []
+    if lines is not None:
+        for x1, y1, x2, y2 in lines.reshape(-1, 4):
+            if abs(int(x2) - int(x1)) <= 4:
+                verticals.append((
+                    right_offset + (int(x1) + int(x2)) // 2,
+                    min(int(y1), int(y2)), max(int(y1), int(y2)),
+                ))
+    candidates = []
+    for index, first in enumerate(verticals):
+        for second in verticals[index + 1:]:
+            left_line, right_line = sorted((first, second))
+            separation = right_line[0] - left_line[0]
+            overlap = min(left_line[2], right_line[2]) - max(left_line[1], right_line[1])
+            if 8 <= separation <= max(28, int(width * .05)) and overlap > height * .12:
+                candidates.append((left_line, right_line, overlap))
+    if candidates:
+        left_line, right_line, overlap = max(
+            candidates, key=lambda item: (item[0][0] + item[1][0], item[2])
+        )
+        left, right = left_line[0] + 1, right_line[0]
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        inner = hsv[:, left:right]
+        saturation = np.median(inner[:, :, 1], axis=1)
+        value = np.median(inner[:, :, 2], axis=1)
+        colorful = (saturation > 30) & (value > 55)
+        colorful[:int(height * .04)] = False
+        colorful[int(height * .92):] = False
+        runs = [pair for pair in _boolean_runs(colorful) if pair[1] - pair[0] > height * .20]
+        if runs:
+            top, bottom = max(runs, key=lambda pair: pair[1] - pair[0])
+            extension = int((bottom - top) * .14)
+            top, bottom = max(0, top - extension), min(height, bottom + extension)
+            return {
+                "left": int(left), "top": int(top),
+                "width": int(right - left), "height": int(bottom - top),
+            }, float(np.clip(.65 + overlap / height, 0, 1))
+
+    # Fallback cromático: procura, no lado direito, colunas com grande amplitude
+    # de cor vertical e pouca variação horizontal.
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    x_start, x_end = int(width * .60), int(width * .985)
+    y_start, y_end = int(height * .08), int(height * .92)
+    crop = lab[y_start:y_end, x_start:x_end]
+    vertical_change = np.linalg.norm(np.diff(crop, axis=0), axis=2).mean(axis=0)
+    horizontal_change = np.linalg.norm(np.diff(crop, axis=1), axis=2).mean(axis=0)
+    horizontal_change = np.r_[horizontal_change, horizontal_change[-1]]
+    chroma = crop[:, :, 1:]
+    amplitude = np.linalg.norm(
+        np.percentile(chroma, 95, axis=0) - np.percentile(chroma, 5, axis=0), axis=1
+    )
+    score = amplitude + 4 * vertical_change - .6 * horizontal_change
+    peak = int(np.argmax(score))
+    cutoff = max(float(score[peak]) * .42, float(np.percentile(score, 80)))
+    left, right = peak, peak + 1
+    while left > 0 and score[left - 1] >= cutoff and peak - left < 24:
+        left -= 1
+    while right < len(score) and score[right] >= cutoff and right - peak < 24:
+        right += 1
+    if right - left < 4:
+        left, right = max(0, peak - 5), min(len(score), peak + 6)
+    box = {
+        "left": x_start + left, "top": y_start,
+        "width": right - left, "height": y_end - y_start,
+    }
+    confidence = float(np.clip(
+        (score[peak] - np.median(score)) / (np.std(score) * 4 + 1e-6), 0, 1
+    ))
+    return box, confidence
+
+
+def extract_colorbar(
+    image: Image.Image,
+    box: Mapping[str, int | float] | None = None,
+) -> np.ndarray:
+    """Extrai a paleta vertical da caixa detectada ou corrigida pelo usuário."""
+    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    height, width = rgb.shape[:2]
+    if box is None:
+        box, _confidence = detect_colorbar_box(image)
+    left = max(0, min(width - 1, int(box["left"])))
+    top = max(0, min(height - 1, int(box["top"])))
+    right = max(left + 1, min(width, left + int(box["width"])))
+    bottom = max(top + 1, min(height, top + int(box["height"])))
+    lateral_padding = max(1, int(round((right - left) * .16)))
+    inner_left, inner_right = left + lateral_padding, right - lateral_padding
+    if inner_right <= inner_left:
+        inner_left, inner_right = left, right
+    strip = rgb[top:bottom, inner_left:inner_right]
     if strip.size == 0:
         raise ValueError("Não foi possível extrair a barra térmica da imagem.")
-    return strip.mean(axis=1).astype(np.uint8)
+    return np.median(strip, axis=1).astype(np.uint8)
 
 
 def _temperature_number(text: str) -> float | None:
@@ -147,12 +251,13 @@ def temperature_matrix(
     image: Image.Image,
     minimum_temperature: float,
     maximum_temperature: float,
+    colorbar_box: Mapping[str, int | float] | None = None,
 ) -> np.ndarray:
     """Mapeia os pixels RGB à barra da imagem e retorna temperaturas em °C."""
     if maximum_temperature <= minimum_temperature:
         raise ValueError("Tmax deve ser maior que Tmin.")
     rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    palette = extract_colorbar(image)
+    palette = extract_colorbar(image, colorbar_box)
     positions = np.linspace(1.0, 0.0, len(palette), dtype=np.float32)
     _, indexes = cKDTree(palette.astype(np.float32)).query(
         rgb.reshape(-1, 3).astype(np.float32), workers=-1

@@ -73,7 +73,10 @@ class ThermalAnalysisTests(unittest.TestCase):
         pixels[50, 1] = (255, 255, 255)
         image = Image.fromarray(pixels)
 
-        temperatures = temperature_matrix(image, 20.0, 40.0)
+        temperatures = temperature_matrix(
+            image, 20.0, 40.0,
+            {"left": 96, "top": 5, "width": 4, "height": 87},
+        )
 
         self.assertAlmostEqual(float(temperatures[50, 0]), 20.0, places=4)
         self.assertAlmostEqual(float(temperatures[50, 1]), 40.0, places=4)

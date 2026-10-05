@@ -584,7 +584,11 @@ Dentro de cada região, o GrabCut separa os pixels da perna do fundo. A prévia
 exibe a máscara sobre a imagem e oferece dois ajustes manuais: **Corrigir
 áreas**, para redesenhar o retângulo de cada perna, e **Corrigir segmentação**,
 com pincel verde para incluir perna e vermelho para excluir fundo. Cada ajuste
-recalcula as métricas. Para cada perna e para os totais de frente/verso, a tela
+recalcula as métricas. A barra térmica vertical também é localizada
+automaticamente e destacada na prévia. O botão **Corrigir barra de cores**
+permite redesenhar sua caixa; a paleta extraída dessa região é a fonte usada
+para converter as cores da imagem em temperaturas aproximadas. Para cada perna
+e para os totais de frente/verso, a tela
 apresenta a quantidade de pixels quentes, a área total segmentada e o percentual
 `pixels quentes ÷ área segmentada × 100`. A área do retângulo não é usada como
 denominador.
