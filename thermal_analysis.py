@@ -352,6 +352,62 @@ def count_hot_pixels(
     return int(np.count_nonzero((region >= threshold) & mask_region)), total
 
 
+def normalize_binary_region(
+    mask: np.ndarray,
+    box: Mapping[str, int | float],
+    canvas_size: tuple[int, int] = (180, 320),
+) -> np.ndarray:
+    """Normaliza uma máscara recortada sem distorcer sua proporção.
+
+    ``canvas_size`` usa a ordem (largura, altura). A interpolação por vizinho
+    mais próximo preserva o caráter binário da máscara.
+    """
+    cropped = matrix_region(np.asarray(mask, dtype=bool), box).astype(np.uint8)
+    canvas_width, canvas_height = canvas_size
+    if canvas_width <= 0 or canvas_height <= 0:
+        raise ValueError("As dimensões do mapa comparativo devem ser positivas.")
+    scale = min(canvas_width / cropped.shape[1], canvas_height / cropped.shape[0])
+    resized_width = max(1, int(round(cropped.shape[1] * scale)))
+    resized_height = max(1, int(round(cropped.shape[0] * scale)))
+    resized = cv2.resize(
+        cropped, (resized_width, resized_height), interpolation=cv2.INTER_NEAREST
+    ).astype(bool)
+    canvas = np.zeros((canvas_height, canvas_width), dtype=bool)
+    offset_x = (canvas_width - resized_width) // 2
+    offset_y = (canvas_height - resized_height) // 2
+    canvas[
+        offset_y:offset_y + resized_height,
+        offset_x:offset_x + resized_width,
+    ] = resized
+    return canvas
+
+
+def compare_hot_masks(
+    baseline_mask: np.ndarray,
+    current_mask: np.ndarray,
+    baseline_box: Mapping[str, int | float],
+    current_box: Mapping[str, int | float],
+    canvas_size: tuple[int, int] = (180, 320),
+) -> dict[str, Image.Image | int]:
+    """Compara máscaras quentes T0/Ti em uma geometria normalizada comum."""
+    baseline = normalize_binary_region(baseline_mask, baseline_box, canvas_size)
+    current = normalize_binary_region(current_mask, current_box, canvas_size)
+    persistent = baseline & current
+    new = ~baseline & current
+    resolved = baseline & ~current
+
+    preview = np.full((*baseline.shape, 3), 18, dtype=np.uint8)
+    preview[resolved] = (42, 136, 255)   # azul: deixou de estar quente
+    preview[persistent] = (255, 196, 0)  # amarelo: permaneceu quente
+    preview[new] = (239, 68, 68)         # vermelho: novo pixel quente
+    return {
+        "image": Image.fromarray(preview),
+        "new_pixels": int(np.count_nonzero(new)),
+        "persistent_pixels": int(np.count_nonzero(persistent)),
+        "resolved_pixels": int(np.count_nonzero(resolved)),
+    }
+
+
 def segment_leg_mask(
     image: Image.Image,
     box: Mapping[str, int | float],

@@ -14,7 +14,7 @@ from streamlit_drawable_konva import crop_box_from_json, st_canvas
 
 from athlete_matching import unique_matching_athlete_id
 from thermal_analysis import (
-    annotate_boxes, count_hot_pixels, detect_colorbar_box, detect_leg_boxes,
+    annotate_boxes, compare_hot_masks, count_hot_pixels, detect_colorbar_box, detect_leg_boxes,
     hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix,
     scale_percentage_from_temperature,
     temperature_from_scale_percentage,
@@ -24,7 +24,12 @@ from thermography_data import (
     load_thermography_athletes,
     load_thermography_history,
 )
-from thermography_service import DuplicateThermographyError, LegacyThermographyRecord
+from thermography_service import (
+    DuplicateThermographyError,
+    LegacyThermographyRecord,
+    current_sao_paulo_date,
+)
+from thermography_timeline import valid_timeline_selection
 from service_gateway import (
     extract_thermography_scale,
     extract_legacy_documents,
@@ -601,6 +606,267 @@ def render_view(
     return metrics
 
 
+def _timeline_sort_key(entry: dict[str, Any]) -> tuple[date, int]:
+    return entry["collected_at"], int(entry["sequence"])
+
+
+def _timeline_entry_by_id(entry_id: int | None) -> dict[str, Any] | None:
+    if entry_id is None:
+        return None
+    return next(
+        (
+            entry
+            for entry in st.session_state.get("thermography_timeline", [])
+            if int(entry["id"]) == int(entry_id)
+        ),
+        None,
+    )
+
+
+def _select_timeline_entry(entry: dict[str, Any], role: str) -> None:
+    other_role = "ti" if role == "t0" else "t0"
+    other = _timeline_entry_by_id(
+        st.session_state.get(f"thermography_timeline_{other_role}")
+    )
+    if other is not None:
+        selected_key = _timeline_sort_key(entry)
+        other_key = _timeline_sort_key(other)
+        if not valid_timeline_selection(selected_key, other_key, role):
+            st.session_state["thermography_timeline_message"] = (
+                "T0 deve ser anterior ou igual a Ti. Escolha outra coleta."
+            )
+            return
+    st.session_state[f"thermography_timeline_{role}"] = int(entry["id"])
+
+
+def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
+    st.markdown("#### Comparação T0 × Ti")
+    st.caption(
+        f"Basal: {t0['collected_at'].strftime('%d/%m/%Y')} · "
+        f"Atual: {ti['collected_at'].strftime('%d/%m/%Y')}"
+    )
+    tabs = st.tabs(["Frente", "Verso"])
+    for tab, view_key in zip(tabs, ("front", "back")):
+        with tab:
+            baseline = t0["views"][view_key]
+            current = ti["views"][view_key]
+            t0_column, ti_column, map_column, metrics_column = st.columns(
+                [1.1, 1.1, 1.4, 1.2], gap="medium"
+            )
+            with t0_column:
+                st.markdown("##### T0 — Basal")
+                st.image(baseline["image"], width="stretch")
+            with ti_column:
+                st.markdown("##### Ti — Atual")
+                st.image(current["image"], width="stretch")
+            with map_column:
+                st.markdown("##### Mapa comparativo")
+                map_columns = st.columns(2)
+                for column, (label, side) in zip(map_columns, LEGS.items()):
+                    comparison = compare_hot_masks(
+                        baseline["hot_masks"][side],
+                        current["hot_masks"][side],
+                        baseline["boxes"][side],
+                        current["boxes"][side],
+                    )
+                    with column:
+                        st.image(comparison["image"], caption=label, width="stretch")
+                        compared_total = sum(
+                            int(comparison[key])
+                            for key in (
+                                "new_pixels", "persistent_pixels", "resolved_pixels"
+                            )
+                        )
+                        def category_value(key: str) -> str:
+                            value = int(comparison[key])
+                            percentage = value / compared_total * 100 if compared_total else 0.0
+                            return f"{value:,} ({percentage:.1f}%)"
+                        st.caption(
+                            f"Novos: {category_value('new_pixels')} · "
+                            f"Persistentes: {category_value('persistent_pixels')} · "
+                            f"Resolvidos: {category_value('resolved_pixels')}"
+                        )
+                st.caption("🔴 novos · 🟡 persistentes · 🔵 resolvidos")
+            with metrics_column:
+                st.markdown("##### Métricas de Ti")
+                st.caption(
+                    f"Tmin {current['minimum_temperature']:.1f} °C · "
+                    f"Tmax {current['maximum_temperature']:.1f} °C · "
+                    f"limiar {current['threshold']:.1f} °C"
+                )
+                current_hot_total = sum(
+                    int(current["metrics"][side]["hot_pixels"])
+                    for side in LEGS.values()
+                )
+                baseline_hot_total = sum(
+                    int(baseline["metrics"][side]["hot_pixels"])
+                    for side in LEGS.values()
+                )
+                current_area_total = sum(
+                    int(current["metrics"][side]["total_pixels"])
+                    for side in LEGS.values()
+                )
+                baseline_area_total = sum(
+                    int(baseline["metrics"][side]["total_pixels"])
+                    for side in LEGS.values()
+                )
+                current_view_percentage = current_hot_total / current_area_total * 100
+                baseline_view_percentage = baseline_hot_total / baseline_area_total * 100
+                st.metric(
+                    "Total da vista",
+                    f"{current_hot_total:,} px".replace(",", "."),
+                    delta=f"{current_hot_total - baseline_hot_total:+,} px".replace(",", "."),
+                )
+                st.caption(
+                    f"{current_view_percentage:.1f}% "
+                    f"({current_view_percentage - baseline_view_percentage:+.1f} p.p.)"
+                )
+                for label, side in LEGS.items():
+                    current_metric = current["metrics"][side]
+                    baseline_metric = baseline["metrics"][side]
+                    hot_delta = int(current_metric["hot_pixels"]) - int(
+                        baseline_metric["hot_pixels"]
+                    )
+                    percentage_delta = float(current_metric["hot_percentage"]) - float(
+                        baseline_metric["hot_percentage"]
+                    )
+                    st.metric(
+                        f"Pixels quentes — {label}",
+                        f"{int(current_metric['hot_pixels']):,} px".replace(",", "."),
+                        delta=f"{hot_delta:+,} px".replace(",", "."),
+                    )
+                    st.caption(
+                        f"{float(current_metric['hot_percentage']):.1f}% "
+                        f"({percentage_delta:+.1f} p.p.) · área: "
+                        f"{int(current_metric['total_pixels']):,} px".replace(",", ".")
+                    )
+
+
+def render_timeline(selected_player_id: int | None) -> None:
+    st.subheader("Timeline térmica")
+    if message := st.session_state.pop("thermography_timeline_message", None):
+        st.warning(message)
+    if selected_player_id is None:
+        st.caption("Selecione um jogador para visualizar e comparar suas coletas da sessão.")
+        return
+
+    entries = sorted(
+        (
+            entry
+            for entry in st.session_state.get("thermography_timeline", [])
+            if int(entry["athlete_id"]) == int(selected_player_id)
+        ),
+        key=_timeline_sort_key,
+    )
+    valid_ids = {int(entry["id"]) for entry in entries}
+    for role in ("t0", "ti"):
+        key = f"thermography_timeline_{role}"
+        if st.session_state.get(key) not in valid_ids:
+            st.session_state.pop(key, None)
+    if not entries:
+        st.caption(
+            "Analise um par de imagens e use “Adicionar à timeline”. "
+            "As imagens permanecem somente nesta sessão."
+        )
+        return
+
+    action_column, clear_column = st.columns([4, 1])
+    with action_column:
+        role_label = st.radio(
+            "Ao clicar em uma coleta, definir como:",
+            ("T0 — Basal", "Ti — Atual"),
+            horizontal=True,
+            key="thermography_timeline_role",
+        )
+    with clear_column:
+        if st.button("Limpar timeline", use_container_width=True):
+            st.session_state["thermography_timeline"] = []
+            st.session_state.pop("thermography_timeline_t0", None)
+            st.session_state.pop("thermography_timeline_ti", None)
+            st.rerun()
+    role = "t0" if role_label.startswith("T0") else "ti"
+    selected_t0 = st.session_state.get("thermography_timeline_t0")
+    selected_ti = st.session_state.get("thermography_timeline_ti")
+    with st.container(horizontal=True):
+        for entry in entries:
+            entry_id = int(entry["id"])
+            states = []
+            if entry_id == selected_t0:
+                states.append("T0")
+            if entry_id == selected_ti:
+                states.append("Ti")
+            with st.container(border=True, width=190):
+                thumbnail = entry["views"]["front"]["image"].copy()
+                thumbnail.thumbnail((170, 110))
+                st.image(thumbnail, width="stretch")
+                label = entry["collected_at"].strftime("%d/%m/%Y")
+                if states:
+                    label += " · " + "/".join(states)
+                if st.button(
+                    label,
+                    key=f"timeline_entry_{entry_id}_{role}",
+                    use_container_width=True,
+                ):
+                    _select_timeline_entry(entry, role)
+                    st.rerun()
+                st.caption(f"Coleta #{entry['sequence']}")
+    st.caption("As imagens da timeline são temporárias e serão perdidas ao encerrar a sessão.")
+
+    t0 = _timeline_entry_by_id(st.session_state.get("thermography_timeline_t0"))
+    ti = _timeline_entry_by_id(st.session_state.get("thermography_timeline_ti"))
+    if t0 is not None and ti is not None:
+        _render_comparison(t0, ti)
+
+
+def add_to_timeline(
+    athlete_id: int,
+    collected_at: date | None,
+    views: dict[str, dict[str, Any]],
+    items: dict[str, dict[str, Any]],
+) -> None:
+    timeline: list[dict[str, Any]] = st.session_state.setdefault(
+        "thermography_timeline", []
+    )
+    sequence = int(st.session_state.get("thermography_timeline_sequence", 0)) + 1
+    st.session_state["thermography_timeline_sequence"] = sequence
+    stored_views: dict[str, dict[str, Any]] = {}
+    for view_key, view in views.items():
+        analysis = items[f"{view_key}:{view['signature']}"]["analysis"]
+        stored_views[view_key] = {
+            "image": view["image"].copy(),
+            "minimum_temperature": float(items[f"{view_key}:{view['signature']}"]["minimum_temperature"]),
+            "maximum_temperature": float(items[f"{view_key}:{view['signature']}"]["maximum_temperature"]),
+            "threshold": float(analysis["threshold"]),
+            "boxes": {side: dict(box) for side, box in analysis["boxes"].items()},
+            "metrics": {
+                side: dict(metric) for side, metric in analysis["metrics"].items()
+            },
+            "hot_masks": {
+                side: (
+                    analysis["masks"][side].astype(bool)
+                    & np.isfinite(analysis["temperatures"])
+                    & (analysis["temperatures"] >= analysis["threshold"])
+                ).copy()
+                for side in LEGS.values()
+            },
+        }
+    entry = {
+        "id": sequence,
+        "sequence": sequence,
+        "athlete_id": int(athlete_id),
+        "collected_at": collected_at or current_sao_paulo_date(),
+        "views": stored_views,
+    }
+    timeline.append(entry)
+    st.session_state["thermography_timeline_ti"] = sequence
+    existing_t0 = _timeline_entry_by_id(
+        st.session_state.get("thermography_timeline_t0")
+    )
+    if existing_t0 is None or _timeline_sort_key(existing_t0) > _timeline_sort_key(entry):
+        st.session_state["thermography_timeline_t0"] = sequence
+    st.session_state["thermography_timeline_message"] = "Coleta adicionada à timeline da sessão."
+
+
 st.title("Termografia")
 
 flash_message = st.session_state.pop("thermography_flash", None)
@@ -941,8 +1207,9 @@ with st.container(border=True):
         )
     with record_columns[2]:
         collection_date = st.date_input(
-            "Data da coleta *",
-            value=date.today(),
+            "Data da coleta",
+            value=current_sao_paulo_date(),
+            help="Se nenhuma data for enviada pela API, será usada a data atual de São Paulo.",
             key="thermography_collection_date",
         )
     with record_columns[3]:
@@ -961,6 +1228,8 @@ with st.container(border=True):
         key="thermography_observations",
     )
     st.caption("* Campos obrigatórios para o envio ao banco.")
+
+render_timeline(selected_player_id)
 
 upload_columns = st.columns(2)
 with upload_columns[0]:
@@ -1135,6 +1404,21 @@ if all(view_metrics.values()):
                 f"{back_percentage:.1f}% quentes · área segmentada: "
                 f"{back_area:,} pixels".replace(",", ".")
             )
+
+    if st.button(
+        "Adicionar à timeline",
+        disabled=selected_player_id is None,
+        help=(
+            "Selecione um jogador para adicionar esta análise."
+            if selected_player_id is None
+            else "Mantém imagens e métricas somente durante esta sessão."
+        ),
+        key=f"add_thermography_timeline_{pair_signature}",
+    ):
+        add_to_timeline(
+            int(selected_player_id), collection_date, views, items
+        )
+        st.rerun()
 
     st.subheader("Registro preparado")
     st.caption(

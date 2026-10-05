@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 
 from thermal_analysis import (
+    compare_hot_masks,
     count_hot_pixels,
     extract_temperature_scale,
     hot_pixels_overlay,
@@ -142,6 +143,25 @@ class ThermalAnalysisTests(unittest.TestCase):
         image = Image.new("RGB", (2, 2), "red")
         with self.assertRaisesRegex(ValueError, "Tmax"):
             temperature_matrix(image, 30.0, 30.0)
+
+    def test_compares_normalized_hot_masks(self) -> None:
+        baseline = np.zeros((6, 4), dtype=bool)
+        current = np.zeros((8, 6), dtype=bool)
+        baseline[1:5, 1:3] = True
+        current[3:7, 0:4] = True
+
+        comparison = compare_hot_masks(
+            baseline,
+            current,
+            {"left": 0, "top": 0, "width": 4, "height": 6},
+            {"left": 0, "top": 0, "width": 6, "height": 8},
+            (40, 60),
+        )
+
+        self.assertEqual(comparison["image"].size, (40, 60))
+        self.assertGreater(comparison["persistent_pixels"], 0)
+        self.assertGreater(comparison["new_pixels"], 0)
+        self.assertGreater(comparison["resolved_pixels"], 0)
 
 
 if __name__ == "__main__":
