@@ -429,3 +429,20 @@ def segmentation_overlay(
         ("Perna direita" if side == "right" else "Perna esquerda"): box
         for side, box in boxes.items()
     })
+
+
+def hot_pixels_overlay(
+    image: Image.Image,
+    temperature_map: np.ndarray,
+    masks: Mapping[str, np.ndarray],
+    threshold: float,
+) -> Image.Image:
+    """Mantém visíveis somente os pixels quentes das áreas segmentadas."""
+    original = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    union = np.zeros(original.shape[:2], dtype=bool)
+    for mask in masks.values():
+        union |= mask.astype(bool)
+    hot = union & np.isfinite(temperature_map) & (temperature_map >= threshold)
+    preview = np.zeros_like(original)
+    preview[hot] = original[hot]
+    return Image.fromarray(preview)

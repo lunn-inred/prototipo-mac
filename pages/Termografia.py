@@ -15,7 +15,7 @@ from streamlit_drawable_konva import crop_box_from_json, st_canvas
 from athlete_matching import unique_matching_athlete_id
 from thermal_analysis import (
     annotate_boxes, count_hot_pixels, detect_colorbar_box, detect_leg_boxes,
-    segmentation_overlay, segment_leg_mask, temperature_matrix,
+    hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix,
     scale_percentage_from_temperature,
     temperature_from_scale_percentage,
 )
@@ -289,6 +289,10 @@ def edit_thermal_mask(
         analysis["overlay"] = _highlight_colorbar(
             analysis["overlay"], image, analysis["colorbar_box"]
         )
+        analysis["hot_overlay"] = hot_pixels_overlay(
+            image, analysis["temperatures"], analysis["masks"],
+            analysis["threshold"],
+        )
         item["analysis"] = analysis
 
     apply_column, reset_column, finish_column = st.columns([2, 2, 1])
@@ -379,6 +383,9 @@ def segmented_analysis(
         "view": view_key, "boxes": boxes, "masks": masks,
         "metrics": metrics,
         "overlay": overlay,
+        "hot_overlay": hot_pixels_overlay(
+            image, temperatures, masks, threshold
+        ),
         "automatic_boxes": automatic,
         "colorbar_box": colorbar,
         "automatic_colorbar_box": automatic_colorbar,
@@ -540,11 +547,17 @@ def render_view(
         convention = "Verso: R1 superior = esquerda; R2 inferior = direita."
 
     st.markdown("##### Segmentação das pernas")
-    preview_left, preview_center, preview_right = st.columns([1, 2, 1])
-    with preview_center:
+    segmentation_column, temperature_column = st.columns(2, gap="medium")
+    with segmentation_column:
         st.image(
             analysis["overlay"],
             caption=f"Área segmentada — {convention}",
+            width="stretch",
+        )
+    with temperature_column:
+        st.image(
+            analysis["hot_overlay"],
+            caption=f"Pixels quentes detectados — temperatura ≥ {threshold:.1f} °C",
             width="stretch",
         )
     st.caption(convention)

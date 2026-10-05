@@ -591,7 +591,9 @@ para converter as cores da imagem em temperaturas aproximadas. Para cada perna
 e para os totais de frente/verso, a tela
 apresenta a quantidade de pixels quentes, a área total segmentada e o percentual
 `pixels quentes ÷ área segmentada × 100`. A área do retângulo não é usada como
-denominador.
+denominador. Ao lado da máscara, uma segunda prévia usa fundo preto e mantém
+visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
+limiar térmico selecionado.
 
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
