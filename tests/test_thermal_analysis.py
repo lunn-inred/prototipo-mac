@@ -6,6 +6,7 @@ from PIL import Image
 from thermal_analysis import (
     count_hot_pixels,
     extract_temperature_scale,
+    segmentation_overlay,
     scale_percentage_from_temperature,
     temperature_from_scale_percentage,
     temperature_matrix,
@@ -87,6 +88,33 @@ class ThermalAnalysisTests(unittest.TestCase):
 
         self.assertEqual(hot, 2)
         self.assertEqual(total, 4)
+
+    def test_counts_hot_pixels_over_segmented_leg_area(self) -> None:
+        matrix = np.asarray(
+            [[20.0, 30.0, 40.0], [25.0, 35.0, 39.0]], dtype=np.float32
+        )
+        box = {"left": 1, "top": 0, "width": 2, "height": 2}
+        mask = np.asarray(
+            [[False, True, True], [False, True, False]], dtype=bool
+        )
+
+        hot, total = count_hot_pixels(matrix, box, 39.0, mask)
+
+        self.assertEqual(hot, 1)
+        self.assertEqual(total, 3)
+
+    def test_segmentation_preview_darkens_only_background(self) -> None:
+        source = np.full((10, 10, 3), 200, dtype=np.uint8)
+        mask = np.zeros((10, 10), dtype=bool)
+        mask[3:7, 3:7] = True
+        box = {"left": 2, "top": 2, "width": 6, "height": 6}
+
+        preview = np.asarray(segmentation_overlay(
+            Image.fromarray(source), {"right": box}, {"right": mask}
+        ))
+
+        self.assertTrue(np.all(preview[5, 5] == source[5, 5]))
+        self.assertTrue(np.all(preview[0, 0] < source[0, 0]))
 
     def test_rejects_invalid_temperature_scale(self) -> None:
         image = Image.new("RGB", (2, 2), "red")

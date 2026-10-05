@@ -232,7 +232,95 @@ def count_hot_pixels(
     matrix: np.ndarray,
     box: Mapping[str, int | float],
     threshold: float,
+    mask: np.ndarray | None = None,
 ) -> tuple[int, int]:
-    """Retorna pixels no limiar ou acima dele e o total da região."""
+    """Retorna pixels quentes e área total da perna segmentada."""
     region = matrix_region(matrix, box)
-    return int(np.count_nonzero(region >= threshold)), int(region.size)
+    if mask is None:
+        return int(np.count_nonzero(region >= threshold)), int(region.size)
+    mask_region = matrix_region(mask, box).astype(bool)
+    if mask_region.shape != region.shape:
+        raise ValueError("A máscara segmentada não corresponde à região da perna.")
+    total = int(np.count_nonzero(mask_region))
+    if total == 0:
+        raise ValueError("A segmentação não encontrou pixels da perna.")
+    return int(np.count_nonzero((region >= threshold) & mask_region)), total
+
+
+def segment_leg_mask(
+    image: Image.Image,
+    box: Mapping[str, int | float],
+    seed_mask: np.ndarray | None = None,
+    iterations: int = 5,
+) -> np.ndarray:
+    """Segmenta a perna dentro da caixa com GrabCut e ajustes manuais opcionais.
+
+    ``seed_mask`` usa ``1`` para inclusão, ``-1`` para exclusão e ``0`` para
+    pixels ainda desconhecidos.
+    """
+    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    height, width = rgb.shape[:2]
+    left = max(0, min(width - 1, int(box["left"])))
+    top = max(0, min(height - 1, int(box["top"])))
+    right = max(left + 1, min(width, left + int(box["width"])))
+    bottom = max(top + 1, min(height, top + int(box["height"])))
+    inset = 3
+    left, top = min(right - 1, left + inset), min(bottom - 1, top + inset)
+    right, bottom = max(left + 1, right - inset), max(top + 1, bottom - inset)
+
+    grabcut = np.full((height, width), cv2.GC_BGD, dtype=np.uint8)
+    grabcut[top:bottom, left:right] = cv2.GC_PR_FGD
+    margin = max(2, min(8, (bottom - top) // 12))
+    grabcut[top:top + margin, left:right] = cv2.GC_PR_BGD
+    grabcut[bottom - margin:bottom, left:right] = cv2.GC_PR_BGD
+
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    patch = lab[top:bottom, left:right]
+    edges = np.concatenate(
+        (patch[:margin].reshape(-1, 3), patch[-margin:].reshape(-1, 3)), axis=0
+    )
+    background = np.median(edges, axis=0)
+    distance = np.linalg.norm(patch - background, axis=2)
+    local = grabcut[top:bottom, left:right]
+    local[distance < 9.0] = cv2.GC_BGD
+    foreground = distance > max(18.0, float(np.percentile(distance, 68)))
+    border = max(5, margin)
+    foreground[:border] = foreground[-border:] = False
+    foreground[:, :border] = foreground[:, -border:] = False
+    local[foreground] = cv2.GC_FGD
+
+    if seed_mask is not None:
+        if seed_mask.shape != (height, width):
+            raise ValueError("A máscara de correção possui dimensões inválidas.")
+        grabcut[seed_mask < 0] = cv2.GC_BGD
+        grabcut[seed_mask > 0] = cv2.GC_FGD
+
+    background_model = np.zeros((1, 65), np.float64)
+    foreground_model = np.zeros((1, 65), np.float64)
+    cv2.grabCut(
+        bgr, grabcut, None, background_model, foreground_model,
+        iterations, cv2.GC_INIT_WITH_MASK,
+    )
+    result = np.isin(grabcut, (cv2.GC_FGD, cv2.GC_PR_FGD)).astype(np.uint8)
+    result[:top] = result[bottom:] = 0
+    result[:, :left] = result[:, right:] = 0
+    result = cv2.morphologyEx(result, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+    return result.astype(bool)
+
+
+def segmentation_overlay(
+    image: Image.Image,
+    boxes: Mapping[str, Mapping[str, int | float]],
+    masks: Mapping[str, np.ndarray],
+) -> Image.Image:
+    """Cria uma prévia com as máscaras segmentadas e suas caixas."""
+    original = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    preview = np.clip(original.astype(np.float32) * 0.28, 0, 255).astype(np.uint8)
+    for mask in masks.values():
+        preview[mask] = original[mask]
+    return annotate_boxes(Image.fromarray(preview), {
+        ("Perna direita" if side == "right" else "Perna esquerda"): box
+        for side, box in boxes.items()
+    })

@@ -565,9 +565,10 @@ permite importar fichas manuscritas. O histórico térmico não é exibido nessa
 interface.
 
 Na nova análise, o usuário informa jogador, massa, data da coleta, EVA Dor e,
-opcionalmente, observações. As imagens precisam conter as duas caixas R1/R2 do
-layout HIKMICRO atualmente suportado. O sistema identifica as caixas, inverte a
-lateralidade entre frente e verso e aplica OCR às regiões superior e inferior
+opcionalmente, observações. O sistema tenta identificar automaticamente as duas
+caixas R1/R2; quando elas não existem ou estão incorretas, cria regiões iniciais
+que podem ser redesenhadas pelo usuário. A lateralidade é invertida entre frente
+e verso e o OCR é aplicado às regiões superior e inferior
 do canto direito para preencher automaticamente Tmax e Tmin. Os campos continuam
 editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece uma
 escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
@@ -578,6 +579,15 @@ verso, permite controlar o limiar pela porcentagem da escala (modo padrão) ou
 diretamente pela temperatura em °C. Ao alternar o modo, o sistema preserva o
 limiar equivalente; a análise e os resultados continuam usando a temperatura
 convertida em °C.
+
+Dentro de cada região, o GrabCut separa os pixels da perna do fundo. A prévia
+exibe a máscara sobre a imagem e oferece dois ajustes manuais: **Corrigir
+áreas**, para redesenhar o retângulo de cada perna, e **Corrigir segmentação**,
+com pincel verde para incluir perna e vermelho para excluir fundo. Cada ajuste
+recalcula as métricas. Para cada perna e para os totais de frente/verso, a tela
+apresenta a quantidade de pixels quentes, a área total segmentada e o percentual
+`pixels quentes ÷ área segmentada × 100`. A área do retângulo não é usada como
+denominador.
 
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
