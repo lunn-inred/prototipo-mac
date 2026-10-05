@@ -867,6 +867,79 @@ def add_to_timeline(
     st.session_state["thermography_timeline_message"] = "Coleta adicionada à timeline da sessão."
 
 
+@st.dialog("Data da coleta")
+def confirm_timeline_date(
+    athlete_id: int,
+    views: dict[str, dict[str, Any]],
+    items: dict[str, dict[str, Any]],
+    pair_signature: str,
+) -> None:
+    st.caption("Informe a data em que as imagens termográficas foram coletadas.")
+    collected_at = st.date_input(
+        "Data de registro da coleta",
+        value=current_sao_paulo_date(),
+        key=f"timeline_collection_date_{pair_signature}",
+    )
+    if st.button(
+        "Confirmar e adicionar à timeline",
+        type="primary",
+        use_container_width=True,
+        key=f"confirm_timeline_date_{pair_signature}",
+    ):
+        add_to_timeline(athlete_id, collected_at, views, items)
+        st.rerun()
+
+
+@st.dialog("Registrar coleta no banco")
+def confirm_database_collection(
+    *,
+    athlete_id: int,
+    mass: object,
+    pain_score: object,
+    front_right: object,
+    front_left: object,
+    back_right: object,
+    back_left: object,
+    observations: object,
+    pair_signature: str,
+) -> None:
+    st.caption("Confirme a data em que esta coleta termográfica foi realizada.")
+    collected_at = st.date_input(
+        "Data de registro da coleta",
+        value=current_sao_paulo_date(),
+        key=f"database_collection_date_{pair_signature}",
+    )
+    if st.button(
+        "Confirmar registro",
+        type="primary",
+        use_container_width=True,
+        key=f"confirm_database_collection_{pair_signature}",
+    ):
+        try:
+            inserted = save_image_thermography(
+                athlete_id=athlete_id,
+                collected_at=collected_at,
+                mass=mass,
+                pain_score=pain_score,
+                front_right=front_right,
+                front_left=front_left,
+                back_right=back_right,
+                back_left=back_left,
+                observations=observations,
+            )
+        except (ValueError, RuntimeError, DuplicateThermographyError) as error:
+            st.error(str(error))
+        except Exception:
+            st.error("Não foi possível registrar a coleta no banco.")
+        else:
+            load_thermography_history.clear()
+            st.session_state["thermography_flash"] = (
+                f"Coleta de {collected_at.strftime('%d/%m/%Y')} registrada "
+                f"com {inserted} medida(s)."
+            )
+            st.rerun()
+
+
 st.title("Termografia")
 
 flash_message = st.session_state.pop("thermography_flash", None)
@@ -1178,7 +1251,7 @@ st.caption(
 )
 
 with st.container(border=True):
-    record_columns = st.columns(4)
+    record_columns = st.columns(3)
     with record_columns[0]:
         selected_player_id = st.selectbox(
             "Jogador *",
@@ -1206,13 +1279,6 @@ with st.container(border=True):
             key="thermography_mass",
         )
     with record_columns[2]:
-        collection_date = st.date_input(
-            "Data da coleta",
-            value=current_sao_paulo_date(),
-            help="Se nenhuma data for enviada pela API, será usada a data atual de São Paulo.",
-            key="thermography_collection_date",
-        )
-    with record_columns[3]:
         pain_score = st.number_input(
             "EVA Dor *",
             min_value=0,
@@ -1415,10 +1481,9 @@ if all(view_metrics.values()):
         ),
         key=f"add_thermography_timeline_{pair_signature}",
     ):
-        add_to_timeline(
-            int(selected_player_id), collection_date, views, items
+        confirm_timeline_date(
+            int(selected_player_id), views, items, pair_signature
         )
-        st.rerun()
 
     st.subheader("Registro preparado")
     st.caption(
@@ -1506,28 +1571,17 @@ if all(view_metrics.values()):
         disabled=bool(missing_fields),
         key="save_image_thermography",
     ):
-        try:
-            inserted = save_image_thermography(
-                athlete_id=int(prepared_player_id),
-                collected_at=collection_date,
-                mass=prepared_mass,
-                pain_score=prepared_pain_score,
-                front_right=view_metrics["front"]["right"]["hot_pixels"],
-                front_left=view_metrics["front"]["left"]["hot_pixels"],
-                back_right=view_metrics["back"]["right"]["hot_pixels"],
-                back_left=view_metrics["back"]["left"]["hot_pixels"],
-                observations=prepared_observations,
-            )
-        except (ValueError, RuntimeError, DuplicateThermographyError) as error:
-            st.error(str(error))
-        except Exception:
-            st.error("Não foi possível registrar a coleta no banco.")
-        else:
-            load_thermography_history.clear()
-            st.session_state["thermography_flash"] = (
-                f"Coleta registrada com {inserted} medida(s)."
-            )
-            st.rerun()
+        confirm_database_collection(
+            athlete_id=int(prepared_player_id),
+            mass=prepared_mass,
+            pain_score=prepared_pain_score,
+            front_right=view_metrics["front"]["right"]["hot_pixels"],
+            front_left=view_metrics["front"]["left"]["hot_pixels"],
+            back_right=view_metrics["back"]["right"]["hot_pixels"],
+            back_left=view_metrics["back"]["left"]["hot_pixels"],
+            observations=prepared_observations,
+            pair_signature=pair_signature,
+        )
     st.caption("As imagens não são armazenadas; somente as medidas são enviadas.")
 else:
     stored_metrics.clear()

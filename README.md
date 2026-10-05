@@ -561,8 +561,10 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 A página `pages/Termografia.py` registra uma nova análise a partir das imagens
 de frente e verso. Ao final da página, o componente recolhido **Formulários**
-permite importar fichas manuscritas. A data pode ser escolhida pelo usuário e,
-quando omitida em uma chamada à API, assume a data atual de São Paulo.
+permite importar fichas manuscritas. Ao adicionar a análise à timeline ou
+registrá-la no banco, uma janela solicita a data da coleta e apresenta a data
+atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
+data padrão é aplicada pelo serviço.
 
 Durante a sessão, o botão **Adicionar à timeline** mantém temporariamente as
 imagens, máscaras e métricas calculadas. Os cartões da timeline permitem marcar
