@@ -567,7 +567,9 @@ atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
 data padrão é aplicada pelo serviço.
 
 Durante a sessão, o botão **Adicionar à timeline** mantém temporariamente as
-imagens, máscaras e métricas calculadas. Os cartões da timeline permitem marcar
+imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
+pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
+real pelos controles de limiar de T0 e Ti. Os cartões da timeline permitem marcar
 uma coleta basal T0 e uma coleta atual Ti do mesmo jogador, sempre respeitando a
 ordem temporal (e a ordem de inclusão quando as datas são iguais). Nas abas de
 frente e verso, a comparação exibe as duas imagens, mapas normalizados por perna

@@ -639,6 +639,32 @@ def _select_timeline_entry(entry: dict[str, Any], role: str) -> None:
     st.session_state[f"thermography_timeline_{role}"] = int(entry["id"])
 
 
+def _timeline_view_at_threshold(
+    source: dict[str, Any], threshold: float
+) -> dict[str, Any]:
+    """Deriva máscaras quentes e métricas sem persistir o resultado na timeline."""
+    hot_masks: dict[str, np.ndarray] = {}
+    metrics: dict[str, dict[str, float | int]] = {}
+    temperatures = source["temperatures"]
+    for side in LEGS.values():
+        segmentation_mask = source["segmentation_masks"][side].astype(bool)
+        hot_mask = (
+            segmentation_mask
+            & np.isfinite(temperatures)
+            & (temperatures >= threshold)
+        )
+        hot_pixels = int(np.count_nonzero(hot_mask))
+        total_pixels = int(np.count_nonzero(segmentation_mask))
+        hot_masks[side] = hot_mask
+        metrics[side] = {
+            "hot_pixels": hot_pixels,
+            "total_pixels": total_pixels,
+            "hot_percentage": hot_pixels / total_pixels * 100,
+            "threshold": threshold,
+        }
+    return {**source, "threshold": threshold, "hot_masks": hot_masks, "metrics": metrics}
+
+
 def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
     st.markdown("#### Comparação T0 × Ti")
     st.caption(
@@ -648,8 +674,49 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
     tabs = st.tabs(["Frente", "Verso"])
     for tab, view_key in zip(tabs, ("front", "back")):
         with tab:
-            baseline = t0["views"][view_key]
-            current = ti["views"][view_key]
+            baseline_source = t0["views"][view_key]
+            current_source = ti["views"][view_key]
+            threshold_columns = st.columns(2)
+            with threshold_columns[0]:
+                baseline_threshold = st.slider(
+                    "Limiar de T0 (°C)",
+                    min_value=float(baseline_source["minimum_temperature"]),
+                    max_value=float(baseline_source["maximum_temperature"]),
+                    value=float(baseline_source["default_threshold"]),
+                    step=max(
+                        (
+                            float(baseline_source["maximum_temperature"])
+                            - float(baseline_source["minimum_temperature"])
+                        ) / 200,
+                        0.01,
+                    ),
+                    key=f"timeline_threshold_t0_{t0['id']}_{view_key}",
+                )
+            with threshold_columns[1]:
+                current_threshold = st.slider(
+                    "Limiar de Ti (°C)",
+                    min_value=float(current_source["minimum_temperature"]),
+                    max_value=float(current_source["maximum_temperature"]),
+                    value=float(current_source["default_threshold"]),
+                    step=max(
+                        (
+                            float(current_source["maximum_temperature"])
+                            - float(current_source["minimum_temperature"])
+                        ) / 200,
+                        0.01,
+                    ),
+                    key=f"timeline_threshold_ti_{ti['id']}_{view_key}",
+                )
+            st.caption(
+                "O mapa e todas as métricas abaixo são recalculados imediatamente "
+                "quando um dos limiares é alterado."
+            )
+            baseline = _timeline_view_at_threshold(
+                baseline_source, baseline_threshold
+            )
+            current = _timeline_view_at_threshold(
+                current_source, current_threshold
+            )
             t0_column, ti_column, map_column, metrics_column = st.columns(
                 [1.1, 1.1, 1.4, 1.2], gap="medium"
             )
@@ -750,10 +817,20 @@ def render_timeline(selected_player_id: int | None) -> None:
         st.caption("Selecione um jogador para visualizar e comparar suas coletas da sessão.")
         return
 
+    timeline_entries = st.session_state.get("thermography_timeline", [])
+    if any(entry.get("version") != 2 for entry in timeline_entries):
+        timeline_entries = []
+        st.session_state["thermography_timeline"] = []
+        st.session_state.pop("thermography_timeline_t0", None)
+        st.session_state.pop("thermography_timeline_ti", None)
+        st.info(
+            "A timeline temporária anterior foi limpa para habilitar o ajuste "
+            "dinâmico de temperatura. Adicione as coletas novamente."
+        )
     entries = sorted(
         (
             entry
-            for entry in st.session_state.get("thermography_timeline", [])
+            for entry in timeline_entries
             if int(entry["athlete_id"]) == int(selected_player_id)
         ),
         key=_timeline_sort_key,
@@ -836,21 +913,16 @@ def add_to_timeline(
             "image": view["image"].copy(),
             "minimum_temperature": float(items[f"{view_key}:{view['signature']}"]["minimum_temperature"]),
             "maximum_temperature": float(items[f"{view_key}:{view['signature']}"]["maximum_temperature"]),
-            "threshold": float(analysis["threshold"]),
+            "default_threshold": float(analysis["threshold"]),
             "boxes": {side: dict(box) for side, box in analysis["boxes"].items()},
-            "metrics": {
-                side: dict(metric) for side, metric in analysis["metrics"].items()
-            },
-            "hot_masks": {
-                side: (
-                    analysis["masks"][side].astype(bool)
-                    & np.isfinite(analysis["temperatures"])
-                    & (analysis["temperatures"] >= analysis["threshold"])
-                ).copy()
+            "temperatures": analysis["temperatures"].copy(),
+            "segmentation_masks": {
+                side: analysis["masks"][side].astype(bool).copy()
                 for side in LEGS.values()
             },
         }
     entry = {
+        "version": 2,
         "id": sequence,
         "sequence": sequence,
         "athlete_id": int(athlete_id),
