@@ -42,14 +42,16 @@ class DesktopLauncherTests(unittest.TestCase):
     @patch("desktop.stop_process")
     @patch("desktop.start_local_api")
     @patch("desktop.start_desktop_app")
-    def test_main_starts_api_and_streamlit_in_desktop_window(
+    def test_development_main_uses_separately_started_api(
         self, start_desktop_app, start_local_api, stop_process
     ):
-        api_process = Mock()
-        start_local_api.return_value = (api_process, 9123)
         original_directory = Path.cwd()
         try:
-            with patch.dict(os.environ, {}, clear=False):
+            with patch.dict(
+                os.environ,
+                {"MAC_API_BASE_URL": "http://127.0.0.1:8000"},
+                clear=False,
+            ):
                 desktop.main()
         finally:
             os.chdir(original_directory)
@@ -60,11 +62,34 @@ class DesktopLauncherTests(unittest.TestCase):
         self.assertEqual(kwargs["width"], 1440)
         self.assertEqual(kwargs["height"], 900)
         self.assertEqual(kwargs["options"]["server.fileWatcherType"], "none")
-        self.assertEqual(os.environ.get("MAC_API_BASE_URL"), None)
-        start_local_api.assert_called_once_with()
-        stop_process.assert_called_once_with(api_process)
+        start_local_api.assert_not_called()
+        stop_process.assert_called_once_with(None)
         if sys.platform.startswith("linux"):
             self.assertEqual(os.environ["QT_API"], "pyside6")
+
+    @patch("desktop.stop_process")
+    @patch("desktop.start_local_api")
+    @patch("desktop.start_desktop_app")
+    def test_frozen_main_starts_integrated_api(
+        self, start_desktop_app, start_local_api, stop_process
+    ):
+        api_process = Mock()
+        start_local_api.return_value = (api_process, 9123)
+        original_directory = Path.cwd()
+        try:
+            with patch.object(sys, "frozen", True, create=True), patch.object(
+                desktop, "configure_runtime", return_value=Path(desktop.__file__).parent / "app.py"
+            ), patch.dict(os.environ, {}, clear=False):
+                desktop.main()
+                self.assertEqual(
+                    os.environ["MAC_API_BASE_URL"], "http://127.0.0.1:9123"
+                )
+        finally:
+            os.chdir(original_directory)
+
+        start_local_api.assert_called_once_with()
+        stop_process.assert_called_once_with(api_process)
+        start_desktop_app.assert_called_once()
 
     @patch("desktop.wait_for_api")
     @patch("desktop.find_free_port", return_value=9123)

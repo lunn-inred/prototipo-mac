@@ -61,9 +61,9 @@ use os dois processos separados.
 
 O cliente também pode ser executado em uma janela nativa com
 `streamlit-desktop-app`. O conteúdo continua sendo renderizado pelo Streamlit,
-mas fica dentro de uma WebView, sem abrir uma aba do navegador. O inicializador
-abre automaticamente a API FastAPI e o Streamlit em portas locais livres. Ao
-fechar a janela, os dois processos são encerrados.
+mas fica dentro de uma WebView, sem abrir uma aba do navegador. Durante o
+desenvolvimento com `python desktop.py`, a FastAPI é iniciada separadamente. No
+executável empacotado, API, Streamlit e WebView são iniciados automaticamente.
 
 #### 1. Instale as dependências
 
@@ -107,13 +107,13 @@ SUPABASE_DB_SSLMODE=require
 # Extração de formulários legados — opcional
 LLAMA_CLOUD_API_KEY=
 
-# API local integrada
+# API local
 MAC_API_KEY=mac-local-dev-7f2c9a41d8e64b30b53f
 MAC_API_CORS_ORIGINS=http://localhost:8501
 MAC_API_TIMEOUT_SECONDS=300
 
-# Utilizada apenas no modo web com API e Streamlit separados.
-# No desktop, o launcher substitui automaticamente esta porta.
+# Usada por python desktop.py e pelo modo web separado.
+# O executável empacotado substitui a porta automaticamente.
 MAC_API_BASE_URL=http://127.0.0.1:8000
 ```
 
@@ -123,14 +123,34 @@ Os campos `SUPABASE_DB_HOST`, `SUPABASE_DB_USER` e `SUPABASE_DB_PASSWORD` são
 obrigatórios para acessar os dados; os valores reais não devem ser enviados ao
 Git.
 
-#### 3. Inicie o aplicativo desktop
+#### 3. Execute em desenvolvimento
 
-Um único comando inicia API, Streamlit e WebView:
+No primeiro terminal, inicie a API:
+
+```bash
+source .venv/bin/activate
+uvicorn mac_api.main:app --host 127.0.0.1 --port 8000 --env-file .env
+```
+
+No segundo terminal, inicie Streamlit e WebView:
 
 ```bash
 source .venv/bin/activate
 python desktop.py
 ```
+
+O `python desktop.py` não inicia nem encerra a API. Ele utiliza a URL configurada
+em `MAC_API_BASE_URL`, que no modelo aponta para `http://127.0.0.1:8000`.
+Quando a inicialização estiver correta, seu terminal apresentará:
+
+```text
+[MAC Desktop] Usando API externa em http://127.0.0.1:8000.
+You can now view your Streamlit app in your browser.
+URL: http://localhost:56789
+```
+
+Valide o backend em `http://127.0.0.1:8000/health` e acesse o Swagger em
+`http://127.0.0.1:8000/docs`.
 
 No Windows PowerShell, substitua `source .venv/bin/activate` por:
 
@@ -169,7 +189,9 @@ Copy-Item .env "dist\.env"
 
 O `.env` não é incluído no pacote nem versionado, evitando que credenciais sejam
 gravadas no binário. O executável inicia a API automaticamente usando esse
-arquivo único.
+arquivo único. Diferentemente de `python desktop.py`, não é necessário executar
+o comando `uvicorn` antes de abrir o binário. Ao fechar o executável, seus
+processos internos da API e do Streamlit são encerrados.
 
 O `.env` concede acesso ao banco e deve ser entregue somente a máquinas
 confiáveis. Para distribuição fora de um ambiente controlado, prefira hospedar

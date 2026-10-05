@@ -152,6 +152,11 @@ def start_local_api() -> tuple[multiprocessing.Process, int]:
     except Exception:
         stop_process(process)
         raise
+    print(
+        f"[MAC Desktop] API local pronta em http://127.0.0.1:{port} "
+        f"(health: /health, docs: /docs)",
+        flush=True,
+    )
     return process, port
 
 
@@ -159,14 +164,26 @@ def main() -> None:
     script = configure_runtime()
     if not script.is_file():
         raise RuntimeError(f"Arquivo principal não encontrado: {script}")
+    bundled = bool(getattr(sys, "frozen", False))
     api_process: multiprocessing.Process | None = None
     original_webview_start = webview.start
     if sys.platform.startswith("linux"):
         # Evita a tentativa ruidosa de carregar GTK antes do backend instalado.
         webview.start = partial(original_webview_start, gui="qt")
     try:
-        api_process, api_port = start_local_api()
-        os.environ["MAC_API_BASE_URL"] = f"http://127.0.0.1:{api_port}"
+        if bundled:
+            api_process, api_port = start_local_api()
+            os.environ["MAC_API_BASE_URL"] = f"http://127.0.0.1:{api_port}"
+        else:
+            api_url = os.environ.get(
+                "MAC_API_BASE_URL", "http://127.0.0.1:8000"
+            )
+            os.environ["MAC_API_BASE_URL"] = api_url
+            print(
+                f"[MAC Desktop] Usando API externa em {api_url}. "
+                "Inicie o backend separadamente antes de abrir a interface.",
+                flush=True,
+            )
         start_desktop_app(
             str(script),
             title=APP_TITLE,
@@ -181,6 +198,8 @@ def main() -> None:
     finally:
         webview.start = original_webview_start
         stop_process(api_process)
+        if api_process is not None:
+            print("[MAC Desktop] API local encerrada.", flush=True)
 
 
 if __name__ == "__main__":
