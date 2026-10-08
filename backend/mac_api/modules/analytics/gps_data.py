@@ -1,0 +1,33 @@
+"""Consultas e tratamento de leitura para os dados de GPS."""
+from __future__ import annotations
+from collections import defaultdict
+import re
+from statistics import fmean
+
+def numeric_value(record: dict[str, object], column: str) -> float | None:
+    """Converte valores não negativos e preserva zero como medição válida."""
+    value = record.get(column)
+    if value is None:
+        return None
+    number = float(value)
+    return number if number >= 0 else None
+
+def average(values: list[float | None]) -> float | None:
+    valid_values = [value for value in values if value is not None]
+    return fmean(valid_values) if valid_values else None
+
+def opponents_by_date(records: list[dict[str, object]]) -> dict[object, str]:
+    """Agrupa os nomes únicos dos adversários por data de coleta."""
+    grouped: dict[object, set[str]] = defaultdict(set)
+    for record in records:
+        opponent = str(record.get('adversario') or '').strip()
+        team = str(record.get('equipe') or '').strip()
+        displayed_opponent = opponent
+        if opponent.casefold() == 'mac' and team:
+            displayed_opponent = team
+        elif not opponent and team:
+            match = re.fullmatch('(.+?)\\s+[xX]\\s+MAC', team, flags=re.IGNORECASE)
+            displayed_opponent = match.group(1).strip() if match else ''
+        if displayed_opponent:
+            grouped[record['data_coleta']].add(displayed_opponent)
+    return {collection_date: ' / '.join(sorted(opponents, key=str.casefold)) for (collection_date, opponents) in grouped.items()}

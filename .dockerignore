@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+**/secrets.toml
+.venv
+**/__pycache__
+build
+dist
+experiments
+*.xlsx
+*.pdf
+*.log

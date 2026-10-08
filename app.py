@@ -1,34 +1,5 @@
-import streamlit as st
+"""Compatibility entry point: streamlit run app.py."""
+from pathlib import Path
+import runpy
 
-from ui import apply_global_style
-
-
-apply_global_style()
-
-navigation = st.navigation(
-    [
-        st.Page(
-            "pages/Jogadores.py",
-            title="Jogadores",
-            icon="👥",
-            default=True,
-        ),
-        st.Page(
-            "pages/Monitoramento_GPS.py",
-            title="Monitoramento GPS",
-            icon="📍",
-        ),
-        st.Page(
-            "pages/Metricas_de_Salto.py",
-            title="Métricas de Salto",
-            icon="📈",
-        ),
-        st.Page(
-            "pages/Termografia.py",
-            title="Termografia",
-            icon="🌡️",
-        ),
-    ]
-)
-
-navigation.run()
+runpy.run_path(str(Path(__file__).resolve().parent / 'frontend/streamlit/app.py'), run_name='__main__')
