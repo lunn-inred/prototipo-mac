@@ -6,8 +6,9 @@ from contextlib import contextmanager
 from typing import Iterator
 
 import psycopg2
-import streamlit as st
 from psycopg2.extensions import connection
+
+from settings import setting
 
 
 def database_config() -> dict[str, object]:
@@ -22,18 +23,18 @@ def database_config() -> dict[str, object]:
     missing = [
         secret_name
         for secret_name in variables.values()
-        if not st.secrets.get(secret_name)
+        if not setting(secret_name)
     ]
     if missing:
         raise RuntimeError(
-            "Configuração do banco incompleta nos Secrets do Streamlit: "
+            "Configuração do banco incompleta: "
             + ", ".join(missing)
         )
 
-    config = {key: st.secrets[secret_name] for key, secret_name in variables.items()}
-    config["sslmode"] = st.secrets.get("SUPABASE_DB_SSLMODE", "require")
+    config = {key: setting(secret_name) for key, secret_name in variables.items()}
+    config["sslmode"] = setting("SUPABASE_DB_SSLMODE", "require")
     config["connect_timeout"] = 15
-    config["application_name"] = "mac_streamlit_prototype"
+    config["application_name"] = "mac_performance_read"
     config["options"] = "-c default_transaction_read_only=on"
     return config
 
@@ -50,18 +51,18 @@ def database_write_config() -> dict[str, object]:
     missing = [
         secret_name
         for secret_name in variables.values()
-        if not st.secrets.get(secret_name)
+        if not setting(secret_name)
     ]
     if missing:
         raise RuntimeError(
-            "Configuração do banco incompleta nos Secrets do Streamlit: "
+            "Configuração do banco incompleta: "
             + ", ".join(missing)
         )
 
-    config = {key: st.secrets[secret_name] for key, secret_name in variables.items()}
-    config["sslmode"] = st.secrets.get("SUPABASE_DB_SSLMODE", "require")
+    config = {key: setting(secret_name) for key, secret_name in variables.items()}
+    config["sslmode"] = setting("SUPABASE_DB_SSLMODE", "require")
     config["connect_timeout"] = 15
-    config["application_name"] = "mac_streamlit_write"
+    config["application_name"] = "mac_performance_write"
     return config
 
 

@@ -21,7 +21,9 @@ class GpsExtractionVersionTests(unittest.TestCase):
         app.session_state["gps_extraction_edited"] = deepcopy(edits)
         upload = BytesIO(b"pdf")
         upload.name = "novo.pdf"
-        with patch("gps_import_ui.st.file_uploader", return_value=[upload]), patch(
+        with patch("gps_import_ui.load_athletes", return_value=[]), patch(
+            "gps_import_ui.st.file_uploader", return_value=[upload]
+        ), patch(
             "gps_import_ui.extract_uploaded_pdfs", side_effect=RuntimeError("falha simulada")
         ):
             app.run()
@@ -49,7 +51,9 @@ class GpsExtractionVersionTests(unittest.TestCase):
                 app = AppTest.from_string(APP)
                 for key, value in state.items():
                     app.session_state[key] = deepcopy(value)
-                with patch("gps_import_ui.preview_gps_documents") as validate, patch(
+                with patch("gps_import_ui.load_athletes", return_value=[]), patch(
+                    "gps_import_ui.preview_gps_documents"
+                ) as validate, patch(
                     "gps_import_ui.import_gps_documents"
                 ) as send:
                     app.run()
@@ -71,7 +75,8 @@ class GpsExtractionVersionTests(unittest.TestCase):
                 "Nome": "CAIO", "Posição": "ATA", "Distance (km)": "5,2",
             }}]}],
         }]
-        app.run()
+        with patch("gps_import_ui.load_athletes", return_value=[]):
+            app.run()
         self.assertEqual(len(app.exception), 0)
         self.assertTrue(any(button.label == "Validar para envio" for button in app.button))
 

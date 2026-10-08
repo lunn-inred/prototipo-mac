@@ -1,59 +1,340 @@
 # Protótipo — MAC Performance
 
-Protótipo em Streamlit para estudar a lógica de visualização e cálculo das
-métricas de desempenho do MAC. O projeto possui páginas de monitoramento de
-saltos e GPS e utiliza Plotly para a construção dos gráficos.
+Aplicação dividida em uma API FastAPI e uma interface Streamlit para cadastro
+de atletas, análise e visualização das métricas de desempenho do MAC. A API
+centraliza banco, importações e processamento; o Streamlit funciona como cliente
+da API e mantém um modo local de compatibilidade para a transição de hospedagem.
 
 ## Sumário
 
 - [Como executar](#como-executar)
+  - [Execução separada da API e do Streamlit](#execução-separada-da-api-e-do-streamlit)
+  - [Como executar o aplicativo desktop](#como-executar-o-aplicativo-desktop)
+  - [Testes](#testes)
+- [Arquitetura](#arquitetura)
+- [Configuração](#configuração)
+- [API HTTP](#api-http)
+  - [Autenticação](#autenticação)
+  - [Documentação interativa](#documentação-interativa)
+  - [Endpoints](#endpoints)
 - [Deploy no Streamlit Community Cloud](#deploy-no-streamlit-community-cloud)
+- [Mural e CRUD de jogadores](#mural-e-crud-de-jogadores)
 - [Monitoramento de Salto](#monitoramento-de-salto)
-  - [Consulta SQL](#consulta-sql)
-  - [Gráfico de evolução de CMJ ou SJ](#gráfico-de-evolução-de-cmj-ou-sj)
-  - [Radar das últimas cinco datas](#radar-das-últimas-cinco-datas)
-  - [Radar comparativo por atleta](#radar-comparativo-por-atleta)
 - [Monitoramento de GPS](#monitoramento-de-gps)
 - [Termografia](#termografia)
 
 ## Como executar
 
-Crie e ative um ambiente virtual, instale as dependências e copie o modelo de
-configuração:
+Requer Python 3.10 ou mais recente e os pacotes de sistema de `packages.txt`.
+Crie o ambiente, instale as dependências e copie os modelos de configuração:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+cp .env.example .env
 ```
 
-No Windows PowerShell, a ativação do ambiente pode ser feita com:
+No Windows PowerShell, ative com `.venv\Scripts\Activate.ps1`. Nunca versione o
+`.env`: ele está no `.gitignore`. O arquivo `.streamlit/secrets.toml` é apenas
+uma alternativa para ambientes hospedados do Streamlit, não sendo necessário
+para a execução local ou desktop.
+
+### Execução separada da API e do Streamlit
+
+Inicie cada processo em um terminal, a partir da raiz do projeto:
+
+```bash
+# Terminal 1 — API
+uvicorn mac_api.main:app --reload --host 127.0.0.1 --port 8000 --env-file .env
+
+# Terminal 2 — interface
+MAC_API_BASE_URL=http://127.0.0.1:8000 MAC_API_KEY=sua-chave streamlit run app.py
+```
+
+Se `MAC_API_BASE_URL` não estiver definido, o Streamlit utiliza os mesmos
+repositórios e serviços no próprio processo. Esse modo existe para manter o
+deploy atual funcionando durante a transição; para uma implantação definitiva,
+use os dois processos separados.
+
+### Como executar o aplicativo desktop
+
+O cliente também pode ser executado em uma janela nativa com
+`streamlit-desktop-app`. O conteúdo continua sendo renderizado pelo Streamlit,
+mas fica dentro de uma WebView, sem abrir uma aba do navegador. Durante o
+desenvolvimento com `python desktop.py`, a FastAPI é iniciada separadamente. No
+executável empacotado, API, Streamlit e WebView são iniciados automaticamente.
+
+#### 1. Instale as dependências
+
+Com o ambiente virtual ativado, instale as dependências do desktop. Esse arquivo
+também instala o conteúdo de `requirements.txt`:
+
+```bash
+python -m pip install -r requirements-desktop.txt
+```
+
+No Ubuntu/Debian, instale também as bibliotecas do sistema:
+
+```bash
+sudo apt update
+sudo apt install tesseract-ocr tesseract-ocr-por libxcb-cursor0
+```
+
+No Windows e no macOS essas bibliotecas Linux não são necessárias.
+
+#### 2. Configure o `.env`
+
+API, Streamlit e launcher desktop utilizam o mesmo arquivo `.env` na raiz do
+projeto. Você pode copiá-lo do modelo:
+
+```bash
+cp .env.example .env
+```
+
+Ou criar `.env` e copiar todo o modelo semipronto abaixo. Preencha somente os
+campos vazios do Supabase. A chave do Llama Cloud é opcional:
+
+```env
+# PostgreSQL/Supabase
+SUPABASE_DB_HOST=
+SUPABASE_DB_PORT=5432
+SUPABASE_DB_NAME=postgres
+SUPABASE_DB_USER=
+SUPABASE_DB_PASSWORD=
+SUPABASE_DB_SSLMODE=require
+
+# Extração de formulários legados — opcional
+LLAMA_CLOUD_API_KEY=
+
+# API local
+MAC_API_KEY=mac-local-dev-7f2c9a41d8e64b30b53f
+MAC_API_CORS_ORIGINS=http://localhost:8501
+MAC_API_TIMEOUT_SECONDS=300
+
+# Usada por python desktop.py e pelo modo web separado.
+# O executável empacotado substitui a porta automaticamente.
+MAC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+O inicializador repassa automaticamente a URL e a chave da API local para o
+Streamlit. Não é necessário criar ou repetir configurações em outro arquivo.
+Os campos `SUPABASE_DB_HOST`, `SUPABASE_DB_USER` e `SUPABASE_DB_PASSWORD` são
+obrigatórios para acessar os dados; os valores reais não devem ser enviados ao
+Git.
+
+#### 3. Execute em desenvolvimento
+
+No primeiro terminal, inicie a API:
+
+```bash
+source .venv/bin/activate
+uvicorn mac_api.main:app --host 127.0.0.1 --port 8000 --env-file .env
+```
+
+No segundo terminal, inicie Streamlit e WebView:
+
+```bash
+source .venv/bin/activate
+python desktop.py
+```
+
+O `python desktop.py` não inicia nem encerra a API. Ele utiliza a URL configurada
+em `MAC_API_BASE_URL`, que no modelo aponta para `http://127.0.0.1:8000`.
+Quando a inicialização estiver correta, seu terminal apresentará:
+
+```text
+[MAC Desktop] Usando API externa em http://127.0.0.1:8000.
+You can now view your Streamlit app in your browser.
+URL: http://localhost:56789
+```
+
+Valide o backend em `http://127.0.0.1:8000/health` e acesse o Swagger em
+`http://127.0.0.1:8000/docs`.
+
+No Windows PowerShell, substitua `source .venv/bin/activate` por:
 
 ```powershell
 .venv\Scripts\Activate.ps1
 ```
 
+#### 4. Gere um executável
 
-Preencha `.streamlit/secrets.toml` com as credenciais do Supabase. Esse arquivo
-contém dados sensíveis e está ignorado pelo Git; somente o modelo
-`.streamlit/secrets.toml.example` é versionado.
-
-Execute o protótipo com:
+Para gerar o executável da plataforma atual:
 
 ```bash
-streamlit run app.py
+python -m PyInstaller --clean --noconfirm desktop.spec
 ```
 
-O módulo `database.py` centraliza a conexão com o PostgreSQL do Supabase. As
-conexões abertas pelo protótipo são configuradas e verificadas como somente
-leitura antes de serem disponibilizadas às páginas.
+O resultado fica em `dist/MAC Performance` no Linux. No Windows, o arquivo terá
+extensão `.exe`. Antes de executá-lo, copie o mesmo `.env` para o diretório do
+binário:
+
+```bash
+cp .env "dist/.env"
+```
+
+Abra o executável Linux:
+
+```bash
+"./dist/MAC Performance"
+```
+
+No Windows PowerShell, copie a configuração e abra o `.exe` com:
+
+```powershell
+Copy-Item .env "dist\.env"
+& ".\dist\MAC Performance.exe"
+```
+
+O `.env` não é incluído no pacote nem versionado, evitando que credenciais sejam
+gravadas no binário. O executável inicia a API automaticamente usando esse
+arquivo único. Diferentemente de `python desktop.py`, não é necessário executar
+o comando `uvicorn` antes de abrir o binário. Ao fechar o executável, seus
+processos internos da API e do Streamlit são encerrados.
+
+O `.env` concede acesso ao banco e deve ser entregue somente a máquinas
+confiáveis. Para distribuição fora de um ambiente controlado, prefira hospedar
+a API e não distribuir credenciais do Supabase.
+
+O build é específico do sistema operacional: gere a versão Windows no Windows,
+a versão Linux no Linux e a versão macOS no macOS. No Linux, a interface usa
+PySide6/Qt6; no Windows, a WebView depende do Microsoft Edge WebView2,
+normalmente já instalado. O build inclui o
+Tesseract e os dados de idioma quando eles estão instalados na máquina usada
+para empacotar, necessários à leitura dos formulários legados.
+
+Arquivos relacionados:
+
+- `desktop.py`: inicia FastAPI, Streamlit e a janela desktop, e encerra os processos;
+- `desktop.spec`: inclui páginas, assets, dependências dinâmicas e Tesseract;
+- `requirements-desktop.txt`: dependências adicionais do cliente desktop;
+- `.env.example`: único modelo de configuração da aplicação completa.
+
+O primeiro início do executável único pode demorar alguns segundos enquanto os
+arquivos internos são extraídos. A versão web e os comandos existentes não são
+alterados por essa modalidade.
+
+### Testes
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+A suíte cobre regras de domínio, persistência simulada, importações e contratos
+HTTP. A integração real com LlamaParse só roda quando explicitamente habilitada.
 
 ### Logo
 
 Para exibir a identidade do MAC na barra lateral, coloque a imagem PNG em
 `assets/logo_mac.png`. O arquivo é carregado automaticamente quando existe; sua
 ausência não impede a execução do protótipo.
+
+## Arquitetura
+
+```text
+Navegador → Streamlit → service_gateway.py → FastAPI → serviços/repositórios → Supabase
+                                     └── modo local compatível ───────────────┘
+```
+
+- `mac_api/main.py`: aplicação FastAPI, rotas, autenticação e tratamento de erros;
+- `mac_api/schemas.py`: validação dos corpos enviados à API;
+- `data_repository.py`: consultas PostgreSQL de leitura;
+- `athlete_service.py`, `gps_import_service.py` e `thermography_service.py`: regras
+  transacionais de escrita;
+- `jump_service.py`: CRUD transacional de coletas de salto e importação de XLSX;
+- `jump_crud_ui.py`: formulários e conferência da importação na página de saltos;
+- `thermography_analysis_service.py`: validação e análise das imagens em memória;
+- `service_gateway.py`: único ponto usado pelo Streamlit para escolher HTTP ou
+  modo local;
+- `settings.py`: configuração compartilhada sem dependência do Streamlit.
+
+As imagens térmicas e os documentos enviados não são armazenados. Eles são
+processados durante a requisição e somente as métricas confirmadas são gravadas.
+As leituras de salto, GPS e termografia usam as views públicas correspondentes.
+
+## Configuração
+
+A execução local, a API integrada e o aplicativo desktop utilizam o único arquivo
+`.env`. Em hospedagens do Streamlit, os mesmos nomes podem ser cadastrados em
+`.streamlit/secrets.toml`; variáveis de ambiente têm prioridade.
+
+| Variável | Processo | Finalidade |
+|---|---|---|
+| `SUPABASE_DB_*` | API | Conexão PostgreSQL com SSL |
+| `LLAMA_CLOUD_API_KEY` | API | Extração principal de documentos legados |
+| `MAC_API_KEY` | Ambos | Exige/envia o cabeçalho `X-API-Key`; se vazio, autenticação fica desativada para desenvolvimento |
+| `MAC_API_CORS_ORIGINS` | API | Origens permitidas, separadas por vírgula |
+| `MAC_API_BASE_URL` | Streamlit | URL pública ou interna da API |
+| `MAC_API_TIMEOUT_SECONDS` | Streamlit | Timeout de chamadas longas, padrão 300 s |
+
+## API HTTP
+
+A versão inicial usa o prefixo `/api/v1`. Erros de validação retornam `422`,
+recursos inexistentes `404` e conflitos de integridade `409`. O banco continua
+usando transações para que uma falha não deixe gravações parciais.
+
+### Autenticação
+
+Defina a mesma `MAC_API_KEY` na API e no Streamlit. Clientes externos devem enviar:
+
+```http
+X-API-Key: sua-chave
+```
+
+Use HTTPS no ambiente hospedado. A chave é uma proteção simples entre serviços;
+quando houver usuários finais e permissões distintas, adote autenticação por
+usuário/token no sistema consumidor.
+
+### Documentação interativa
+
+Com a API em execução:
+
+- Swagger UI: `http://127.0.0.1:8000/docs`;
+- ReDoc: `http://127.0.0.1:8000/redoc`;
+- contrato OpenAPI: `http://127.0.0.1:8000/openapi.json`;
+- saúde do processo: `GET /health` (não exige chave).
+
+### Endpoints
+
+| Método e rota | Função | Escrita no banco |
+|---|---|---|
+| `GET /api/v1/athletes` | Lista os atletas | Não |
+| `GET /api/v1/athletes/{id}` | Consulta um atleta | Não |
+| `POST /api/v1/athletes` | Cadastra atleta | Sim |
+| `PUT /api/v1/athletes/{id}` | Atualiza atleta, preservando `nome_alternativo` | Sim |
+| `DELETE /api/v1/athletes/{id}` | Exclui atleta sem medições | Sim |
+| `GET /api/v1/players/dashboard` | Dados do mural | Não |
+| `GET /api/v1/jumps` | Registros da view de saltos | Não |
+| `GET /api/v1/jumps/collections` | Lista coletas de salto editáveis | Não |
+| `POST /api/v1/jumps/collections` | Cadastra uma coleta de salto | Sim |
+| `PUT /api/v1/jumps/collections/{athlete_id}/{date}` | Substitui uma coleta de salto | Sim |
+| `DELETE /api/v1/jumps/collections/{athlete_id}/{date}` | Exclui uma coleta de salto | Sim |
+| `POST /api/v1/jumps/import/extract` | Extrai planilhas XLSX sem persistir | Não |
+| `POST /api/v1/jumps/import/preview` | Valida duplicatas e conflitos do lote | Não |
+| `POST /api/v1/jumps/import` | Confirma o lote XLSX revisado | Sim |
+| `GET /api/v1/gps` | Registros da view GPS | Não |
+| `POST /api/v1/gps/extract` | Extrai um lote de PDFs | Não |
+| `POST /api/v1/gps/preview` | Valida e prevê alterações do lote | Não |
+| `POST /api/v1/gps/import` | Confirma a importação GPS revisada | Sim |
+| `GET /api/v1/thermography?athlete_id=` | Histórico térmico, opcionalmente por atleta | Não |
+| `POST /api/v1/thermography/scale` | Extrai Tmin e Tmax impressos na imagem | Não |
+| `POST /api/v1/thermography/analyze` | Detecta pernas e conta pixels em uma imagem | Não |
+| `POST /api/v1/thermography` | Registra uma coleta de frente e verso | Sim |
+| `POST /api/v1/thermography/legacy/extract` | Extrai documentos manuscritos | Não |
+| `POST /api/v1/thermography/legacy/validate-athletes` | Correlaciona nomes revisados | Não |
+| `POST /api/v1/thermography/legacy/import` | Registra o lote legado validado | Sim |
+
+Uploads usam `multipart/form-data`; os demais corpos usam JSON. Os esquemas,
+campos obrigatórios e exemplos para testar cada chamada ficam sempre atualizados
+na página `/docs`.
+
+## Mural e CRUD de jogadores
+
+A página inicial lista o elenco e resume CMJ, distância GPS e a EVA Dor mais
+recente. O gerenciador permite cadastrar, editar e excluir atletas. Somente o
+nome é obrigatório; `nome_alternativo` não é exposto no CRUD e permanece
+inalterado nas edições. Atletas que já possuem medições não podem ser excluídos.
 
 ## Deploy no Streamlit Community Cloud
 
@@ -91,6 +372,28 @@ e-mails deles em **App settings > Sharing**.
 A página `pages/Metricas_de_Salto.py` utiliza dados reais da view
 `public.vw_medidas_saltos`. Os dados são carregados por `jump_data.py` e ficam
 em cache no Streamlit por cinco minutos.
+
+### CRUD e importação de planilhas
+
+O painel **Gerenciar coletas de salto** permite cadastrar, editar e excluir uma
+coleta identificada pelo par jogador/data. Cada coleta pode conter `CMJ1`,
+`CMJ2`, `CMJ3`, `MAIOR_CMJ`, `SJ1`, `SJ2`, `SJ3` e `MAIOR_SJ`; ao menos uma
+medida positiva é obrigatória. Os valores de maior CMJ e maior SJ são gravados
+como fornecidos, sem serem recalculados no consumo.
+
+A aba **Importar planilha** aceita vários arquivos `.xlsx`. Somente abas cujo
+nome está no formato `DDMMAAAA` são interpretadas como coletas; abas de modelo
+como `EM BRANCO` são ignoradas. Linhas de média, valores `S/D`, campos vazios e
+zeros não viram medições. A posição, o grupo e o peso presentes na planilha não
+são importados: o atleta precisa existir e é correlacionado por nome, apelido ou
+nome alternativo. Correspondências ausentes ou ambíguas podem ser corrigidas no
+editor antes da validação.
+
+O envio tem três etapas separadas: extração, validação e confirmação. Uma coleta
+idêntica à existente é marcada como duplicada e ignorada; valores diferentes
+para o mesmo jogador/data são marcados como conflito e bloqueiam o envio, para
+evitar sobrescritas silenciosas. A confirmação grava o lote em uma única
+transação.
 
 ### Consulta SQL
 
@@ -342,7 +645,7 @@ não indicam falha.
 ### Envio dos dados revisados ao banco
 
 Depois da conferência na grade, o botão **Validar para envio** verifica os dados
-dos cabeçalhos, os valores numéricos, os cadastros que serão criados e as medições
+dos cabeçalhos, os valores numéricos, os cadastros auxiliares e as medições
 já existentes. O nome do PDF é livre e serve apenas para identificar a origem.
 Exemplo de primeira linha reconhecida na página:
 
@@ -367,12 +670,12 @@ edições anteriores são preservados até a substituição por uma nova extraç
 uma tentativa que falhe não apaga esses dados. Ao modificar a lógica de extração
 de forma incompatível, incremente `EXTRACTION_VERSION` em `gps_extraction.py`.
 
-As posições extraídas são normalizadas antes da revisão e do envio: `CA` vira
-`Centroavante`, `EXT` vira `Extrema`, `GOL` vira `Goleiro`, `VOL` vira
-`Volante`, `MEI` vira `Meia`, `LD` e `LE` viram `Lateral`, `ZAG` vira
-`Zagueiro` e `ATA` vira `Atacante`. `Ponta` permanece `Ponta`. A normalização
-ignora caixa, acentos, espaços e pontuação; valores desconhecidos precisam ser
-corrigidos na grade.
+O nome reconhecido no PDF permanece visível e bloqueado para conferência. O
+sistema tenta associá-lo a um jogador existente por `nome`, `apelido` ou
+`nome_alternativo`, ignorando caixa, acentos e pontuação. A grade aceita apenas a
+seleção de jogadores cadastrados, usa a posição do cadastro e bloqueia validação
+e envio enquanto houver linhas sem associação única. A importação GPS nunca cria
+jogadores automaticamente.
 
 As operações de escrita reutilizam as credenciais `SUPABASE_DB_*` já configuradas
 para as consultas do painel. A separação continua existindo nas conexões: o
@@ -417,16 +720,64 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 ## Termografia
 
-A página `pages/Termografia.py` possui histórico por jogador, importação de
-fichas manuscritas e registro de uma nova análise a partir das imagens de frente
-e verso. O histórico é consultado exclusivamente pela view
-`public.vw_medida_termografia`.
+A página `pages/Termografia.py` registra uma nova análise a partir das imagens
+de frente e verso. Ao final da página, o componente recolhido **Formulários**
+permite importar fichas manuscritas. Ao adicionar a análise à timeline ou
+registrá-la no banco, uma janela solicita a data da coleta e apresenta a data
+atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
+data padrão é aplicada pelo serviço.
+
+Durante a sessão, o botão **Adicionar à timeline** mantém temporariamente as
+imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
+pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
+real pelos controles das coletas basal e atual. Os cartões da timeline permitem
+marcar independentemente uma coleta **Basal** e uma coleta **Atual** do mesmo
+jogador. A interface alerta quando a Atual antecede a Basal, sem bloquear a
+comparação. Nas abas de
+frente e verso, a comparação exibe as duas imagens, mapas normalizados por perna
+e as métricas atuais com deltas em relação à basal. Vermelho identifica pixels que
+ficaram quentes, amarelo os persistentes e azul os resolvidos.
 
 Na nova análise, o usuário informa jogador, massa, data da coleta, EVA Dor e,
-opcionalmente, observações. As imagens precisam conter as duas caixas R1/R2 do
-layout HIKMICRO atualmente suportado. O sistema identifica as caixas, inverte a
-lateralidade entre frente e verso, estima a temperatura dos pixels pela barra
-térmica lateral e conta os pixels acima do limiar configurado.
+opcionalmente, observações. O sistema tenta identificar automaticamente as duas
+caixas R1/R2; quando elas não existem ou estão incorretas, cria regiões iniciais
+que podem ser redesenhadas pelo usuário. A lateralidade é invertida entre frente
+e verso e o OCR é aplicado às regiões superior e inferior
+do canto direito para preencher automaticamente Tmax e Tmin. Os campos continuam
+editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece uma
+escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
+térmica lateral e conta como quentes os pixels a partir de 90% da escala por
+padrão: `Tmin + 0,90 × (Tmax − Tmin)`. O usuário ainda pode ajustar esse limiar
+no slider antes do cálculo. Um seletor global, aplicado às imagens de frente e
+verso, permite controlar o limiar pela porcentagem da escala (modo padrão) ou
+diretamente pela temperatura em °C. Ao alternar o modo, o sistema preserva o
+limiar equivalente; a análise e os resultados continuam usando a temperatura
+convertida em °C.
+
+Dentro de cada região, o GrabCut separa os pixels da perna do fundo. A prévia
+exibe a máscara sobre a imagem e oferece dois ajustes manuais: **Corrigir
+áreas**, para redesenhar o retângulo de cada perna, e **Corrigir segmentação**,
+com pincel verde para incluir perna e vermelho para excluir fundo. Cada ajuste
+recalcula as métricas. A barra térmica vertical também é localizada
+automaticamente e destacada na prévia. Dentro de **Corrigir áreas**, a opção
+**Barra de cores** permite redesenhar sua caixa; a paleta extraída dessa região é a fonte usada
+para converter as cores da imagem em temperaturas aproximadas. Para cada perna
+e para os totais de frente/verso, a tela
+apresenta a quantidade de pixels quentes, a área total segmentada e o percentual
+`pixels quentes ÷ área segmentada × 100`. A área do retângulo não é usada como
+denominador. Ao lado da máscara, uma segunda prévia usa fundo preto e mantém
+visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
+limiar térmico selecionado.
+
+Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
+**Divisão anatômica**, selecione a orientação horizontal ou vertical, indique
+onde começa a coxa e ajuste os três limites percentuais de cada perna e vista.
+Por padrão, a coxa começa à direita nas imagens horizontais. Os percentuais
+crescem da coxa ao pé mesmo em imagens invertidas. As linhas e
+os números das partes aparecem na prévia; a contagem usa somente pixels da
+máscara. A soma das quatro regiões corresponde ao total da perna. Uma região
+com área zero indica que ela não está visível na máscara. Essas métricas são
+temporárias na interface; não são enviadas ao banco.
 
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
@@ -440,7 +791,9 @@ o modo `agentic`, e apresentadas em uma grade editável. Configure
 `LLAMA_CLOUD_API_KEY` nos secrets do Streamlit. Se a chave estiver ausente, a
 API falhar ou a resposta não contiver a tabela esperada, o sistema utiliza
 automaticamente o extrator local com OpenCV e Tesseract e informa o fallback na
-tela. Após revisão, as fichas podem ser gravadas em lote usando
+tela. O nome reconhecido é preservado para conferência e a coluna Jogador aceita
+somente cadastros existentes, sugeridos pelas mesmas regras de correspondência
+de nome usadas no GPS. Após revisão, as fichas podem ser gravadas em lote usando
 `MASSA`, `EVA_DOR`, `SOMA_FRENTE`, `SOMA_VERSO` e `OBSERVACOES`; as quatro
 medidas individuais das pernas permanecem ausentes porque o documento original
 não possui essa separação. O lote é atômico: qualquer erro impede todas as

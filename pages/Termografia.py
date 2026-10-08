@@ -5,21 +5,20 @@ import io
 from datetime import date
 from typing import Any
 
+import cv2
+import numpy as np
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
+from streamlit_drawable_konva import crop_box_from_json, st_canvas
 
+from athlete_matching import unique_matching_athlete_id
 from thermal_analysis import (
-    annotate_boxes,
-    count_hot_pixels,
-    detect_leg_boxes,
-    temperature_matrix,
-)
-from legacy_thermography import (
-    extract_document,
-    review_rows_signature,
-    validate_athlete_rows,
-    validated_athlete_ids,
+    annotate_boxes, compare_hot_masks, count_hot_pixels, detect_colorbar_box, detect_leg_boxes,
+    hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix,
+    DEFAULT_PART_CUTS, LEG_PARTS, leg_part_metrics,
+    scale_percentage_from_temperature,
+    temperature_from_scale_percentage,
 )
 from thermography_data import (
     athlete_label,
@@ -29,6 +28,11 @@ from thermography_data import (
 from thermography_service import (
     DuplicateThermographyError,
     LegacyThermographyRecord,
+    current_sao_paulo_date,
+)
+from service_gateway import (
+    extract_thermography_scale,
+    extract_legacy_documents,
     save_image_thermography,
     save_legacy_thermography,
 )
@@ -40,9 +44,26 @@ st.set_page_config(
 MAX_IMAGE_SIZE = 20 * 1024 * 1024
 DEFAULT_MIN_TEMPERATURE = 20.0
 DEFAULT_MAX_TEMPERATURE = 40.0
-DEFAULT_HOT_FRACTION = 0.20
+DEFAULT_HOT_POSITION = 0.90
+PERCENTAGE_MODE = "Porcentagem da escala"
+TEMPERATURE_MODE = "Temperatura (°C)"
+THRESHOLD_MODE_KEY = "thermography_threshold_mode"
 LEGS = {"Perna direita": "right", "Perna esquerda": "left"}
 VIEW_LABELS = {"front": "Frente", "back": "Verso"}
+
+
+def threshold_mode_key(view_key: str) -> str:
+    return f"{THRESHOLD_MODE_KEY}_{view_key}"
+
+
+def synchronize_threshold_mode(source_key: str) -> None:
+    """Mantém os seletores de frente e verso com a mesma opção."""
+    selected_mode = st.session_state[source_key]
+    st.session_state[THRESHOLD_MODE_KEY] = selected_mode
+    for view_key in VIEW_LABELS:
+        target_key = threshold_mode_key(view_key)
+        if target_key != source_key:
+            st.session_state[target_key] = selected_mode
 
 
 def load_thermography(content: bytes) -> Image.Image:
@@ -66,28 +87,359 @@ def image_signature(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def crop_from_box(image: Image.Image, box: dict[str, int]) -> Image.Image:
-    left = int(box["left"])
-    top = int(box["top"])
-    return image.crop(
-        (left, top, left + int(box["width"]), top + int(box["height"]))
+def _display_image(
+    image: Image.Image,
+    max_width: int = 850,
+    max_height: int | None = None,
+) -> tuple[Image.Image, float]:
+    limits = [2.0, max_width / image.width]
+    if max_height is not None:
+        limits.append(max_height / image.height)
+    scale = min(limits)
+    if scale == 1.0:
+        return image, scale
+    return image.resize(
+        (int(round(image.width * scale)), int(round(image.height * scale))),
+        Image.Resampling.NEAREST,
+    ), scale
+
+
+def _scaled_box(
+    crop: tuple[int, int, int, int], scale: float, image: Image.Image
+) -> dict[str, int]:
+    x, y, width, height = crop
+    left = max(0, min(image.width - 1, int(round(x / scale))))
+    top = max(0, min(image.height - 1, int(round(y / scale))))
+    right = max(left + 1, min(image.width, int(round((x + width) / scale))))
+    bottom = max(top + 1, min(image.height, int(round((y + height) / scale))))
+    return {"left": left, "top": top, "width": right - left, "height": bottom - top}
+
+
+def _automatic_boxes(image: Image.Image, view_key: str) -> dict[str, dict[str, int]]:
+    detected = detect_leg_boxes(image)
+    if len(detected) < 2:
+        width, height = image.size
+        defaults = [
+            {"left": int(width * .12), "top": int(height * .28),
+             "width": int(width * .62), "height": int(height * .30)},
+            {"left": int(width * .12), "top": int(height * .60),
+             "width": int(width * .62), "height": int(height * .30)},
+        ]
+        detected = [*detected, *defaults[len(detected):]]
+    first, second = detected[:2]
+    return (
+        {"right": first, "left": second}
+        if view_key == "front" else {"left": first, "right": second}
     )
 
 
-@st.cache_data(show_spinner=False)
-def cached_leg_boxes(content: bytes) -> list[dict[str, int]]:
-    return detect_leg_boxes(load_thermography(content))
+def _canvas_seeds(
+    image_data: np.ndarray, image: Image.Image, box: dict[str, int]
+) -> tuple[np.ndarray, int, int]:
+    rgba = np.asarray(image_data, dtype=np.uint8)
+    rgba = cv2.resize(rgba, image.size, interpolation=cv2.INTER_NEAREST)
+    red, green, blue = rgba[:, :, 0], rgba[:, :, 1], rgba[:, :, 2]
+    alpha = rgba[:, :, 3] if rgba.shape[2] > 3 else np.full(red.shape, 255, np.uint8)
+    foreground = (alpha > 20) & (green > 245) & (red < 35) & (blue < 35)
+    background = (alpha > 20) & (red > 245) & (green < 35) & (blue < 35)
+    inside = np.zeros(red.shape, dtype=bool)
+    left, top = box["left"], box["top"]
+    inside[top:top + box["height"], left:left + box["width"]] = True
+    foreground &= inside
+    background &= inside
+    seeds = np.zeros(red.shape, dtype=np.int8)
+    seeds[foreground] = 1
+    seeds[background] = -1
+    return seeds, int(foreground.sum()), int(background.sum())
+
+
+def _invalidate_segmentation(item: dict[str, Any]) -> None:
+    item.pop("analysis", None)
+    item.pop("analysis_config", None)
+
+
+def _highlight_colorbar(
+    overlay: Image.Image, original: Image.Image, box: dict[str, int]
+) -> Image.Image:
+    preview = np.asarray(overlay.convert("RGB"), dtype=np.uint8).copy()
+    source = np.asarray(original.convert("RGB"), dtype=np.uint8)
+    left, top = box["left"], box["top"]
+    right = min(original.width, left + box["width"])
+    bottom = min(original.height, top + box["height"])
+    preview[top:bottom, left:right] = source[top:bottom, left:right]
+    return annotate_boxes(Image.fromarray(preview), {"Barra térmica": box})
+
+
+def _parts_preview(image: Image.Image, analysis: dict[str, Any],
+                   settings: dict[str, dict[str, Any]]) -> Image.Image:
+    preview = analysis["overlay"].copy()
+    draw = ImageDraw.Draw(preview)
+    colors = ("#00e5ff", "#ffff00", "#ff9f1c")
+    for side, setting in settings.items():
+        _, boundaries = leg_part_metrics(
+            analysis["temperatures"], analysis["masks"][side],
+            analysis["threshold"], tuple(setting["cuts"]),
+            axis=setting["axis"], foot_at_end=setting["foot_at_end"],
+        )
+        box = analysis["boxes"][side]
+        occupied = np.flatnonzero(np.any(
+            analysis["masks"][side], axis=0 if setting["axis"] == "horizontal" else 1
+        ))
+        near, far = int(occupied[0]), int(occupied[-1]) + 1
+        endpoints = ((near, *boundaries, far) if setting["foot_at_end"]
+                     else (far, *boundaries, near))
+        for coordinate, color in zip(boundaries, colors):
+            if setting["axis"] == "horizontal":
+                line = (coordinate, box["top"], coordinate,
+                        box["top"] + box["height"])
+            else:
+                line = (box["left"], coordinate,
+                        box["left"] + box["width"], coordinate)
+            draw.line(line, fill=color, width=max(2, image.width // 300))
+        for number, (first, last) in enumerate(
+            zip(endpoints, endpoints[1:]), start=1
+        ):
+            middle = (first + last) // 2
+            if setting["axis"] == "horizontal":
+                label_position = (middle, box["top"] + box["height"] // 2)
+            else:
+                label_position = (box["left"] + box["width"] // 2, middle)
+            draw.text(label_position, str(number), fill="white", anchor="mm",
+                      stroke_width=2, stroke_fill="black")
+    return preview
+
+
+@st.dialog("Corrigir áreas", width="large")
+def edit_thermal_boxes(
+    item_key: str,
+    image: Image.Image,
+    automatic: dict[str, dict[str, int]],
+    automatic_colorbar: dict[str, int],
+) -> None:
+    item = st.session_state["thermography_items"][item_key]
+    if message := st.session_state.pop(f"thermal_box_message_{item_key}", None):
+        st.success(message)
+    target_label = st.radio(
+        "Área", ("Perna direita", "Perna esquerda", "Barra de cores"),
+        horizontal=True,
+        key=f"thermal_box_target_{item_key}",
+    )
+    is_colorbar = target_label == "Barra de cores"
+    side = "right" if target_label == "Perna direita" else "left"
+    boxes = {**automatic, **item.get("manual_boxes", {})}
+    colorbar = item.get("manual_colorbar_box", automatic_colorbar)
+    preview = annotate_boxes(image, {
+        "Perna direita": boxes["right"], "Perna esquerda": boxes["left"],
+        "Barra térmica": colorbar,
+    })
+    background, scale = _display_image(preview, max_width=620, max_height=360)
+    st.caption(
+        "Desenhe um retângulo somente sobre a faixa colorida vertical."
+        if is_colorbar else
+        "Desenhe um retângulo sobre toda a área da perna selecionada."
+    )
+    canvas = st_canvas(
+        fill_color="rgba(0,255,255,0.12)", stroke_color="#00FFFF",
+        stroke_width=3, background_image=background,
+        height=background.height, width=background.width,
+        drawing_mode="rect_crop", display_toolbar=True,
+        enable_viewport_controls=True,
+        key=f"thermal_box_canvas_{item_key}_{'colorbar' if is_colorbar else side}",
+    )
+    crop = crop_box_from_json(canvas.json_data)
+    apply_column, reset_column, finish_column = st.columns([2, 2, 1])
+    if apply_column.button("Aplicar área", type="primary", disabled=crop is None):
+        selected_box = _scaled_box(crop, scale, image)
+        if is_colorbar:
+            item["manual_colorbar_box"] = selected_box
+        else:
+            item.setdefault("manual_boxes", {})[side] = selected_box
+            item.setdefault("mask_seeds", {}).pop(side, None)
+        _invalidate_segmentation(item)
+        st.session_state[f"thermal_box_message_{item_key}"] = (
+            f"Área de {target_label.lower()} atualizada."
+        )
+        st.rerun(scope="fragment")
+    if reset_column.button("Restaurar detecção automática"):
+        if is_colorbar:
+            item.pop("manual_colorbar_box", None)
+        else:
+            item.setdefault("manual_boxes", {}).pop(side, None)
+            item.setdefault("mask_seeds", {}).pop(side, None)
+        _invalidate_segmentation(item)
+        st.session_state[f"thermal_box_message_{item_key}"] = (
+            f"Área de {target_label.lower()} restaurada."
+        )
+        st.rerun(scope="fragment")
+    if finish_column.button("Concluir"):
+        st.rerun()
+
+
+@st.dialog("Corrigir segmentação", width="large")
+def edit_thermal_mask(
+    item_key: str, image: Image.Image, analysis: dict[str, Any]
+) -> None:
+    item = st.session_state["thermography_items"][item_key]
+    analysis = item.get("analysis", analysis)
+    if message := st.session_state.pop(f"thermal_mask_message_{item_key}", None):
+        st.success(message)
+    target_label = st.radio(
+        "Perna", ("Perna direita", "Perna esquerda"), horizontal=True,
+        key=f"thermal_mask_target_{item_key}",
+    )
+    side = "right" if target_label == "Perna direita" else "left"
+    brush_label = st.radio(
+        "Pincel", ("Incluir área", "Excluir área"), horizontal=True,
+        key=f"thermal_brush_{item_key}",
+    )
+    brush_size = st.slider(
+        "Tamanho do pincel", 2, 40, 10, key=f"thermal_brush_size_{item_key}"
+    )
+    st.caption("Verde inclui pixels na área; vermelho exclui pixels da área.")
+    background, _ = _display_image(
+        analysis["overlay"], max_width=620, max_height=360
+    )
+    canvas = st_canvas(
+        fill_color="rgba(0,0,0,0)",
+        stroke_color="#00FF00" if brush_label == "Incluir área" else "#FF0000",
+        stroke_width=brush_size, background_image=background,
+        height=background.height, width=background.width,
+        drawing_mode="freedraw", display_toolbar=True,
+        enable_viewport_controls=True,
+        key=f"thermal_mask_canvas_{item_key}_{side}",
+    )
+    def recalculate(selected_side: str) -> None:
+        selected_mask = segment_leg_mask(
+            image,
+            analysis["boxes"][selected_side],
+            item.get("mask_seeds", {}).get(selected_side),
+        )
+        analysis["masks"][selected_side] = selected_mask
+        hot_pixels, total_pixels = count_hot_pixels(
+            analysis["temperatures"],
+            analysis["boxes"][selected_side],
+            analysis["threshold"],
+            selected_mask,
+        )
+        analysis["metrics"][selected_side] = {
+            "hot_pixels": hot_pixels,
+            "total_pixels": total_pixels,
+            "hot_percentage": hot_pixels / total_pixels * 100,
+            "threshold": analysis["threshold"],
+        }
+        analysis["overlay"] = segmentation_overlay(
+            image, analysis["boxes"], analysis["masks"]
+        )
+        analysis["overlay"] = _highlight_colorbar(
+            analysis["overlay"], image, analysis["colorbar_box"]
+        )
+        analysis["hot_overlay"] = hot_pixels_overlay(
+            image, analysis["temperatures"], analysis["masks"],
+            analysis["threshold"],
+        )
+        item["analysis"] = analysis
+
+    apply_column, reset_column, finish_column = st.columns([2, 2, 1])
+    if apply_column.button("Aplicar traços e recalcular", type="primary"):
+        if canvas.image_data is None:
+            st.warning("Faça ao menos um traço antes de aplicar.")
+            return
+        seeds, included, excluded = _canvas_seeds(
+            canvas.image_data, image, analysis["boxes"][side]
+        )
+        if included + excluded == 0:
+            st.warning("Nenhum traço verde ou vermelho foi identificado.")
+            return
+        previous = item.setdefault("mask_seeds", {}).get(side)
+        if previous is not None:
+            seeds[(seeds == 0) & (previous != 0)] = previous[(seeds == 0) & (previous != 0)]
+        item["mask_seeds"][side] = seeds
+        recalculate(side)
+        item.pop("analysis_config", None)
+        st.session_state[f"thermal_mask_message_{item_key}"] = (
+            f"Segmentação de {target_label.lower()} recalculada. "
+            "Você pode continuar corrigindo."
+        )
+        st.rerun(scope="fragment")
+    if reset_column.button("Restaurar máscara automática"):
+        item.setdefault("mask_seeds", {}).pop(side, None)
+        recalculate(side)
+        item.pop("analysis_config", None)
+        st.session_state[f"thermal_mask_message_{item_key}"] = (
+            f"Máscara automática de {target_label.lower()} restaurada."
+        )
+        st.rerun(scope="fragment")
+    if finish_column.button("Concluir"):
+        st.rerun()
 
 
 @st.cache_data(show_spinner=False)
-def cached_temperature_matrix(
-    content: bytes,
+def cached_temperature_scale(content: bytes) -> dict[str, float]:
+    return extract_thermography_scale(content)
+
+
+def segmented_analysis(
+    image: Image.Image,
+    view_key: str,
     minimum_temperature: float,
     maximum_temperature: float,
-) -> Any:
-    return temperature_matrix(
-        load_thermography(content), minimum_temperature, maximum_temperature
+    threshold: float,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    automatic = _automatic_boxes(image, view_key)
+    boxes = {**automatic, **item.get("manual_boxes", {})}
+    automatic_colorbar, colorbar_confidence = detect_colorbar_box(image)
+    colorbar = item.get("manual_colorbar_box", automatic_colorbar)
+    seeds = item.get("mask_seeds", {})
+    config = (
+        minimum_temperature, maximum_temperature, threshold,
+        tuple(colorbar.items()),
+        tuple((side, tuple(boxes[side].items())) for side in ("right", "left")),
+        tuple(
+            (side, hashlib.sha256(seed.tobytes()).hexdigest())
+            for side, seed in sorted(seeds.items())
+        ),
     )
+    if item.get("analysis_config") == config and item.get("analysis") is not None:
+        return item["analysis"]
+
+    temperatures = temperature_matrix(
+        image, minimum_temperature, maximum_temperature, colorbar
+    )
+    masks = {
+        side: segment_leg_mask(image, box, seeds.get(side))
+        for side, box in boxes.items()
+    }
+    metrics: dict[str, dict[str, float | int]] = {}
+    for side, box in boxes.items():
+        hot_pixels, total_pixels = count_hot_pixels(
+            temperatures, box, threshold, masks[side]
+        )
+        metrics[side] = {
+            "hot_pixels": hot_pixels,
+            "total_pixels": total_pixels,
+            "hot_percentage": hot_pixels / total_pixels * 100,
+            "threshold": threshold,
+        }
+    overlay = segmentation_overlay(image, boxes, masks)
+    overlay = _highlight_colorbar(overlay, image, colorbar)
+    analysis = {
+        "view": view_key, "boxes": boxes, "masks": masks,
+        "metrics": metrics,
+        "overlay": overlay,
+        "hot_overlay": hot_pixels_overlay(
+            image, temperatures, masks, threshold
+        ),
+        "automatic_boxes": automatic,
+        "colorbar_box": colorbar,
+        "automatic_colorbar_box": automatic_colorbar,
+        "colorbar_confidence": colorbar_confidence,
+        "temperatures": temperatures,
+        "threshold": threshold,
+    }
+    item["analysis_config"] = config
+    item["analysis"] = analysis
+    return analysis
 
 
 def render_view(
@@ -96,13 +448,30 @@ def render_view(
     content: bytes,
     image: Image.Image,
     item: dict[str, Any],
+    item_key: str,
 ) -> dict[str, dict[str, float | int]] | None:
     """Renderiza uma vista e retorna as métricas das duas pernas."""
     view_label = VIEW_LABELS[view_key]
     st.markdown(f"#### Imagem de {view_label.lower()}")
     st.caption(name)
+    if item.get("scale_detected"):
+        st.caption("Tmin e Tmax reconhecidos automaticamente na imagem.")
+    else:
+        st.info(
+            "A escala não foi reconhecida automaticamente. Confira os valores "
+            "iniciais e ajuste-os manualmente, se necessário."
+        )
 
     with st.container(border=True):
+        mode_key = threshold_mode_key(view_key)
+        threshold_mode = st.radio(
+            "Escala do limiar de pixels quentes:",
+            options=(PERCENTAGE_MODE, TEMPERATURE_MODE),
+            horizontal=True,
+            key=mode_key,
+            on_change=synchronize_threshold_mode,
+            args=(mode_key,),
+        )
         minimum_column, maximum_column = st.columns(2)
         with minimum_column:
             minimum_temperature = st.number_input(
@@ -125,96 +494,673 @@ def render_view(
         item["maximum_temperature"] = maximum_temperature
         valid_scale = maximum_temperature > minimum_temperature
         if valid_scale:
-            default_threshold = maximum_temperature - DEFAULT_HOT_FRACTION * (
-                maximum_temperature - minimum_temperature
+            signature = image_signature(content)
+            percentage_key = f"thermography_threshold_percentage_{view_key}_{signature}"
+            temperature_key = f"thermography_threshold_temperature_{view_key}_{signature}"
+            previous_mode = item.get("threshold_mode")
+            stored_percentage = float(
+                item.get("threshold_percentage", DEFAULT_HOT_POSITION * 100)
             )
-            slider_step = max(
-                (maximum_temperature - minimum_temperature) / 200, 0.01
-            )
-            threshold = st.slider(
-                "Temperatura mínima para considerar um pixel quente (°C)",
-                min_value=float(minimum_temperature),
-                max_value=float(maximum_temperature),
-                value=float(default_threshold),
-                step=float(slider_step),
-                key=(
-                    f"thermography_threshold_{view_key}_{image_signature(content)}_"
-                    f"{minimum_temperature:.4f}_{maximum_temperature:.4f}"
+            stored_temperature = float(item.get(
+                "threshold_temperature",
+                temperature_from_scale_percentage(
+                    minimum_temperature, maximum_temperature, stored_percentage
                 ),
-            )
-            st.caption(
-                "Valor padrão: início dos 20% mais quentes da escala informada."
-            )
+            ))
+
+            if threshold_mode == PERCENTAGE_MODE:
+                if previous_mode == TEMPERATURE_MODE:
+                    converted_temperature = min(
+                        maximum_temperature,
+                        max(minimum_temperature, stored_temperature),
+                    )
+                    stored_percentage = scale_percentage_from_temperature(
+                        minimum_temperature,
+                        maximum_temperature,
+                        converted_temperature,
+                    )
+                    st.session_state[percentage_key] = stored_percentage
+                percentage = st.slider(
+                    "Posição mínima na escala para considerar um pixel quente",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=stored_percentage,
+                    step=1.0,
+                    format="%d%%",
+                    key=percentage_key,
+                )
+                threshold = temperature_from_scale_percentage(
+                    minimum_temperature, maximum_temperature, percentage
+                )
+                item["threshold_percentage"] = percentage
+                item["threshold_temperature"] = threshold
+                st.caption("Valor padrão: 90% da escala térmica informada.")
+            else:
+                if previous_mode == PERCENTAGE_MODE:
+                    stored_temperature = temperature_from_scale_percentage(
+                        minimum_temperature, maximum_temperature, stored_percentage
+                    )
+                    st.session_state[temperature_key] = stored_temperature
+                slider_step = max(
+                    (maximum_temperature - minimum_temperature) / 200, 0.01
+                )
+                widget_temperature = float(
+                    st.session_state.get(temperature_key, stored_temperature)
+                )
+                clamped_temperature = min(
+                    maximum_temperature,
+                    max(minimum_temperature, widget_temperature),
+                )
+                if widget_temperature != clamped_temperature:
+                    st.session_state[temperature_key] = clamped_temperature
+                threshold = st.slider(
+                    "Temperatura mínima para considerar um pixel quente (°C)",
+                    min_value=float(minimum_temperature),
+                    max_value=float(maximum_temperature),
+                    value=float(clamped_temperature),
+                    step=float(slider_step),
+                    key=temperature_key,
+                )
+                item["threshold_temperature"] = threshold
+                item["threshold_percentage"] = scale_percentage_from_temperature(
+                    minimum_temperature, maximum_temperature, threshold
+                )
+            item["threshold_mode"] = threshold_mode
         else:
             threshold = minimum_temperature
             st.error("Tmax deve ser maior que Tmin.")
 
-    with st.spinner(f"Identificando as caixas da imagem de {view_label.lower()}..."):
-        detected_boxes = cached_leg_boxes(content)
-
-    if len(detected_boxes) != 2:
-        st.image(image, caption=f"Imagem de {view_label.lower()}", width="stretch")
-        st.error(
-            "Não foi possível identificar exatamente duas caixas R1/R2 "
-            f"({len(detected_boxes)} encontrada(s))."
-        )
-        st.info("Nesta etapa, somente imagens com as duas caixas são processadas.")
-        return None
-
-    if view_key == "front":
-        boxes = {"right": detected_boxes[0], "left": detected_boxes[1]}
-        labels = {"R1 — direita": boxes["right"], "R2 — esquerda": boxes["left"]}
-        convention = "Frente: R1 superior = direita; R2 inferior = esquerda."
-    else:
-        boxes = {"left": detected_boxes[0], "right": detected_boxes[1]}
-        labels = {"R1 — esquerda": boxes["left"], "R2 — direita": boxes["right"]}
-        convention = "Verso: R1 superior = esquerda; R2 inferior = direita."
-
-    image_columns = st.columns([2, 1, 1], gap="small")
-    with image_columns[0]:
-        st.image(
-            annotate_boxes(image, labels),
-            caption=f"Detecção automática — {convention}",
-            width=520,
-        )
-    for column, (label, key) in zip(image_columns[1:], LEGS.items()):
-        with column:
-            preview = crop_from_box(image, boxes[key])
-            preview.thumbnail((260, 190))
-            st.image(preview, caption=label, width=260)
-    st.caption(convention)
-
     if not valid_scale:
         return None
+    try:
+        with st.spinner(f"Analisando a imagem de {view_label.lower()}..."):
+            analysis = segmented_analysis(
+                image, view_key, minimum_temperature, maximum_temperature,
+                threshold, item,
+            )
+    except ValueError as error:
+        st.image(image, caption=f"Imagem de {view_label.lower()}", width="stretch")
+        st.error(str(error))
+        st.info("Corrija as áreas das pernas e tente processar novamente.")
+        return None
 
-    with st.spinner("Convertendo as cores em temperaturas aproximadas..."):
-        temperatures = cached_temperature_matrix(
-            content, minimum_temperature, maximum_temperature
+    boxes = analysis["boxes"]
+    if view_key == "front":
+        convention = "Frente: R1 superior = direita; R2 inferior = esquerda."
+    else:
+        convention = "Verso: R1 superior = esquerda; R2 inferior = direita."
+
+    settings = item.setdefault("part_settings_v4", {
+        side: {"cuts": list(DEFAULT_PART_CUTS), "axis": "horizontal",
+               "foot_at_end": False}
+        for side in ("right", "left")
+    })
+    st.markdown("##### Divisão anatômica")
+    st.caption(
+        "Escolha onde começa a coxa. Os percentuais vão da coxa ao pé, "
+        "mesmo quando a imagem está invertida. Cada parte usa apenas "
+        "os pixels da máscara."
+    )
+    part_columns = st.columns(2)
+    invalid_cuts = False
+    for column, (label, side) in zip(part_columns, LEGS.items()):
+        setting = settings.setdefault(
+            side, {"cuts": list(DEFAULT_PART_CUTS), "axis": "horizontal",
+                   "foot_at_end": False}
+        )
+        with column:
+            with st.expander(label, expanded=False):
+                axis_label = st.radio(
+                    "Orientação da perna", ("Horizontal", "Vertical"),
+                    index=0 if setting["axis"] == "horizontal" else 1,
+                    horizontal=True, key=f"part_axis_v4_{item_key}_{side}",
+                )
+                axis = axis_label.lower()
+                directions = (("Esquerda", "Direita") if axis == "horizontal"
+                              else ("Cima", "Baixo"))
+                direction = st.radio(
+                    "Onde começa a coxa", directions,
+                    index=0 if setting["foot_at_end"] else 1,
+                    horizontal=True,
+                    key=f"part_direction_v4_{item_key}_{side}_{axis}",
+                )
+                foot_at_end = direction == directions[0]
+                setting["axis"] = axis
+                setting["foot_at_end"] = foot_at_end
+                cuts = setting["cuts"]
+                st.caption("Posição percentual a partir da coxa.")
+                first = st.slider(
+                    "Fim da coxa (%)", 1, 99, cuts[0],
+                    key=f"part_thigh_v4_{item_key}_{side}_{axis}_{direction}",
+                )
+                second = st.slider(
+                    "Fim do joelho (%)", 1, 99, cuts[1],
+                    key=f"part_knee_v4_{item_key}_{side}_{axis}_{direction}",
+                )
+                third = st.slider(
+                    "Fim da canela (%)", 1, 99, cuts[2],
+                    key=f"part_shin_v4_{item_key}_{side}_{axis}_{direction}",
+                )
+                if first < second < third:
+                    setting["cuts"] = [first, second, third]
+                else:
+                    st.error("Os percentuais devem crescer da coxa ao pé.")
+                    invalid_cuts = True
+    part_metrics = {}
+    for side in LEGS.values():
+        setting = settings[side]
+        part_metrics[side], _ = leg_part_metrics(
+            analysis["temperatures"], analysis["masks"][side], threshold,
+            tuple(setting["cuts"]), axis=setting["axis"],
+            foot_at_end=setting["foot_at_end"],
         )
 
-    metrics: dict[str, dict[str, float | int]] = {}
-    for key, box in boxes.items():
-        hot_pixels, total_pixels = count_hot_pixels(temperatures, box, threshold)
-        metrics[key] = {
-            "hot_pixels": hot_pixels,
-            "total_pixels": total_pixels,
-            "hot_percentage": hot_pixels / total_pixels * 100,
-            "threshold": threshold,
-        }
+    st.markdown("##### Segmentação das pernas")
+    st.caption("Na prévia: 1 coxa · 2 joelho · 3 canela · 4 pé.")
+    segmentation_column, temperature_column = st.columns(2, gap="medium")
+    with segmentation_column:
+        st.image(
+            _parts_preview(image, analysis, settings),
+            caption=f"Área segmentada — {convention}",
+            width="stretch",
+        )
+    with temperature_column:
+        st.image(
+            analysis["hot_overlay"],
+            caption=f"Pixels quentes detectados — temperatura ≥ {threshold:.1f} °C",
+            width="stretch",
+        )
+    st.caption(convention)
+    st.caption(
+        "Barra térmica detectada automaticamente · confiança heurística: "
+        f"{analysis['colorbar_confidence']:.0%}."
+    )
+    edit_columns = st.columns(2)
+    if edit_columns[0].button(
+        "Corrigir áreas", key=f"thermal_edit_boxes_{item_key}",
+        width="stretch",
+    ):
+        edit_thermal_boxes(
+            item_key, image, analysis["automatic_boxes"],
+            analysis["automatic_colorbar_box"],
+        )
+    if edit_columns[1].button(
+        "Corrigir segmentação", key=f"thermal_edit_masks_{item_key}",
+        width="stretch",
+    ):
+        edit_thermal_mask(item_key, image, analysis)
+    metrics = analysis["metrics"]
 
-    st.markdown("##### Pixels quentes")
+    st.markdown("##### Métricas da área segmentada")
     metric_columns = st.columns(2)
     for column, (label, key) in zip(metric_columns, LEGS.items()):
         metric = metrics[key]
         with column:
             with st.container(border=True):
-                st.metric(label, f"{metric['hot_pixels']:,}".replace(",", "."))
-                st.caption(
-                    f"{metric['hot_percentage']:.1f}% de "
-                    f"{metric['total_pixels']:,} pixels · "
+                st.metric(
+                    f"Pixels quentes — {label}",
+                    f"{metric['hot_pixels']:,} px".replace(",", "."),
+                    help="Quantidade de pixels quentes dentro da máscara da perna.",
+                )
+                metric_caption = (
+                    f"Área da perna: {metric['total_pixels']:,} pixels · "
+                    f"Pixels quentes: {metric['hot_percentage']:.1f}% · "
                     f"temperatura ≥ {threshold:.1f} °C"
                 )
-    return metrics
+                st.caption(metric_caption.replace(",", "."))
+                for part, part_metric in part_metrics[key].items():
+                    if part_metric["total_pixels"] == 0:
+                        st.write(
+                            f"**{part.capitalize() if part != 'pe' else 'Pé'}:** "
+                            "sem área visível; ajuste os limites."
+                        )
+                        continue
+                    st.write(
+                        f"**{part.capitalize() if part != 'pe' else 'Pé'}:** "
+                        f"{part_metric['hot_pixels']:,} px quentes · "
+                        f"{part_metric['total_pixels']:,} px de área · "
+                        f"{part_metric['hot_percentage']:.1f}%".replace(",", ".")
+                    )
+    return None if invalid_cuts else metrics
+
+
+def _timeline_sort_key(entry: dict[str, Any]) -> tuple[date, int]:
+    return entry["collected_at"], int(entry["sequence"])
+
+
+def _timeline_entry_by_id(entry_id: int | None) -> dict[str, Any] | None:
+    if entry_id is None:
+        return None
+    return next(
+        (
+            entry
+            for entry in st.session_state.get("thermography_timeline", [])
+            if int(entry["id"]) == int(entry_id)
+        ),
+        None,
+    )
+
+
+def _select_timeline_entry(entry: dict[str, Any], role: str) -> None:
+    """Seleciona Basal ou Atual sem modificar a outra ponta da comparação."""
+    st.session_state[f"thermography_timeline_{role}"] = int(entry["id"])
+
+
+def _select_timeline_entry_by_id(entry_id: int, role: str) -> None:
+    """Callback de botão: atualiza a seleção antes do rerun do Streamlit."""
+    entry = _timeline_entry_by_id(entry_id)
+    if entry is None:
+        st.session_state["thermography_timeline_message"] = (
+            "A coleta selecionada não está mais disponível na sessão."
+        )
+        return
+    _select_timeline_entry(entry, role)
+
+
+def _timeline_view_at_threshold(
+    source: dict[str, Any], threshold: float
+) -> dict[str, Any]:
+    """Deriva máscaras quentes e métricas sem persistir o resultado na timeline."""
+    hot_masks: dict[str, np.ndarray] = {}
+    metrics: dict[str, dict[str, float | int]] = {}
+    temperatures = source["temperatures"]
+    for side in LEGS.values():
+        segmentation_mask = source["segmentation_masks"][side].astype(bool)
+        hot_mask = (
+            segmentation_mask
+            & np.isfinite(temperatures)
+            & (temperatures >= threshold)
+        )
+        hot_pixels = int(np.count_nonzero(hot_mask))
+        total_pixels = int(np.count_nonzero(segmentation_mask))
+        hot_masks[side] = hot_mask
+        metrics[side] = {
+            "hot_pixels": hot_pixels,
+            "total_pixels": total_pixels,
+            "hot_percentage": hot_pixels / total_pixels * 100,
+            "threshold": threshold,
+        }
+    return {**source, "threshold": threshold, "hot_masks": hot_masks, "metrics": metrics}
+
+
+def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
+    st.markdown("#### Comparação Basal × Atual")
+    st.caption(
+        f"Basal: {t0['collected_at'].strftime('%d/%m/%Y')} · "
+        f"Atual: {ti['collected_at'].strftime('%d/%m/%Y')}"
+    )
+    tabs = st.tabs(["Frente", "Verso"])
+    for tab, view_key in zip(tabs, ("front", "back")):
+        with tab:
+            baseline_source = t0["views"][view_key]
+            current_source = ti["views"][view_key]
+            threshold_columns = st.columns(2)
+            with threshold_columns[0]:
+                baseline_threshold = st.slider(
+                    "Limiar da coleta basal (°C)",
+                    min_value=float(baseline_source["minimum_temperature"]),
+                    max_value=float(baseline_source["maximum_temperature"]),
+                    value=float(baseline_source["default_threshold"]),
+                    step=max(
+                        (
+                            float(baseline_source["maximum_temperature"])
+                            - float(baseline_source["minimum_temperature"])
+                        ) / 200,
+                        0.01,
+                    ),
+                    key=f"timeline_threshold_t0_{t0['id']}_{view_key}",
+                )
+            with threshold_columns[1]:
+                current_threshold = st.slider(
+                    "Limiar da coleta atual (°C)",
+                    min_value=float(current_source["minimum_temperature"]),
+                    max_value=float(current_source["maximum_temperature"]),
+                    value=float(current_source["default_threshold"]),
+                    step=max(
+                        (
+                            float(current_source["maximum_temperature"])
+                            - float(current_source["minimum_temperature"])
+                        ) / 200,
+                        0.01,
+                    ),
+                    key=f"timeline_threshold_ti_{ti['id']}_{view_key}",
+                )
+            st.caption(
+                "O mapa e todas as métricas abaixo são recalculados imediatamente "
+                "quando um dos limiares é alterado."
+            )
+            baseline = _timeline_view_at_threshold(
+                baseline_source, baseline_threshold
+            )
+            current = _timeline_view_at_threshold(
+                current_source, current_threshold
+            )
+            t0_column, ti_column, map_column, metrics_column = st.columns(
+                [1.1, 1.1, 1.4, 1.2], gap="medium"
+            )
+            with t0_column:
+                st.markdown("##### Basal")
+                st.image(baseline["image"], width="stretch")
+            with ti_column:
+                st.markdown("##### Atual")
+                st.image(current["image"], width="stretch")
+            with map_column:
+                st.markdown("##### Mapa comparativo")
+                map_columns = st.columns(2)
+                for column, (label, side) in zip(map_columns, LEGS.items()):
+                    comparison = compare_hot_masks(
+                        baseline["hot_masks"][side],
+                        current["hot_masks"][side],
+                        baseline["boxes"][side],
+                        current["boxes"][side],
+                    )
+                    with column:
+                        st.image(comparison["image"], caption=label, width="stretch")
+                        compared_total = sum(
+                            int(comparison[key])
+                            for key in (
+                                "new_pixels", "persistent_pixels", "resolved_pixels"
+                            )
+                        )
+                        def category_value(key: str) -> str:
+                            value = int(comparison[key])
+                            percentage = value / compared_total * 100 if compared_total else 0.0
+                            return f"{value:,} ({percentage:.1f}%)"
+                        st.caption(
+                            f"Novos: {category_value('new_pixels')} · "
+                            f"Persistentes: {category_value('persistent_pixels')} · "
+                            f"Resolvidos: {category_value('resolved_pixels')}"
+                        )
+                st.caption(
+                    "Vermelho: novos · Amarelo: persistentes · Azul: resolvidos"
+                )
+            with metrics_column:
+                st.markdown("##### Métricas atuais")
+                st.caption(
+                    f"Tmin {current['minimum_temperature']:.1f} °C · "
+                    f"Tmax {current['maximum_temperature']:.1f} °C · "
+                    f"limiar {current['threshold']:.1f} °C"
+                )
+                current_hot_total = sum(
+                    int(current["metrics"][side]["hot_pixels"])
+                    for side in LEGS.values()
+                )
+                baseline_hot_total = sum(
+                    int(baseline["metrics"][side]["hot_pixels"])
+                    for side in LEGS.values()
+                )
+                current_area_total = sum(
+                    int(current["metrics"][side]["total_pixels"])
+                    for side in LEGS.values()
+                )
+                baseline_area_total = sum(
+                    int(baseline["metrics"][side]["total_pixels"])
+                    for side in LEGS.values()
+                )
+                current_view_percentage = current_hot_total / current_area_total * 100
+                baseline_view_percentage = baseline_hot_total / baseline_area_total * 100
+                st.metric(
+                    "Total da vista",
+                    f"{current_hot_total:,} px".replace(",", "."),
+                    delta=f"{current_hot_total - baseline_hot_total:+,} px".replace(",", "."),
+                )
+                st.caption(
+                    f"{current_view_percentage:.1f}% "
+                    f"({current_view_percentage - baseline_view_percentage:+.1f} p.p.)"
+                )
+                for label, side in LEGS.items():
+                    current_metric = current["metrics"][side]
+                    baseline_metric = baseline["metrics"][side]
+                    hot_delta = int(current_metric["hot_pixels"]) - int(
+                        baseline_metric["hot_pixels"]
+                    )
+                    percentage_delta = float(current_metric["hot_percentage"]) - float(
+                        baseline_metric["hot_percentage"]
+                    )
+                    st.metric(
+                        f"Pixels quentes — {label}",
+                        f"{int(current_metric['hot_pixels']):,} px".replace(",", "."),
+                        delta=f"{hot_delta:+,} px".replace(",", "."),
+                    )
+                    st.caption(
+                        f"{float(current_metric['hot_percentage']):.1f}% "
+                        f"({percentage_delta:+.1f} p.p.) · área: "
+                        f"{int(current_metric['total_pixels']):,} px".replace(",", ".")
+                    )
+
+
+def render_timeline(selected_player_id: int | None) -> None:
+    st.subheader("Timeline térmica")
+    if message := st.session_state.pop("thermography_timeline_message", None):
+        st.warning(message)
+    if selected_player_id is None:
+        st.caption("Selecione um jogador para visualizar e comparar suas coletas da sessão.")
+        return
+
+    timeline_entries = st.session_state.get("thermography_timeline", [])
+    if any(entry.get("version") != 2 for entry in timeline_entries):
+        timeline_entries = []
+        st.session_state["thermography_timeline"] = []
+        st.session_state.pop("thermography_timeline_t0", None)
+        st.session_state.pop("thermography_timeline_ti", None)
+        st.info(
+            "A timeline temporária anterior foi limpa para habilitar o ajuste "
+            "dinâmico de temperatura. Adicione as coletas novamente."
+        )
+    entries = sorted(
+        (
+            entry
+            for entry in timeline_entries
+            if int(entry["athlete_id"]) == int(selected_player_id)
+        ),
+        key=_timeline_sort_key,
+    )
+    valid_ids = {int(entry["id"]) for entry in entries}
+    for role in ("t0", "ti"):
+        key = f"thermography_timeline_{role}"
+        if st.session_state.get(key) not in valid_ids:
+            st.session_state.pop(key, None)
+    if not entries:
+        st.caption(
+            "Analise um par de imagens e use “Adicionar à timeline”. "
+            "As imagens permanecem somente nesta sessão."
+        )
+        return
+
+    action_column, clear_column = st.columns([4, 1])
+    with action_column:
+        role_label = st.radio(
+            "Ao clicar em uma coleta, definir como:",
+            ("Basal", "Atual"),
+            horizontal=True,
+            key="thermography_timeline_role_v2",
+        )
+    with clear_column:
+        if st.button("Limpar timeline", use_container_width=True):
+            st.session_state["thermography_timeline"] = []
+            st.session_state.pop("thermography_timeline_t0", None)
+            st.session_state.pop("thermography_timeline_ti", None)
+            st.rerun()
+    role = "t0" if "Basal" in role_label else "ti"
+    selected_t0 = st.session_state.get("thermography_timeline_t0")
+    selected_ti = st.session_state.get("thermography_timeline_ti")
+    card_styles = []
+    for entry in entries:
+        entry_id = int(entry["id"])
+        active_selection = selected_t0 if role == "t0" else selected_ti
+        is_selected = entry_id == active_selection
+        selector = f".st-key-timeline_card_{entry_id}"
+        border_selector = (
+            f'{selector} [data-testid="stVerticalBlockBorderWrapper"]'
+        )
+        if is_selected:
+            card_styles.append(
+                f"{selector} {{ opacity: 1; }}"
+                f"{border_selector} {{ border: 3px solid "
+                "rgba(49, 51, 63, 0.95) !important; }}"
+            )
+        else:
+            card_styles.append(
+                f"{selector} {{ opacity: 0.38; transition: opacity 0.18s ease; }}"
+                f"{selector}:hover {{ opacity: 0.72; }}"
+            )
+    if card_styles:
+        st.markdown(
+            "<style>" + "".join(card_styles) + "</style>",
+            unsafe_allow_html=True,
+        )
+    st.caption(
+        f"Mostrando a seleção de {role_label}: somente a coleta escolhida "
+        "neste estado permanece destacada."
+    )
+    with st.container(horizontal=True):
+        for entry in entries:
+            entry_id = int(entry["id"])
+            with st.container(
+                border=True,
+                width=190,
+                key=f"timeline_card_{entry_id}",
+            ):
+                thumbnail = entry["views"]["front"]["image"].copy()
+                thumbnail.thumbnail((170, 110))
+                st.image(thumbnail, width="stretch")
+                label = entry["collected_at"].strftime("%d/%m/%Y")
+                st.button(
+                    label,
+                    key=f"timeline_entry_{entry_id}_{role}",
+                    use_container_width=True,
+                    on_click=_select_timeline_entry_by_id,
+                    args=(entry_id, role),
+                )
+                st.caption(f"Coleta #{entry['sequence']}")
+    st.caption("As imagens da timeline são temporárias e serão perdidas ao encerrar a sessão.")
+
+    t0 = _timeline_entry_by_id(st.session_state.get("thermography_timeline_t0"))
+    ti = _timeline_entry_by_id(st.session_state.get("thermography_timeline_ti"))
+    if t0 is not None and ti is not None:
+        if _timeline_sort_key(ti) < _timeline_sort_key(t0):
+            st.warning(
+                "A coleta Atual está registrada antes da Basal. A comparação "
+                "continua disponível, mas confira se essa ordem foi intencional."
+            )
+        _render_comparison(t0, ti)
+
+
+def add_to_timeline(
+    athlete_id: int,
+    collected_at: date | None,
+    views: dict[str, dict[str, Any]],
+    items: dict[str, dict[str, Any]],
+) -> None:
+    timeline: list[dict[str, Any]] = st.session_state.setdefault(
+        "thermography_timeline", []
+    )
+    sequence = int(st.session_state.get("thermography_timeline_sequence", 0)) + 1
+    st.session_state["thermography_timeline_sequence"] = sequence
+    stored_views: dict[str, dict[str, Any]] = {}
+    for view_key, view in views.items():
+        analysis = items[f"{view_key}:{view['signature']}"]["analysis"]
+        stored_views[view_key] = {
+            "image": view["image"].copy(),
+            "minimum_temperature": float(items[f"{view_key}:{view['signature']}"]["minimum_temperature"]),
+            "maximum_temperature": float(items[f"{view_key}:{view['signature']}"]["maximum_temperature"]),
+            "default_threshold": float(analysis["threshold"]),
+            "boxes": {side: dict(box) for side, box in analysis["boxes"].items()},
+            "temperatures": analysis["temperatures"].copy(),
+            "segmentation_masks": {
+                side: analysis["masks"][side].astype(bool).copy()
+                for side in LEGS.values()
+            },
+        }
+    entry = {
+        "version": 2,
+        "id": sequence,
+        "sequence": sequence,
+        "athlete_id": int(athlete_id),
+        "collected_at": collected_at or current_sao_paulo_date(),
+        "views": stored_views,
+    }
+    timeline.append(entry)
+    st.session_state["thermography_timeline_ti"] = sequence
+    existing_t0 = _timeline_entry_by_id(
+        st.session_state.get("thermography_timeline_t0")
+    )
+    if existing_t0 is None:
+        st.session_state["thermography_timeline_t0"] = sequence
+    st.session_state["thermography_timeline_message"] = "Coleta adicionada à timeline da sessão."
+
+
+@st.dialog("Data da coleta")
+def confirm_timeline_date(
+    athlete_id: int,
+    views: dict[str, dict[str, Any]],
+    items: dict[str, dict[str, Any]],
+    pair_signature: str,
+) -> None:
+    st.caption("Informe a data em que as imagens termográficas foram coletadas.")
+    collected_at = st.date_input(
+        "Data de registro da coleta",
+        value=current_sao_paulo_date(),
+        key=f"timeline_collection_date_{pair_signature}",
+    )
+    if st.button(
+        "Confirmar e adicionar à timeline",
+        type="primary",
+        use_container_width=True,
+        key=f"confirm_timeline_date_{pair_signature}",
+    ):
+        add_to_timeline(athlete_id, collected_at, views, items)
+        st.rerun()
+
+
+@st.dialog("Registrar coleta no banco")
+def confirm_database_collection(
+    *,
+    athlete_id: int,
+    mass: object,
+    pain_score: object,
+    front_right: object,
+    front_left: object,
+    back_right: object,
+    back_left: object,
+    observations: object,
+    pair_signature: str,
+) -> None:
+    st.caption("Confirme a data em que esta coleta termográfica foi realizada.")
+    collected_at = st.date_input(
+        "Data de registro da coleta",
+        value=current_sao_paulo_date(),
+        key=f"database_collection_date_{pair_signature}",
+    )
+    if st.button(
+        "Confirmar registro",
+        type="primary",
+        use_container_width=True,
+        key=f"confirm_database_collection_{pair_signature}",
+    ):
+        try:
+            inserted = save_image_thermography(
+                athlete_id=athlete_id,
+                collected_at=collected_at,
+                mass=mass,
+                pain_score=pain_score,
+                front_right=front_right,
+                front_left=front_left,
+                back_right=back_right,
+                back_left=back_left,
+                observations=observations,
+            )
+        except (ValueError, RuntimeError, DuplicateThermographyError) as error:
+            st.error(str(error))
+        except Exception:
+            st.error("Não foi possível registrar a coleta no banco.")
+        else:
+            load_thermography_history.clear()
+            st.session_state["thermography_flash"] = (
+                f"Coleta de {collected_at.strftime('%d/%m/%Y')} registrada "
+                f"com {inserted} medida(s)."
+            )
+            st.rerun()
 
 
 st.title("Termografia")
@@ -234,133 +1180,6 @@ athletes_by_id = {
 }
 athlete_ids = list(athletes_by_id)
 
-st.subheader("Histórico térmico")
-with st.container(border=True):
-    selected_history_athlete_id = st.selectbox(
-        "Jogador",
-        athlete_ids,
-        index=None,
-        placeholder=(
-            "Todos os jogadores"
-            if athlete_ids
-            else "Nenhum jogador disponível"
-        ),
-        format_func=lambda athlete_id: athlete_label(athletes_by_id[athlete_id]),
-        disabled=not athlete_ids,
-        key="thermography_history_player",
-    )
-
-    try:
-        history_records = load_thermography_history(
-            selected_history_athlete_id
-        )
-    except Exception:
-        history_records = []
-        st.error("Não foi possível carregar o histórico térmico do banco.")
-
-    history = pd.DataFrame(
-        [
-            {
-                "Jogador": record["jogador"],
-                "Massa": record["massa"],
-                "EVA Dor": record["eva_dor"],
-                "Frente": record["frente"],
-                "Verso": record["verso"],
-                "Observações": record["observacoes"],
-            }
-            for record in history_records
-        ],
-        columns=["Jogador", "Massa", "EVA Dor", "Frente", "Verso", "Observações"],
-    )
-    st.dataframe(
-        history,
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "Massa": st.column_config.NumberColumn(format="%.1f kg"),
-            "EVA Dor": st.column_config.NumberColumn(format="%d"),
-            "Frente": st.column_config.NumberColumn(format="%d"),
-            "Verso": st.column_config.NumberColumn(format="%d"),
-        },
-    )
-    if not history_records:
-        st.info("Nenhuma coleta térmica encontrada para o filtro selecionado.")
-
-st.subheader("Documentos legados")
-with st.container(border=True):
-    legacy_documents = st.file_uploader(
-        "Planilhas e fichas preenchidas manualmente",
-        type=["pdf", "png", "jpg", "jpeg"],
-        accept_multiple_files=True,
-        help=(
-            "Os documentos são enviados ao LlamaParse Cloud para extração. "
-            "Se o serviço falhar ou a tabela não for reconhecida, o sistema "
-            "usa o OCR local como alternativa."
-        ),
-        key="thermography_legacy_documents",
-    )
-
-    if legacy_documents:
-        batch_signature = hashlib.sha256(
-            b"".join(
-                hashlib.sha256(document.getvalue()).digest()
-                for document in legacy_documents
-            )
-        ).hexdigest()
-        if st.session_state.get("legacy_batch_signature") != batch_signature:
-            st.session_state.pop("legacy_extraction_results", None)
-            st.session_state.pop("legacy_edited_rows", None)
-            st.session_state.pop("legacy_athlete_validation", None)
-
-        if st.button(
-            "Extrair conteúdo",
-            type="primary",
-            key="extract_legacy_documents",
-        ):
-            extracted_documents = []
-            progress = st.progress(0, text="Preparando documentos...")
-            for index, document in enumerate(legacy_documents):
-                try:
-                    extraction = extract_document(
-                        document.getvalue(),
-                        document.name,
-                        api_key=st.secrets.get("LLAMA_CLOUD_API_KEY"),
-                    )
-                    extracted_documents.append(
-                        {
-                            "filename": document.name,
-                            "pages": extraction.pages,
-                            "used_fallback": extraction.used_fallback,
-                            "fallback_reason": extraction.fallback_reason,
-                            "error": None,
-                        }
-                    )
-                except Exception as error:
-                    extracted_documents.append(
-                        {
-                            "filename": document.name,
-                            "pages": [],
-                            "error": str(error),
-                        }
-                    )
-                progress.progress(
-                    (index + 1) / len(legacy_documents),
-                    text=f"Processando {document.name}",
-                )
-            progress.empty()
-            st.session_state["legacy_batch_signature"] = batch_signature
-            st.session_state["legacy_extraction_results"] = extracted_documents
-            st.session_state.pop("legacy_athlete_validation", None)
-    else:
-        st.session_state.pop("legacy_batch_signature", None)
-        st.session_state.pop("legacy_extraction_results", None)
-        st.session_state.pop("legacy_edited_rows", None)
-        st.session_state.pop("legacy_athlete_validation", None)
-        st.caption(
-            "Envie os documentos e execute a extração. "
-            "Nenhum arquivo é persistido pelo protótipo."
-        )
-
 editor_label_by_athlete_id = {
     athlete_id: f"{athlete_label(athlete)} — ID {athlete_id}"
     for athlete_id, athlete in athletes_by_id.items()
@@ -369,249 +1188,293 @@ athlete_id_by_editor_label = {
     label: athlete_id for athlete_id, label in editor_label_by_athlete_id.items()
 }
 
-extraction_results = st.session_state.get("legacy_extraction_results", [])
-if extraction_results:
-    extracted_rows = []
-    for document_result in extraction_results:
-        with st.expander(document_result["filename"]):
-            if document_result["error"]:
-                st.error(document_result["error"])
-                continue
-            if document_result.get("used_fallback"):
-                st.warning(
-                    "LlamaParse não pôde concluir a extração; foi utilizado "
-                    "o OCR local (Tesseract). "
-                    + str(document_result.get("fallback_reason") or "")
+def render_forms() -> None:
+    """Renderiza o fluxo opcional de importação de formulários manuscritos."""
+    with st.expander("Formulários", expanded=False):
+        legacy_documents = st.file_uploader(
+            "Planilhas e fichas preenchidas manualmente",
+            type=["pdf", "png", "jpg", "jpeg"],
+            accept_multiple_files=True,
+            help=(
+                "Os documentos são enviados ao LlamaParse Cloud para extração. "
+                "Se o serviço falhar ou a tabela não for reconhecida, o sistema "
+                "usa o OCR local como alternativa."
+            ),
+            key="thermography_legacy_documents",
+        )
+
+        if legacy_documents:
+            batch_signature = hashlib.sha256(
+                b"".join(
+                    hashlib.sha256(document.getvalue()).digest()
+                    for document in legacy_documents
                 )
-            for page_number, page_result in enumerate(
-                document_result["pages"], start=1
+            ).hexdigest()
+            if st.session_state.get("legacy_batch_signature") != batch_signature:
+                st.session_state.pop("legacy_extraction_results", None)
+                st.session_state.pop("legacy_edited_rows", None)
+
+            if st.button(
+                "Extrair conteúdo",
+                type="primary",
+                key="extract_legacy_documents",
             ):
-                st.markdown(f"**Página {page_number}**")
-                diagnostic = page_result["diagnostic"].copy()
-                diagnostic.thumbnail((900, 700))
-                st.image(
-                    diagnostic,
-                    caption=(
-                        "Linhas candidatas identificadas em verde"
-                        if document_result.get("used_fallback")
-                        else "Página enviada para extração"
-                    ),
-                    width=700,
+                extracted_documents = []
+                progress = st.progress(0, text="Preparando documentos...")
+                for index, document in enumerate(legacy_documents):
+                    try:
+                        _, extraction = extract_legacy_documents(
+                            [(document.name, document.getvalue())]
+                        )[0]
+                        extracted_documents.append(
+                            {
+                                "filename": document.name,
+                                "pages": extraction.pages,
+                                "used_fallback": extraction.used_fallback,
+                                "fallback_reason": extraction.fallback_reason,
+                                "error": None,
+                            }
+                        )
+                    except Exception as error:
+                        extracted_documents.append(
+                            {
+                                "filename": document.name,
+                                "pages": [],
+                                "error": str(error),
+                            }
+                        )
+                    progress.progress(
+                        (index + 1) / len(legacy_documents),
+                        text=f"Processando {document.name}",
+                    )
+                progress.empty()
+                st.session_state["legacy_batch_signature"] = batch_signature
+                st.session_state["legacy_extraction_results"] = extracted_documents
+        else:
+            st.session_state.pop("legacy_batch_signature", None)
+            st.session_state.pop("legacy_extraction_results", None)
+            st.session_state.pop("legacy_edited_rows", None)
+            st.caption(
+                "Envie os documentos e execute a extração. "
+                "Nenhum arquivo é persistido pelo protótipo."
+            )
+
+        extraction_results = st.session_state.get("legacy_extraction_results", [])
+        if extraction_results:
+            extracted_rows = []
+            for document_result in extraction_results:
+                with st.expander(document_result["filename"]):
+                    if document_result["error"]:
+                        st.error(document_result["error"])
+                        continue
+                    if document_result.get("used_fallback"):
+                        st.warning(
+                            "LlamaParse não pôde concluir a extração; foi utilizado "
+                            "o OCR local (Tesseract). "
+                            + str(document_result.get("fallback_reason") or "")
+                        )
+                    for page_number, page_result in enumerate(
+                        document_result["pages"], start=1
+                    ):
+                        st.markdown(f"**Página {page_number}**")
+                        diagnostic = page_result["diagnostic"].copy()
+                        diagnostic.thumbnail((900, 700))
+                        st.image(
+                            diagnostic,
+                            caption=(
+                                "Linhas candidatas identificadas em verde"
+                                if document_result.get("used_fallback")
+                                else "Página enviada para extração"
+                            ),
+                            width=700,
+                        )
+                        if page_result.get("error"):
+                            st.error(page_result["error"])
+                            continue
+                        if page_result["date"]:
+                            st.caption(f"Data identificada: {page_result['date']}")
+                        else:
+                            st.warning("A data da página não foi identificada.")
+                        for row in page_result["rows"]:
+                            review_row = {
+                                key: value
+                                for key, value in row.items()
+                                if key not in {
+                                    "_raw",
+                                    "Confiança OCR",
+                                    "Revisão",
+                                }
+                            }
+                            recognized_name = review_row.get("Jogador", "")
+                            matched_athlete_id = unique_matching_athlete_id(
+                                recognized_name, athletes
+                            )
+                            review_row["Nome reconhecido"] = recognized_name
+                            review_row["Jogador"] = (
+                                editor_label_by_athlete_id.get(matched_athlete_id)
+                                if matched_athlete_id is not None else None
+                            )
+                            extracted_rows.append(review_row)
+                        if not page_result["rows"]:
+                            st.warning("Nenhuma linha preenchida foi identificada.")
+
+            if extracted_rows:
+                st.markdown("#### Revisão da extração")
+                st.caption(
+                    "Confira os valores e selecione um jogador cadastrado em todas "
+                    "as linhas antes de registrar no banco."
                 )
-                if page_result.get("error"):
-                    st.error(page_result["error"])
-                    continue
-                if page_result["date"]:
-                    st.caption(f"Data identificada: {page_result['date']}")
+                review_columns = [
+                    "Nome reconhecido",
+                    "Jogador",
+                    "Massa",
+                    "EVA Dor",
+                    "Frente",
+                    "Verso",
+                    "Observações",
+                    "Data",
+                ]
+                review_frame = pd.DataFrame(extracted_rows).reindex(columns=review_columns)
+                review_frame["Nome reconhecido"] = review_frame[
+                    "Nome reconhecido"
+                ].astype("string")
+                review_frame["Jogador"] = review_frame["Jogador"].astype("string")
+                review_frame["Massa"] = pd.to_numeric(
+                    review_frame["Massa"], errors="coerce"
+                ).astype("Float64")
+                for numeric_column in ("EVA Dor", "Frente", "Verso"):
+                    review_frame[numeric_column] = pd.to_numeric(
+                        review_frame[numeric_column], errors="coerce"
+                    ).astype("Int64")
+                review_frame["Observações"] = (
+                    review_frame["Observações"].fillna("").astype("string")
+                )
+                review_frame["Data"] = pd.to_datetime(
+                    review_frame["Data"], errors="coerce"
+                )
+                editor_batch_key = st.session_state.get(
+                    "legacy_batch_signature", "sem_lote"
+                )
+                edited_rows = st.data_editor(
+                    review_frame,
+                    width="stretch",
+                    hide_index=True,
+                    num_rows="dynamic",
+                    disabled=["Nome reconhecido"],
+                    column_order=review_columns,
+                    column_config={
+                        "Nome reconhecido": st.column_config.TextColumn(),
+                        "Jogador": st.column_config.SelectboxColumn(
+                            options=sorted(athlete_id_by_editor_label),
+                            required=True,
+                        ),
+                        "Massa": st.column_config.NumberColumn(
+                            min_value=0.1, format="%.1f"
+                        ),
+                        "EVA Dor": st.column_config.NumberColumn(
+                            min_value=0, max_value=10, step=1, format="%d"
+                        ),
+                        "Frente": st.column_config.NumberColumn(
+                            min_value=0, step=1, format="%d"
+                        ),
+                        "Verso": st.column_config.NumberColumn(
+                            min_value=0, step=1, format="%d"
+                        ),
+                        "Observações": st.column_config.TextColumn(
+                            width="large",
+                            default="",
+                        ),
+                        "Data": st.column_config.DateColumn(
+                            format="DD/MM/YYYY",
+                            required=True,
+                        ),
+                    },
+                    key=f"legacy_review_editor_{editor_batch_key}",
+                )
+                edited_records = (
+                    edited_rows.astype(object)
+                    .where(pd.notna(edited_rows), None)
+                    .to_dict("records")
+                )
+                st.session_state["legacy_edited_rows"] = edited_records
+                selected_athlete_ids = [
+                    athlete_id_by_editor_label.get(row.get("Jogador"))
+                    for row in edited_records
+                ]
+                has_unselected_athletes = any(
+                    athlete_id is None for athlete_id in selected_athlete_ids
+                )
+                if has_unselected_athletes:
+                    st.warning(
+                        "Selecione um jogador cadastrado para todas as linhas."
+                    )
                 else:
-                    st.warning("A data da página não foi identificada.")
-                for row in page_result["rows"]:
-                    review_row = {
-                        key: value
-                        for key, value in row.items()
-                        if key not in {
-                            "_raw",
-                            "Confiança OCR",
-                            "Revisão",
-                        }
-                    }
-                    extracted_rows.append(review_row)
-                if not page_result["rows"]:
-                    st.warning("Nenhuma linha preenchida foi identificada.")
+                    st.success("Todos os jogadores estão vinculados a cadastros.")
 
-    if extracted_rows:
-        st.markdown("#### Revisão da extração")
-        st.caption(
-            "Todas as células abaixo são editáveis. Confira e corrija os "
-            "valores antes de registrar no banco."
-        )
-        review_columns = [
-            "Jogador",
-            "Massa",
-            "EVA Dor",
-            "Frente",
-            "Verso",
-            "Observações",
-            "Data",
-        ]
-        review_frame = pd.DataFrame(extracted_rows).reindex(columns=review_columns)
-        review_frame["Jogador"] = review_frame["Jogador"].astype("string")
-        review_frame["Massa"] = pd.to_numeric(
-            review_frame["Massa"], errors="coerce"
-        ).astype("Float64")
-        for numeric_column in ("EVA Dor", "Frente", "Verso"):
-            review_frame[numeric_column] = pd.to_numeric(
-                review_frame[numeric_column], errors="coerce"
-            ).astype("Int64")
-        review_frame["Observações"] = (
-            review_frame["Observações"].fillna("").astype("string")
-        )
-        review_frame["Data"] = pd.to_datetime(
-            review_frame["Data"], errors="coerce"
-        )
-        editor_batch_key = st.session_state.get(
-            "legacy_batch_signature", "sem_lote"
-        )
-        edited_rows = st.data_editor(
-            review_frame,
-            width="stretch",
-            hide_index=True,
-            num_rows="dynamic",
-            disabled=False,
-            column_order=review_columns,
-            column_config={
-                "Jogador": st.column_config.TextColumn(
-                    required=True,
-                ),
-                "Massa": st.column_config.NumberColumn(
-                    min_value=0.1, format="%.1f"
-                ),
-                "EVA Dor": st.column_config.NumberColumn(
-                    min_value=0, max_value=10, step=1, format="%d"
-                ),
-                "Frente": st.column_config.NumberColumn(
-                    min_value=0, step=1, format="%d"
-                ),
-                "Verso": st.column_config.NumberColumn(
-                    min_value=0, step=1, format="%d"
-                ),
-                "Observações": st.column_config.TextColumn(
-                    width="large",
-                    default="",
-                ),
-                "Data": st.column_config.DateColumn(
-                    format="DD/MM/YYYY",
-                    required=True,
-                ),
-            },
-            key=f"legacy_review_editor_{editor_batch_key}",
-        )
-        edited_records = (
-            edited_rows.astype(object)
-            .where(pd.notna(edited_rows), None)
-            .to_dict("records")
-        )
-        st.session_state["legacy_edited_rows"] = edited_records
-        current_review_signature = review_rows_signature(edited_records)
-        athlete_validation = st.session_state.get("legacy_athlete_validation")
-        if (
-            athlete_validation
-            and athlete_validation["signature"] != current_review_signature
-        ):
-            st.session_state.pop("legacy_athlete_validation", None)
-            athlete_validation = None
-            st.warning(
-                "Os dados foram alterados. Valide os atletas novamente antes "
-                "de registrar."
-            )
-
-        if st.button(
-            "Validar atletas",
-            key=f"validate_legacy_athletes_{editor_batch_key}",
-            disabled=not athletes,
-        ):
-            resolutions = validate_athlete_rows(edited_records, athletes)
-            athlete_validation = {
-                "signature": current_review_signature,
-                "resolutions": resolutions,
-            }
-            st.session_state["legacy_athlete_validation"] = athlete_validation
-
-        validation_is_current = bool(
-            athlete_validation
-            and athlete_validation["signature"] == current_review_signature
-        )
-        validated_ids = validated_athlete_ids(
-            athlete_validation, current_review_signature
-        )
-        validation_has_errors = validated_ids is None
-        if validation_is_current:
-            resolutions = athlete_validation["resolutions"]
-            validation_rows = [
-                {
-                    "Linha": item["linha"],
-                    "Nome informado": item["nome_informado"],
-                    "Atleta cadastrado": item["atleta"] or "—",
-                    "ID": item["id_atleta"],
-                    "Status": item["erro"] or "Validado",
-                }
-                for item in resolutions
-            ]
-            st.markdown("#### Validação dos atletas")
-            st.dataframe(
-                pd.DataFrame(validation_rows),
-                width="stretch",
-                hide_index=True,
-            )
-            if validation_has_errors:
-                for item in resolutions:
-                    if item["erro"]:
-                        st.error(f"Linha {item['linha']}: {item['erro']}")
-            else:
-                st.success("Todos os atletas foram validados.")
-
-        st.info(
-            "Frente e Verso dos documentos serão associados às medidas "
-            "SOMA_FRENTE e SOMA_VERSO. As quatro medidas individuais por "
-            "perna permanecerão vazias nos registros legados."
-        )
-        if st.button(
-            "Registrar documentos revisados no banco",
-            type="primary",
-            key="save_legacy_thermography",
-            disabled=not validation_is_current or validation_has_errors,
-        ):
-            try:
-                if validated_ids is None:
-                    raise ValueError("Valide todos os atletas antes de registrar.")
-                legacy_records = []
-                for row_number, (row, athlete_id) in enumerate(
-                    zip(edited_records, validated_ids), start=1
-                ):
-                    raw_date = row.get("Data")
-                    if raw_date is None or pd.isna(raw_date):
-                        raise ValueError(
-                            f"Linha {row_number}: informe a data da coleta."
-                        )
-                    parsed_date = pd.to_datetime(raw_date, errors="raise").date()
-                    raw_observations = row.get("Observações")
-                    observations_value = (
-                        None
-                        if raw_observations is None or pd.isna(raw_observations)
-                        else str(raw_observations)
-                    )
-                    legacy_records.append(
-                        LegacyThermographyRecord(
-                            athlete_id=athlete_id,
-                            collected_at=parsed_date,
-                            mass=row.get("Massa"),
-                            pain_score=row.get("EVA Dor"),
-                            front=row.get("Frente"),
-                            back=row.get("Verso"),
-                            observations=observations_value,
-                        )
-                    )
-                inserted = save_legacy_thermography(legacy_records)
-            except (ValueError, RuntimeError, DuplicateThermographyError) as error:
-                st.error(str(error))
-            except Exception:
-                st.error("Não foi possível registrar os documentos no banco.")
-            else:
-                load_thermography_history.clear()
-                st.session_state["thermography_flash"] = (
-                    f"{len(legacy_records)} coleta(s) legada(s) registrada(s) "
-                    f"com {inserted} medida(s)."
+                st.info(
+                    "Frente e Verso dos documentos serão associados às medidas "
+                    "SOMA_FRENTE e SOMA_VERSO. As quatro medidas individuais por "
+                    "perna permanecerão vazias nos registros legados."
                 )
-                st.rerun()
+                if st.button(
+                    "Registrar documentos revisados no banco",
+                    type="primary",
+                    key="save_legacy_thermography",
+                    disabled=has_unselected_athletes or not athletes,
+                ):
+                    try:
+                        legacy_records = []
+                        for row_number, (row, athlete_id) in enumerate(
+                            zip(edited_records, selected_athlete_ids), start=1
+                        ):
+                            if athlete_id is None:
+                                raise ValueError(
+                                    f"Linha {row_number}: selecione um jogador."
+                                )
+                            raw_date = row.get("Data")
+                            if raw_date is None or pd.isna(raw_date):
+                                raise ValueError(
+                                    f"Linha {row_number}: informe a data da coleta."
+                                )
+                            parsed_date = pd.to_datetime(raw_date, errors="raise").date()
+                            raw_observations = row.get("Observações")
+                            observations_value = (
+                                None
+                                if raw_observations is None or pd.isna(raw_observations)
+                                else str(raw_observations)
+                            )
+                            legacy_records.append(
+                                LegacyThermographyRecord(
+                                    athlete_id=athlete_id,
+                                    collected_at=parsed_date,
+                                    mass=row.get("Massa"),
+                                    pain_score=row.get("EVA Dor"),
+                                    front=row.get("Frente"),
+                                    back=row.get("Verso"),
+                                    observations=observations_value,
+                                )
+                            )
+                        inserted = save_legacy_thermography(legacy_records)
+                    except (ValueError, RuntimeError, DuplicateThermographyError) as error:
+                        st.error(str(error))
+                    except Exception:
+                        st.error("Não foi possível registrar os documentos no banco.")
+                    else:
+                        load_thermography_history.clear()
+                        st.session_state["thermography_flash"] = (
+                            f"{len(legacy_records)} coleta(s) legada(s) registrada(s) "
+                            f"com {inserted} medida(s)."
+                        )
+                        st.rerun()
 
-st.divider()
+
 st.subheader("Nova análise térmica")
 st.caption(
     "Informe os dados da coleta e envie em conjunto as imagens de frente e verso."
 )
 
 with st.container(border=True):
-    record_columns = st.columns(4)
+    record_columns = st.columns(3)
     with record_columns[0]:
         selected_player_id = st.selectbox(
             "Jogador *",
@@ -639,12 +1502,6 @@ with st.container(border=True):
             key="thermography_mass",
         )
     with record_columns[2]:
-        collection_date = st.date_input(
-            "Data da coleta *",
-            value=date.today(),
-            key="thermography_collection_date",
-        )
-    with record_columns[3]:
         pain_score = st.number_input(
             "EVA Dor *",
             min_value=0,
@@ -660,6 +1517,8 @@ with st.container(border=True):
         key="thermography_observations",
     )
     st.caption("* Campos obrigatórios para o envio ao banco.")
+
+render_timeline(selected_player_id)
 
 upload_columns = st.columns(2)
 with upload_columns[0]:
@@ -685,6 +1544,8 @@ if not front_upload or not back_upload:
     if not back_upload:
         missing.append("verso")
     st.info(f"Envie a imagem de {' e '.join(missing)} para iniciar a análise.")
+    st.divider()
+    render_forms()
     st.stop()
 
 uploads = {"front": front_upload, "back": back_upload}
@@ -704,6 +1565,8 @@ for view_key, uploaded in uploads.items():
     }
 
 if len(views) != 2:
+    st.divider()
+    render_forms()
     st.stop()
 
 if views["front"]["signature"] == views["back"]["signature"]:
@@ -718,14 +1581,24 @@ items: dict[str, dict[str, Any]] = st.session_state.setdefault(
 active_item_keys = {
     f"{view_key}:{view['signature']}" for view_key, view in views.items()
 }
-for item_key in active_item_keys:
-    items.setdefault(
-        item_key,
-        {
+for view_key, view in views.items():
+    item_key = f"{view_key}:{view['signature']}"
+    if item_key in items:
+        continue
+    try:
+        detected_scale = cached_temperature_scale(view["content"])
+    except ValueError as error:
+        items[item_key] = {
             "minimum_temperature": DEFAULT_MIN_TEMPERATURE,
             "maximum_temperature": DEFAULT_MAX_TEMPERATURE,
-        },
-    )
+            "scale_detected": False,
+            "scale_error": str(error),
+        }
+    else:
+        items[item_key] = {
+            **detected_scale,
+            "scale_detected": True,
+        }
 for item_key in set(items) - active_item_keys:
     del items[item_key]
 
@@ -736,6 +1609,14 @@ st.warning(
     "Conversão experimental: a paleta é estimada pela barra térmica lateral "
     "presente em cada imagem."
 )
+
+selected_threshold_mode = st.session_state.setdefault(
+    THRESHOLD_MODE_KEY, PERCENTAGE_MODE
+)
+for view_key in VIEW_LABELS:
+    st.session_state.setdefault(
+        threshold_mode_key(view_key), selected_threshold_mode
+    )
 
 tabs = st.tabs(["Frente", "Verso"])
 view_metrics: dict[str, dict[str, dict[str, float | int]] | None] = {}
@@ -749,6 +1630,7 @@ for tab, view_key in zip(tabs, ("front", "back")):
             view["content"],
             view["image"],
             items[item_key],
+            item_key,
         )
 
 stored_metrics: dict[str, Any] = st.session_state.setdefault(
@@ -761,6 +1643,14 @@ if all(view_metrics.values()):
     back_pixels = sum(
         int(view_metrics["back"][key]["hot_pixels"]) for key in LEGS.values()
     )
+    front_area = sum(
+        int(view_metrics["front"][key]["total_pixels"]) for key in LEGS.values()
+    )
+    back_area = sum(
+        int(view_metrics["back"][key]["total_pixels"]) for key in LEGS.values()
+    )
+    front_percentage = front_pixels / front_area * 100
+    back_percentage = back_pixels / back_area * 100
     selected_player = athletes_by_id.get(selected_player_id)
     record = {
         "Jogador": (
@@ -785,12 +1675,38 @@ if all(view_metrics.values()):
     summary_columns = st.columns(2)
     with summary_columns[0]:
         with st.container(border=True):
-            st.metric("Frente", f"{front_pixels:,}".replace(",", "."))
-            st.caption("Pixels quentes das duas pernas")
+            st.metric(
+                "Pixels quentes — Frente (duas pernas)",
+                f"{front_pixels:,} px".replace(",", "."),
+            )
+            st.caption(
+                f"{front_percentage:.1f}% quentes · área segmentada: "
+                f"{front_area:,} pixels".replace(",", ".")
+            )
     with summary_columns[1]:
         with st.container(border=True):
-            st.metric("Verso", f"{back_pixels:,}".replace(",", "."))
-            st.caption("Pixels quentes das duas pernas")
+            st.metric(
+                "Pixels quentes — Verso (duas pernas)",
+                f"{back_pixels:,} px".replace(",", "."),
+            )
+            st.caption(
+                f"{back_percentage:.1f}% quentes · área segmentada: "
+                f"{back_area:,} pixels".replace(",", ".")
+            )
+
+    if st.button(
+        "Adicionar à timeline",
+        disabled=selected_player_id is None,
+        help=(
+            "Selecione um jogador para adicionar esta análise."
+            if selected_player_id is None
+            else "Mantém imagens e métricas somente durante esta sessão."
+        ),
+        key=f"add_thermography_timeline_{pair_signature}",
+    ):
+        confirm_timeline_date(
+            int(selected_player_id), views, items, pair_signature
+        )
 
     st.subheader("Registro preparado")
     st.caption(
@@ -878,28 +1794,20 @@ if all(view_metrics.values()):
         disabled=bool(missing_fields),
         key="save_image_thermography",
     ):
-        try:
-            inserted = save_image_thermography(
-                athlete_id=int(prepared_player_id),
-                collected_at=collection_date,
-                mass=prepared_mass,
-                pain_score=prepared_pain_score,
-                front_right=view_metrics["front"]["right"]["hot_pixels"],
-                front_left=view_metrics["front"]["left"]["hot_pixels"],
-                back_right=view_metrics["back"]["right"]["hot_pixels"],
-                back_left=view_metrics["back"]["left"]["hot_pixels"],
-                observations=prepared_observations,
-            )
-        except (ValueError, RuntimeError, DuplicateThermographyError) as error:
-            st.error(str(error))
-        except Exception:
-            st.error("Não foi possível registrar a coleta no banco.")
-        else:
-            load_thermography_history.clear()
-            st.session_state["thermography_flash"] = (
-                f"Coleta registrada com {inserted} medida(s)."
-            )
-            st.rerun()
+        confirm_database_collection(
+            athlete_id=int(prepared_player_id),
+            mass=prepared_mass,
+            pain_score=prepared_pain_score,
+            front_right=view_metrics["front"]["right"]["hot_pixels"],
+            front_left=view_metrics["front"]["left"]["hot_pixels"],
+            back_right=view_metrics["back"]["right"]["hot_pixels"],
+            back_left=view_metrics["back"]["left"]["hot_pixels"],
+            observations=prepared_observations,
+            pair_signature=pair_signature,
+        )
     st.caption("As imagens não são armazenadas; somente as medidas são enviadas.")
 else:
     stored_metrics.clear()
+
+st.divider()
+render_forms()

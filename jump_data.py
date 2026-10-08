@@ -7,28 +7,13 @@ from statistics import fmean, pstdev
 
 import streamlit as st
 
-from database import database_connection
+from service_gateway import load_jump_records as gateway_load_jump_records
 
 
 @st.cache_data(ttl=300, show_spinner="Carregando dados de salto...")
 def load_jump_records() -> list[dict[str, object]]:
     """Carrega a view de saltos usando exclusivamente a conexão read-only."""
-    query = """
-        SELECT
-            atleta,
-            posicao,
-            grupo,
-            data_coleta::date AS data_coleta,
-            maior_cmj,
-            maior_sj
-        FROM public.vw_medidas_saltos
-        ORDER BY data_coleta, atleta
-    """
-    with database_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            columns = [description.name for description in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return gateway_load_jump_records()
 
 
 def positive_number(value: object) -> float | None:

@@ -3,18 +3,25 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from gps_extraction import EXTRACTION_VERSION, csv_bytes, extract_uploaded_pdfs, flatten
+from athlete_matching import athlete_display_name, athlete_selection_label
+from gps_extraction import EXTRACTION_VERSION, csv_bytes, flatten
 from gps_data import load_gps_records
 from gps_import_service import (
     GPS_VIEW_COLUMNS,
+    GPS_EDITOR_COLUMNS,
     GpsImportPreview,
     GpsImportResult,
+    import_gps_documents,
+    preview_gps_documents,
     extracted_rows_to_gps_view,
     gps_view_preview_rows,
-    import_gps_documents,
     payload_signature,
-    prepare_gps_documents,
-    preview_gps_documents,
+)
+from service_gateway import (
+    extract_uploaded_pdfs,
+    import_gps_payload,
+    load_athletes,
+    preview_gps_payload,
 )
 
 
@@ -36,8 +43,6 @@ def _render_preview(previews: list[GpsImportPreview]) -> None:
             first.metric("Medições novas", preview.new_measurements)
             second.metric("Duplicatas ignoradas", preview.duplicate_measurements)
             third.metric("Nova partida", "Sim" if preview.new_match else "Não")
-            if preview.new_athletes:
-                st.write("**Novos atletas:** " + ", ".join(preview.new_athletes))
             if preview.new_metrics:
                 st.write("**Novas métricas:** " + ", ".join(preview.new_metrics))
             for warning in preview.warnings:
@@ -63,8 +68,7 @@ def _render_results(results: list[GpsImportResult]) -> None:
             f"inserida(s) e {result.duplicate_measurements} duplicata(s) ignorada(s)."
         )
         st.caption(
-            f"Cadastros criados: {result.created_athletes} atleta(s), "
-            f"{result.created_metrics} métrica(s), "
+            f"Cadastros criados: {result.created_metrics} métrica(s), "
             f"partida: {'sim' if result.created_match else 'não'}."
         )
 
@@ -94,6 +98,24 @@ def render_gps_import() -> None:
             "Envie um ou vários PDFs. As duas últimas páginas de cada arquivo "
             "serão analisadas sem gravar dados no banco nesta etapa."
         )
+
+        try:
+            athletes = load_athletes()
+        except Exception:
+            athletes = []
+            st.error("Não foi possível carregar os jogadores cadastrados.")
+        athletes_by_id = {
+            int(athlete["id_atleta"]): athlete for athlete in athletes
+        }
+        athlete_id_by_label = {
+            athlete_selection_label(athlete): athlete_id
+            for athlete_id, athlete in athletes_by_id.items()
+        }
+        athlete_labels = sorted(athlete_id_by_label)
+        if not athletes:
+            st.warning(
+                "Cadastre ao menos um jogador antes de importar métricas GPS."
+            )
 
         uploads = st.file_uploader(
             "Relatórios GPS",
@@ -184,15 +206,36 @@ def render_gps_import() -> None:
                     continue
 
                 editor_source = saved_edits.get(document_index)
-                if editor_source is None:
+                if editor_source is None or any(
+                    "jogador" not in row or "athlete_id" not in row
+                    for row in editor_source
+                ):
                     editor_source = extracted_rows_to_gps_view(
-                        document["arquivo"], rows
+                        document["arquivo"], rows, athletes
                     )
                 edited_frame = st.data_editor(
-                    pd.DataFrame(editor_source, columns=GPS_VIEW_COLUMNS),
+                    pd.DataFrame(editor_source, columns=GPS_EDITOR_COLUMNS),
                     width="stretch",
                     hide_index=True,
-                    disabled=["grupo", "data_coleta", "equipe", "adversario"],
+                    disabled=[
+                        "nome_reconhecido", "athlete_id", "posicao", "grupo",
+                        "data_coleta", "equipe", "adversario",
+                    ],
+                    column_order=[
+                        column for column in GPS_EDITOR_COLUMNS
+                        if column != "athlete_id"
+                    ],
+                    column_config={
+                        "nome_reconhecido": st.column_config.TextColumn(
+                            "Nome reconhecido"
+                        ),
+                        "jogador": st.column_config.SelectboxColumn(
+                            "Jogador",
+                            options=athlete_labels,
+                            required=True,
+                        ),
+                        "posicao": st.column_config.TextColumn("Posição"),
+                    },
                     key=f"gps_editor_{revision}_{document_index}",
                 )
                 for error in document.get("erros_extracao", []):
@@ -201,6 +244,18 @@ def render_gps_import() -> None:
                     pd.notna(edited_frame), ""
                 )
                 edited_rows = edited_frame.to_dict(orient="records")
+                for edited_row in edited_rows:
+                    selected_label = edited_row.get("jogador")
+                    athlete_id = athlete_id_by_label.get(selected_label)
+                    athlete = athletes_by_id.get(athlete_id)
+                    edited_row["athlete_id"] = athlete_id
+                    edited_row["atleta"] = (
+                        athlete_display_name(athlete) if athlete else ""
+                    )
+                    edited_row["posicao"] = (
+                        str(athlete.get("posicao") or "").strip()
+                        if athlete else ""
+                    )
                 saved_edits[document_index] = edited_rows
                 edited_documents.append(edited_rows)
                 import_payload.append(
@@ -220,6 +275,15 @@ def render_gps_import() -> None:
             )
 
         signature = payload_signature(import_payload)
+        has_unselected_athletes = any(
+            not row.get("athlete_id")
+            for document in import_payload
+            for row in document["linhas"]
+        )
+        if has_unselected_athletes:
+            st.warning(
+                "Selecione um jogador cadastrado para todas as linhas antes de validar."
+            )
         validation = st.session_state.get("gps_import_validation")
         if validation and validation["signature"] != signature:
             st.session_state.pop("gps_import_validation", None)
@@ -229,10 +293,13 @@ def render_gps_import() -> None:
                 "Os dados foram alterados. Valide novamente antes de confirmar o envio."
             )
 
-        if st.button("Validar para envio", key=f"gps_validate_{revision}"):
-            prepared = prepare_gps_documents(import_payload)
+        if st.button(
+            "Validar para envio",
+            key=f"gps_validate_{revision}",
+            disabled=has_unselected_athletes or not athletes,
+        ):
             with st.spinner("Conferindo cadastros e duplicatas no banco..."):
-                previews = preview_gps_documents(prepared)
+                previews = preview_gps_payload(import_payload)
             validation = {"signature": signature, "previews": previews}
             st.session_state["gps_import_validation"] = validation
             st.session_state.pop("gps_import_results", None)
@@ -248,9 +315,7 @@ def render_gps_import() -> None:
                 key=f"gps_confirm_{revision}",
             ):
                 with st.spinner("Enviando medições por relatório..."):
-                    results = import_gps_documents(
-                        [preview.document for preview in previews]
-                    )
+                    results = import_gps_payload(import_payload)
                 st.session_state["gps_import_results"] = results
                 load_gps_records.clear()
 

@@ -8,39 +8,13 @@ from statistics import fmean
 
 import streamlit as st
 
-from database import database_connection
+from service_gateway import load_gps_records as gateway_load_gps_records
 
 
 @st.cache_data(ttl=300, show_spinner="Carregando dados de GPS...")
 def load_gps_records() -> list[dict[str, object]]:
     """Carrega somente as métricas utilizadas pela página de GPS."""
-    query = """
-        SELECT
-            atleta,
-            posicao,
-            grupo,
-            data_coleta::date AS data_coleta,
-            equipe,
-            adversario,
-            accel_de_cel_efforts,
-            accel_de_cel_efforts_per_minute,
-            distance_km,
-            high_speed_distance,
-            high_speed_efforts,
-            max_acceleration,
-            max_deceleration,
-            maximum_velocity_km_h,
-            meterage_per_minute,
-            player_load_per_minute,
-            sprint_efforts
-        FROM public.vw_medidas_gps
-        ORDER BY data_coleta, atleta
-    """
-    with database_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            columns = [description.name for description in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return gateway_load_gps_records()
 
 
 def numeric_value(record: dict[str, object], column: str) -> float | None:
