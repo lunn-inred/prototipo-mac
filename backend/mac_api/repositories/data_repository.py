@@ -71,7 +71,7 @@ def player_dashboard_data() -> dict[str, list[dict[str, Any]]]:
 def jump_records() -> list[dict[str, Any]]:
     return _fetch_all(
         """
-        SELECT id_atleta, atleta, posicao, grupo, data_coleta::date AS data_coleta,
+        SELECT atleta, posicao, grupo, data_coleta::date AS data_coleta,
                maior_cmj, maior_sj
         FROM public.vw_medidas_saltos
         ORDER BY data_coleta, atleta
@@ -81,17 +81,28 @@ def jump_records() -> list[dict[str, Any]]:
 
 def jump_collections() -> list[dict[str, Any]]:
     """Lista coletas editáveis com os IDs necessários ao CRUD."""
-    return _fetch_all(
+    records = _fetch_all(
         """
-        SELECT a.id_atleta, a.nome AS atleta, a.apelido, a.posicao, a.grupo,
-               v.data_coleta::date AS data_coleta,
+        SELECT v.atleta, v.posicao, v.grupo, v.data_coleta::date AS data_coleta,
                v.cmj1, v.cmj2, v.cmj3, v.maior_cmj,
                v.sj1, v.sj2, v.sj3, v.maior_sj
         FROM public.vw_medidas_saltos v
-        JOIN public.atleta a ON a.id_atleta = v.id_atleta
-        ORDER BY v.data_coleta::date DESC, a.nome, a.id_atleta
+        ORDER BY v.data_coleta::date DESC, v.atleta
         """,
     )
+    from backend.mac_api.modules.athletes.athlete_matching import unique_matching_athlete_id
+    athletes = list_athletes()
+    by_id = {athlete['id_atleta']: athlete for athlete in athletes}
+    collections = []
+    for record in records:
+        athlete_id = unique_matching_athlete_id(record['atleta'], athletes)
+        # Nunca permitir edição/exclusão por uma associação ambígua.
+        if athlete_id is None:
+            continue
+        athlete = by_id[athlete_id]
+        collections.append({**record, 'id_atleta': athlete_id,
+                            'atleta': athlete['nome'], 'apelido': athlete.get('apelido')})
+    return collections
 
 
 def gps_records() -> list[dict[str, Any]]:

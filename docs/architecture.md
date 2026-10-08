@@ -14,6 +14,12 @@ definitivas ficam no backend. Testes de arquitetura impedem imports cruzados.
 As consultas de métricas utilizam views; verificações transacionais de escrita
 continuam nas tabelas. Não é necessário alterar o schema do Supabase.
 
+A view `vw_medidas_saltos` não precisa expor `id_atleta`: o backend
+correlaciona seu campo `atleta` com nome, apelido e nomes alternativos do
+cadastro. Apenas correspondências únicas recebem ID para edição/exclusão;
+nomes ambíguos ou desconhecidos continuam nas leituras dos gráficos, mas não
+são disponibilizados no gerenciamento de coletas nem associados no mural.
+
 ## Contrato de termografia
 
 `POST /api/v1/thermography/segment` recebe uma análise completa de uma vista:

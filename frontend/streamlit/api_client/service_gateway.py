@@ -31,7 +31,10 @@ def _request(method: str, path: str, **kwargs: Any) -> Any:
             detail = error.response.json().get('detail')
         except Exception:
             detail = None
-        raise ApiClientError(detail or 'A API recusou a operação.') from error
+        if not detail:
+            detail = (f'A API recusou a operação (HTTP {error.response.status_code}). '
+                      'Consulte o terminal do backend para identificar a causa.')
+        raise ApiClientError(detail) from error
     except httpx.HTTPError as error:
         raise ApiClientError('Não foi possível comunicar com a API.') from error
     return None if response.status_code == 204 else response.json()
