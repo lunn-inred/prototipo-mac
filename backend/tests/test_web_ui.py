@@ -74,10 +74,16 @@ class WebUiIntegrationTests(unittest.TestCase):
         with patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=self.http), patch('streamlit.file_uploader', side_effect=uploads):
             app = AppTest.from_file(str(self.root/'frontend/streamlit/pages/Termografia.py'), default_timeout=60).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
+            athletes = self.client.get('/api/v1/athletes', headers={'X-API-Key': os.environ['MAC_API_KEY']}).json()
+            app.selectbox(key='thermography_player').set_value(athletes[0]['id_atleta'])
+            app.number_input(key='thermography_mass').set_value(75.0)
+            app.number_input(key='thermography_pain_score').set_value(0)
+            app.run()
+            for _ in range(5):
+                app.button(key='thermal_next').click().run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertFalse(any('Não foi possível analisar' in error.value for error in app.error), list(app.error))
             self.assertIn('Resumo da coleta', [header.value for header in app.subheader])
-            athletes = self.client.get('/api/v1/athletes', headers={'X-API-Key': os.environ['MAC_API_KEY']}).json()
-            app.selectbox(key='thermography_player').set_value(athletes[0]['id_atleta']).run()
             # AppTest does not reliably execute dialog fragments; exercise the
             # state callback directly, then render its comparison through HTTP.
             from backend.mac_api.modules.thermography.thermography_service import current_sao_paulo_date

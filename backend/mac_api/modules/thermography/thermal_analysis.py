@@ -13,8 +13,33 @@ from PIL import Image, ImageDraw
 from scipy.spatial import cKDTree
 
 
+def image_regions(image, view, image_rotation=0):
+    if image_rotation not in (0, 90, 180, 270):
+        raise ValueError('Rotação deve ser 0, 90, 180 ou 270 graus.')
+    original = image.rotate(-image_rotation, expand=True)
+    detected = detect_leg_boxes(original)
+    width, height = original.size
+    defaults = [dict(left=int(width*.12), top=int(height*top),
+                     width=max(1, int(width*.62)), height=max(1, int(height*.30)))
+                for top in (.28, .60)]
+    detected = [*detected, *defaults[len(detected):]][:2]
+    def rotate_box(box):
+        x, y, w, h = (box[key] for key in ('left', 'top', 'width', 'height'))
+        if image_rotation == 90:
+            x, y, w, h = y, width-x-w, h, w
+        elif image_rotation == 180:
+            x, y = width-x-w, height-y-h
+        elif image_rotation == 270:
+            x, y, w, h = height-y-h, x, h, w
+        return dict(left=x, top=y, width=w, height=h)
+    colorbar, confidence = detect_colorbar_box(original)
+    sides = ('right', 'left') if view == 'front' else ('left', 'right')
+    return dict(boxes=dict(zip(sides, map(rotate_box, detected))),
+                colorbar_box=rotate_box(colorbar), confidence=confidence)
+
+
 def segmented_image(image, view, minimum_temperature, maximum_temperature, threshold,
-                    manual_boxes=None, colorbar_box=None, seeds=None):
+                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0):
     """Complete analysis, including manual corrections, without storing images."""
     if view not in ('front', 'back'):
         raise ValueError("A vista deve ser 'front' ou 'back'.")
@@ -22,19 +47,13 @@ def segmented_image(image, view, minimum_temperature, maximum_temperature, thres
         raise ValueError('A escala e o limiar devem ser finitos.')
     if maximum_temperature <= minimum_temperature or not minimum_temperature <= threshold <= maximum_temperature:
         raise ValueError('Escala ou limiar térmico inválido.')
-    detected = detect_leg_boxes(image)
+    regions = image_regions(image, view, image_rotation)
     width, height = image.size
-    defaults = [
-        {'left': int(width * .12), 'top': int(height * .28), 'width': max(1, int(width * .62)), 'height': max(1, int(height * .30))},
-        {'left': int(width * .12), 'top': int(height * .60), 'width': max(1, int(width * .62)), 'height': max(1, int(height * .30))},
-    ]
-    detected = [*detected, *defaults[len(detected):]][:2]
-    automatic = (dict(zip(('right', 'left'), detected)) if view == 'front'
-                 else dict(zip(('left', 'right'), detected)))
+    automatic = regions['boxes']
     boxes = {**automatic, **(manual_boxes or {})}
     if set(boxes) != {'right', 'left'}:
         raise ValueError('As regiões devem identificar somente as pernas direita e esquerda.')
-    auto_colorbar, confidence = detect_colorbar_box(image)
+    auto_colorbar, confidence = regions['colorbar_box'], regions['confidence']
     colorbar = colorbar_box or auto_colorbar
     for box in [*boxes.values(), colorbar]:
         if any(not isinstance(box.get(key), (int, float)) for key in ('left', 'top', 'width', 'height')):
@@ -43,7 +62,8 @@ def segmented_image(image, view, minimum_temperature, maximum_temperature, thres
             raise ValueError('A região deve ter área positiva e estar dentro da imagem.')
         if box['left'] + box['width'] > width or box['top'] + box['height'] > height:
             raise ValueError('A região ultrapassa os limites da imagem.')
-    temperatures = temperature_matrix(image, minimum_temperature, maximum_temperature, colorbar)
+    temperatures = temperature_matrix(image, minimum_temperature, maximum_temperature, colorbar,
+                                      image_rotation=image_rotation)
     masks = {side: segment_leg_mask(image, box, (seeds or {}).get(side)) for side, box in boxes.items()}
     metrics = {}
     for side, box in boxes.items():
@@ -225,6 +245,7 @@ def detect_colorbar_box(image: Image.Image) -> tuple[dict[str, int], float]:
 def extract_colorbar(
     image: Image.Image,
     box: Mapping[str, int | float] | None = None,
+    image_rotation: int = 0,
 ) -> np.ndarray:
     """Extrai a paleta vertical da caixa detectada ou corrigida pelo usuário."""
     rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
@@ -235,11 +256,13 @@ def extract_colorbar(
     top = max(0, min(height - 1, int(box["top"])))
     right = max(left + 1, min(width, left + int(box["width"])))
     bottom = max(top + 1, min(height, top + int(box["height"])))
-    lateral_padding = max(1, int(round((right - left) * .16)))
-    inner_left, inner_right = left + lateral_padding, right - lateral_padding
+    # Restaurar a orientação original da barra, inclusive a ordem quente/frio.
+    strip = np.asarray(Image.fromarray(rgb[top:bottom, left:right]).rotate(-image_rotation, expand=True))
+    lateral_padding = max(1, int(round(strip.shape[1] * .16)))
+    inner_left, inner_right = lateral_padding, strip.shape[1] - lateral_padding
     if inner_right <= inner_left:
-        inner_left, inner_right = left, right
-    strip = rgb[top:bottom, inner_left:inner_right]
+        inner_left, inner_right = 0, strip.shape[1]
+    strip = strip[:, inner_left:inner_right]
     if strip.size == 0:
         raise ValueError("Não foi possível extrair a barra térmica da imagem.")
     return np.median(strip, axis=1).astype(np.uint8)
@@ -326,12 +349,13 @@ def temperature_matrix(
     minimum_temperature: float,
     maximum_temperature: float,
     colorbar_box: Mapping[str, int | float] | None = None,
+    image_rotation: int = 0,
 ) -> np.ndarray:
     """Mapeia os pixels RGB à barra da imagem e retorna temperaturas em °C."""
     if maximum_temperature <= minimum_temperature:
         raise ValueError("Tmax deve ser maior que Tmin.")
     rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    palette = extract_colorbar(image, colorbar_box)
+    palette = extract_colorbar(image, colorbar_box, image_rotation)
     positions = np.linspace(1.0, 0.0, len(palette), dtype=np.float32)
     _, indexes = cKDTree(palette.astype(np.float32)).query(
         rgb.reshape(-1, 3).astype(np.float32), workers=-1

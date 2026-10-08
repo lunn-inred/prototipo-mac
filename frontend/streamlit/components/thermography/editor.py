@@ -220,7 +220,7 @@ def edit_thermal_boxes(
     })
     background, scale = _display_image(preview, max_width=620, max_height=360)
     st.caption(
-        "Desenhe um retângulo somente sobre a faixa colorida vertical."
+        "Desenhe um retângulo somente sobre a faixa colorida da escala."
         if is_colorbar else
         "Desenhe um retângulo sobre toda a área da perna selecionada."
     )
@@ -341,7 +341,7 @@ def cached_temperature_scale(content: bytes) -> dict[str, float]:
 
 def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature, threshold, item):
     from frontend.streamlit.api_client.thermal_client import segmented_image
-    config = (minimum_temperature, maximum_temperature, threshold,
+    config = (minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
               repr(item.get('manual_boxes')), repr(item.get('manual_colorbar_box')),
               tuple((side, hashlib.sha256(seed.tobytes()).hexdigest())
                     for side, seed in sorted(item.get('mask_seeds', {}).items())))
@@ -349,7 +349,7 @@ def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature
         return item['analysis']
     analysis = segmented_image(image, view_key, minimum_temperature, maximum_temperature,
                                threshold, item.get('manual_boxes'), item.get('manual_colorbar_box'),
-                               item.get('mask_seeds'))
+                               item.get('mask_seeds'), image_rotation=item.get('image_rotation', 0))
     item['analysis_config'] = config
     item['analysis'] = analysis
     return analysis

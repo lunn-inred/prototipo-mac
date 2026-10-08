@@ -783,6 +783,23 @@ registrá-la no banco, uma janela solicita a data da coleta e apresenta a data
 atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
 data padrão é aplicada pelo serviço.
 
+A nova análise utiliza um assistente com **Continuar** e **Voltar**, apresentando
+somente uma etapa por vez:
+
+1. Jogador, massa, EVA Dor e observações opcionais.
+2. Upload de frente/verso, prévia e rotação em incrementos de 90°.
+3. Caixas das pernas e barra de cores, Tmin/Tmax e limiar de pixels quentes.
+4. Segmentação automática por GrabCut.
+5. Divisão de cada perna em coxa, joelho, canela e pé.
+6. Revisão das métricas, tabela do registro e confirmação do envio.
+
+As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
+anatômica, arraste as três linhas sobre a imagem; não é necessário ajustar
+sliders percentuais. O rascunho e as imagens ficam na sessão ao voltar para
+etapas anteriores. **Iniciar outra análise** descarta somente o rascunho atual,
+mediante confirmação, preservando o banco e a timeline. A API considera a rotação
+ao localizar as caixas e ler a barra térmica, preservando sua ordem quente/frio.
+
 Durante a sessão, o botão **Adicionar à timeline** mantém temporariamente as
 imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
 pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
@@ -804,8 +821,8 @@ editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece 
 escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
 térmica lateral e conta como quentes os pixels a partir de 90% da escala por
 padrão: `Tmin + 0,90 × (Tmax − Tmin)`. O usuário ainda pode ajustar esse limiar
-no slider antes do cálculo. Um seletor global, aplicado às imagens de frente e
-verso, permite controlar o limiar pela porcentagem da escala (modo padrão) ou
+no slider antes do cálculo. Em cada imagem, um seletor
+permite controlar o limiar pela porcentagem da escala (modo padrão) ou
 diretamente pela temperatura em °C. Ao alternar o modo, o sistema preserva o
 limiar equivalente; a análise e os resultados continuam usando a temperatura
 convertida em °C.
@@ -827,8 +844,8 @@ limiar térmico selecionado.
 
 Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
 **Divisão anatômica**, selecione a orientação horizontal ou vertical, indique
-onde começa a coxa e ajuste os três limites percentuais de cada perna e vista.
-Por padrão, a coxa começa à direita nas imagens horizontais. Os percentuais
+onde começa a coxa e arraste os três limites no pop-up **Editar divisões na imagem**.
+Por padrão, a coxa começa em cima nas imagens verticais. Os percentuais internos
 crescem da coxa ao pé mesmo em imagens invertidas. As linhas e
 os números das partes aparecem na prévia; a contagem usa somente pixels da
 máscara. A soma das quatro regiões corresponde ao total da perna. Uma região

@@ -12,7 +12,7 @@ OPERATIONS = {name: getattr(thermal, name) for name in (
     'detect_leg_boxes', 'hot_pixels_overlay', 'segmentation_overlay', 'segment_leg_mask',
     'temperature_matrix', 'leg_part_metrics', 'scale_percentage_from_temperature',
     'temperature_from_scale_percentage', 'segmented_image', 'timeline_view_at_threshold',
-    'summarize_pair',
+    'summarize_pair', 'image_regions',
 )}
 
 class ProcessingInput(BaseModel):
@@ -45,6 +45,7 @@ class BoundingBox(BaseModel):
 class SegmentationInput(BaseModel):
     image: ImagePayload
     view: Literal['front', 'back']
+    image_rotation: Literal[0, 90, 180, 270] = 0
     minimum_temperature: float = Field(allow_inf_nan=False)
     maximum_temperature: float = Field(allow_inf_nan=False)
     threshold: float = Field(allow_inf_nan=False)

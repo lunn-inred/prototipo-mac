@@ -18,14 +18,15 @@ for _name in (
     'detect_leg_boxes', 'hot_pixels_overlay', 'segmentation_overlay', 'segment_leg_mask',
     'temperature_matrix', 'leg_part_metrics', 'scale_percentage_from_temperature',
     'temperature_from_scale_percentage', 'segmented_image', 'timeline_view_at_threshold',
-    'summarize_pair',
+    'summarize_pair', 'image_regions',
 ):
     globals()[_name] = _adapter(_name)
 
 
 def segmented_image(image, view, minimum_temperature, maximum_temperature, threshold,
-                    manual_boxes=None, colorbar_box=None, seeds=None):
+                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0):
     payload = encode(dict(image=image, view=view, minimum_temperature=minimum_temperature,
                           maximum_temperature=maximum_temperature, threshold=threshold,
-                          manual_boxes=manual_boxes, colorbar_box=colorbar_box, seeds=seeds))
+                          manual_boxes=manual_boxes, colorbar_box=colorbar_box, seeds=seeds,
+                          image_rotation=image_rotation))
     return decode(_request('POST', '/api/v1/thermography/segment', json=payload))

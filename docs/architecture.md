@@ -22,6 +22,14 @@ são disponibilizados no gerenciamento de coletas nem associados no mural.
 
 ## Contrato de termografia
 
+O frontend organiza a coleta em seis etapas com rascunho na sessão
+(`components/thermography/wizard.py`). O campo opcional `image_rotation`
+de `/thermography/segment` aceita 0, 90, 180 ou 270 graus anti-horários:
+`image` já deve estar rotacionada. O backend localiza as regiões na orientação
+original e transforma as caixas, preservando a lateralidade e a ordem da paleta.
+`operations/image_regions` recebe imagem, vista e rotação e retorna as caixas
+antes da segmentação. Correções manuais usam coordenadas da imagem rotacionada.
+
 `POST /api/v1/thermography/segment` recebe uma análise completa de uma vista:
 
 - `image`: `{ "type": "image", "png": "<PNG em base64>" }`;

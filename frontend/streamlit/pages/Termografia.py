@@ -1,32 +1,17 @@
 from __future__ import annotations
-import hashlib
-import io
-from datetime import date
 from typing import Any
-import numpy as np
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
-from streamlit_drawable_konva import crop_box_from_json, st_canvas
-from frontend.streamlit.api_client.contracts import (unique_matching_athlete_id)
-from frontend.streamlit.api_client.thermal_client import (annotate_boxes, compare_hot_masks, count_hot_pixels, detect_colorbar_box, detect_leg_boxes, hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix, DEFAULT_PART_CUTS, LEG_PARTS, leg_part_metrics, scale_percentage_from_temperature, temperature_from_scale_percentage)
+from frontend.streamlit.api_client.thermal_client import summarize_pair
 from frontend.streamlit.presentation.thermography_data import (
     athlete_label,
     load_thermography_athletes,
-    load_thermography_history,
 )
-from frontend.streamlit.api_client.contracts import (DuplicateThermographyError, LegacyThermographyRecord, current_sao_paulo_date)
-from frontend.streamlit.api_client.service_gateway import (
-    extract_thermography_scale,
-    extract_legacy_documents,
-    save_image_thermography,
-    save_legacy_thermography,
-)
-from frontend.streamlit.components.thermography.editor import *
 
 from frontend.streamlit.components.thermography.timeline import render_timeline, confirm_timeline_date
 from frontend.streamlit.components.thermography.forms import render_forms
 from frontend.streamlit.components.thermography.registration import confirm_database_collection
+from frontend.streamlit.components.thermography.wizard import render_wizard
 
 st.set_page_config(page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide")
 
@@ -58,14 +43,13 @@ if flash_message:
 
 try:
     athletes = load_thermography_athletes()
-except Exception as error:
+except Exception:
     athletes = []
     st.error("Não foi possível carregar os jogadores do banco.")
 
 athletes_by_id = {
     int(athlete["id_atleta"]): athlete for athlete in athletes
 }
-athlete_ids = list(athletes_by_id)
 
 editor_label_by_athlete_id = {
     athlete_id: f"{athlete_label(athlete)} — ID {athlete_id}"
@@ -77,176 +61,23 @@ athlete_id_by_editor_label = {
 
 
 
-st.subheader("Nova análise térmica")
-st.caption(
-    "Informe os dados da coleta e envie em conjunto as imagens de frente e verso."
-)
+with st.expander('Timeline térmica da sessão', expanded=False):
+    render_timeline(st.session_state.get('thermal_draft', {}).get('player'))
 
-with st.container(border=True):
-    record_columns = st.columns(3)
-    with record_columns[0]:
-        selected_player_id = st.selectbox(
-            "Jogador *",
-            athlete_ids,
-            index=None,
-            placeholder=(
-                "Selecione um jogador"
-                if athlete_ids
-                else "Nenhum jogador disponível"
-            ),
-            format_func=lambda athlete_id: athlete_label(
-                athletes_by_id[athlete_id]
-            ),
-            disabled=not athlete_ids,
-            key="thermography_player",
-        )
-    with record_columns[1]:
-        mass = st.number_input(
-            "Massa (kg) *",
-            min_value=0.1,
-            value=None,
-            step=0.1,
-            format="%.1f",
-            placeholder="Informe a massa",
-            key="thermography_mass",
-        )
-    with record_columns[2]:
-        pain_score = st.number_input(
-            "EVA Dor *",
-            min_value=0,
-            max_value=10,
-            value=None,
-            step=1,
-            placeholder="Valor de 0 a 10",
-            key="thermography_pain_score",
-        )
-    observations = st.text_area(
-        "Observações",
-        placeholder="Campo opcional",
-        key="thermography_observations",
-    )
-    st.caption("* Campos obrigatórios para o envio ao banco.")
-
-render_timeline(selected_player_id)
-
-upload_columns = st.columns(2)
-with upload_columns[0]:
-    front_upload = st.file_uploader(
-        "Imagem de frente",
-        type=["png", "jpg", "jpeg"],
-        help="Imagem HIKMICRO frontal com as caixas R1 e R2 visíveis.",
-        key="thermography_front_upload",
-    )
-with upload_columns[1]:
-    back_upload = st.file_uploader(
-        "Imagem do verso",
-        type=["png", "jpg", "jpeg"],
-        help="Imagem HIKMICRO do verso (costas) com as caixas R1 e R2 visíveis.",
-        key="thermography_back_upload",
-    )
-
-if not front_upload or not back_upload:
-    st.session_state.pop("thermography_metrics", None)
-    missing = []
-    if not front_upload:
-        missing.append("frente")
-    if not back_upload:
-        missing.append("verso")
-    st.info(f"Envie a imagem de {' e '.join(missing)} para iniciar a análise.")
+result = render_wizard(athletes_by_id)
+if result is None:
     st.divider()
     render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
     st.stop()
 
-uploads = {"front": front_upload, "back": back_upload}
-views: dict[str, dict[str, Any]] = {}
-for view_key, uploaded in uploads.items():
-    content = uploaded.getvalue()
-    try:
-        image = load_thermography(content)
-    except ValueError as error:
-        st.error(f"{VIEW_LABELS[view_key]} — {uploaded.name}: {error}")
-        continue
-    views[view_key] = {
-        "name": uploaded.name,
-        "content": content,
-        "image": image,
-        "signature": image_signature(content),
-    }
-
-if len(views) != 2:
-    st.divider()
-    render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
-    st.stop()
-
-if views["front"]["signature"] == views["back"]["signature"]:
-    st.warning("A mesma imagem foi selecionada para frente e verso. Confira os arquivos.")
-
-pair_signature = hashlib.sha256(
-    (views["front"]["signature"] + views["back"]["signature"]).encode()
-).hexdigest()
-items: dict[str, dict[str, Any]] = st.session_state.setdefault(
-    "thermography_items", {}
-)
-active_item_keys = {
-    f"{view_key}:{view['signature']}" for view_key, view in views.items()
-}
-for view_key, view in views.items():
-    item_key = f"{view_key}:{view['signature']}"
-    if item_key in items:
-        continue
-    try:
-        detected_scale = cached_temperature_scale(view["content"])
-    except ValueError as error:
-        items[item_key] = {
-            "minimum_temperature": DEFAULT_MIN_TEMPERATURE,
-            "maximum_temperature": DEFAULT_MAX_TEMPERATURE,
-            "scale_detected": False,
-            "scale_error": str(error),
-        }
-    else:
-        items[item_key] = {
-            **detected_scale,
-            "scale_detected": True,
-        }
-for item_key in set(items) - active_item_keys:
-    del items[item_key]
-
-st.info(
-    "A lateralidade é invertida automaticamente entre as vistas de frente e verso."
-)
-st.warning(
-    "Conversão experimental: a paleta é estimada pela barra térmica lateral "
-    "presente em cada imagem."
-)
-
-selected_threshold_mode = st.session_state.setdefault(
-    THRESHOLD_MODE_KEY, PERCENTAGE_MODE
-)
-for view_key in VIEW_LABELS:
-    st.session_state.setdefault(
-        threshold_mode_key(view_key), selected_threshold_mode
-    )
-
-tabs = st.tabs(["Frente", "Verso"])
-view_metrics: dict[str, dict[str, dict[str, float | int]] | None] = {}
-for tab, view_key in zip(tabs, ("front", "back")):
-    view = views[view_key]
-    item_key = f"{view_key}:{view['signature']}"
-    with tab:
-        view_metrics[view_key] = render_view(
-            view_key,
-            view["name"],
-            view["content"],
-            view["image"],
-            items[item_key],
-            item_key,
-        )
+draft, views, items, view_metrics, pair_signature = result
+selected_player_id = draft['player']
+mass, pain_score, observations = draft['mass'], draft['pain'], draft['notes']
 
 stored_metrics: dict[str, Any] = st.session_state.setdefault(
     "thermography_metrics", {}
 )
 if all(view_metrics.values()):
-    from frontend.streamlit.api_client.thermal_client import summarize_pair
     summary = summarize_pair(view_metrics)
     front_pixels, back_pixels = summary['front']['hot_pixels'], summary['back']['hot_pixels']
     front_area, back_area = summary['front']['total_pixels'], summary['back']['total_pixels']
