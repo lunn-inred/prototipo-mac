@@ -3,7 +3,7 @@
 Aplicação dividida em uma API FastAPI e uma interface Streamlit para cadastro
 de atletas, análise e visualização das métricas de desempenho do MAC. A API
 centraliza banco, importações e processamento; o Streamlit funciona como cliente
-da API e mantém um modo local de compatibilidade para a transição de hospedagem.
+da API em todos os modos, incluindo o desktop. O frontend não acessa o banco diretamente.
 
 ## Sumário
 
@@ -11,6 +11,7 @@ da API e mantém um modo local de compatibilidade para a transição de hospedag
   - [Execução separada da API e do Streamlit](#execução-separada-da-api-e-do-streamlit)
   - [Como executar o aplicativo desktop](#como-executar-o-aplicativo-desktop)
   - [Testes](#testes)
+- [Docker](#docker)
 - [Arquitetura](#arquitetura)
 - [Configuração](#configuração)
 - [API HTTP](#api-http)
@@ -36,7 +37,7 @@ cp .env.example .env
 ```
 
 No Windows PowerShell, ative com `.venv\Scripts\Activate.ps1`. Nunca versione o
-`.env`: ele está no `.gitignore`. O arquivo `.streamlit/secrets.toml` é apenas
+`.env`: ele está no `.gitignore`. O arquivo `frontend/streamlit/.streamlit/secrets.toml` é apenas
 uma alternativa para ambientes hospedados do Streamlit, não sendo necessário
 para a execução local ou desktop.
 
@@ -46,16 +47,47 @@ Inicie cada processo em um terminal, a partir da raiz do projeto:
 
 ```bash
 # Terminal 1 — API
-uvicorn mac_api.main:app --reload --host 127.0.0.1 --port 8000 --env-file .env
+uvicorn backend.mac_api.main:app --reload --host 127.0.0.1 --port 8000 --env-file .env
 
 # Terminal 2 — interface
-MAC_API_BASE_URL=http://127.0.0.1:8000 MAC_API_KEY=sua-chave streamlit run app.py
+python -m frontend.run
 ```
 
-Se `MAC_API_BASE_URL` não estiver definido, o Streamlit utiliza os mesmos
-repositórios e serviços no próprio processo. Esse modo existe para manter o
-deploy atual funcionando durante a transição; para uma implantação definitiva,
-use os dois processos separados.
+A API é obrigatória. Sem `MAC_API_BASE_URL`, o cliente tenta
+`http://127.0.0.1:8000`. Ambos os processos leem o mesmo `.env`; não é necessário
+repetir a chave no comando. O cliente não executa serviços locais nem abre
+conexões com o banco. Abra `http://localhost:8501` e consulte a API em
+`http://127.0.0.1:8000/docs`.
+
+Para instalar somente um processo, use `frontend/requirements.txt` ou
+`backend/requirements.txt`. O `requirements.txt` da raiz instala ambos.
+Os comandos antigos `streamlit run app.py` e `python desktop.py` continuam como
+pontos de entrada de compatibilidade; para a interface web, prefira
+`python -m frontend.run`, que também carrega o tema da pasta do frontend.
+
+### Docker
+
+Com o `.env` preenchido na raiz:
+
+```bash
+docker compose up --build -d
+docker compose ps
+docker compose logs -f backend frontend
+```
+
+Abra `http://localhost:8501`; API e Swagger ficam em `http://127.0.0.1:8000/docs`.
+O frontend usa `http://backend:8000` na rede interna. Somente o backend recebe
+as credenciais do banco. Tesseract e seus idiomas são instalados na imagem do
+backend. Os containers executam com usuário sem privilégios.
+
+```bash
+docker compose down
+```
+
+O Docker é opcional para desenvolvimento e implantação web. O executável
+desktop continua usando processos Python locais e não exige Docker do usuário.
+O procedimento de teste com PostgreSQL isolado está em
+[docs/architecture.md](docs/architecture.md).
 
 ### Como executar o aplicativo desktop
 
@@ -129,7 +161,7 @@ No primeiro terminal, inicie a API:
 
 ```bash
 source .venv/bin/activate
-uvicorn mac_api.main:app --host 127.0.0.1 --port 8000 --env-file .env
+uvicorn backend.mac_api.main:app --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
 No segundo terminal, inicie Streamlit e WebView:
@@ -163,7 +195,7 @@ No Windows PowerShell, substitua `source .venv/bin/activate` por:
 Para gerar o executável da plataforma atual:
 
 ```bash
-python -m PyInstaller --clean --noconfirm desktop.spec
+python -m PyInstaller --clean --noconfirm desktop/desktop.spec
 ```
 
 O resultado fica em `dist/MAC Performance` no Linux. No Windows, o arquivo terá
@@ -206,8 +238,9 @@ para empacotar, necessários à leitura dos formulários legados.
 
 Arquivos relacionados:
 
-- `desktop.py`: inicia FastAPI, Streamlit e a janela desktop, e encerra os processos;
-- `desktop.spec`: inclui páginas, assets, dependências dinâmicas e Tesseract;
+- `desktop/launcher.py`: inicia a interface e, no binário, também a API;
+- `desktop.py`: entrada de compatibilidade para o launcher;
+- `desktop/desktop.spec`: inclui páginas, assets, dependências dinâmicas e Tesseract;
 - `requirements-desktop.txt`: dependências adicionais do cliente desktop;
 - `.env.example`: único modelo de configuração da aplicação completa.
 
@@ -218,7 +251,7 @@ alterados por essa modalidade.
 ### Testes
 
 ```bash
-python -m unittest discover -s tests -v
+python -m unittest discover -v
 ```
 
 A suíte cobre regras de domínio, persistência simulada, importações e contratos
@@ -227,37 +260,69 @@ HTTP. A integração real com LlamaParse só roda quando explicitamente habilita
 ### Logo
 
 Para exibir a identidade do MAC na barra lateral, coloque a imagem PNG em
-`assets/logo_mac.png`. O arquivo é carregado automaticamente quando existe; sua
+`frontend/streamlit/assets/logo_mac.png`. O arquivo é carregado automaticamente quando existe; sua
 ausência não impede a execução do protótipo.
 
 ## Arquitetura
 
 ```text
-Navegador → Streamlit → service_gateway.py → FastAPI → serviços/repositórios → Supabase
-                                     └── modo local compatível ───────────────┘
+.
+├── frontend/
+│   ├── run.py                   # inicialização web
+│   ├── requirements.txt
+│   ├── streamlit/
+│   │   ├── app.py e pages/      # navegação e páginas
+│   │   ├── components/         # filtros, importadores e termografia
+│   │   ├── api_client/         # HTTP, DTOs e transporte de imagens/matrizes
+│   │   ├── presentation/       # cache e adaptação visual
+│   │   ├── assets/
+│   │   └── .streamlit/
+│   └── tests/
+├── backend/
+│   ├── mac_api/
+│   │   ├── main.py e schemas.py
+│   │   ├── core/               # configuração, conexão e transporte
+│   │   ├── repositories/       # leitura de dados
+│   │   └── modules/            # atletas, GPS, saltos, termografia e indicadores
+│   ├── requirements.txt
+│   ├── migrations/             # alterações SQL versionadas, quando necessárias
+│   └── tests/                  # unitários, contratos e integração local
+├── desktop/                    # launcher, spec do PyInstaller e testes
+├── infrastructure/docker/      # imagens dos processos web
+├── experiments/                # protótipos de pesquisa, quando presentes
+├── docs/
+├── compose.yaml e compose.test.yaml
+├── .env.example
+├── app.py e desktop.py          # entradas de compatibilidade
+└── README.md
 ```
 
-- `mac_api/main.py`: aplicação FastAPI, rotas, autenticação e tratamento de erros;
-- `mac_api/schemas.py`: validação dos corpos enviados à API;
-- `data_repository.py`: consultas PostgreSQL de leitura;
-- `athlete_service.py`, `gps_import_service.py` e `thermography_service.py`: regras
-  transacionais de escrita;
-- `jump_service.py`: CRUD transacional de coletas de salto e importação de XLSX;
-- `jump_crud_ui.py`: formulários e conferência da importação na página de saltos;
-- `thermography_analysis_service.py`: validação e análise das imagens em memória;
-- `service_gateway.py`: único ponto usado pelo Streamlit para escolher HTTP ou
-  modo local;
-- `settings.py`: configuração compartilhada sem dependência do Streamlit.
+Fluxo web: navegador → Streamlit → HTTP → FastAPI → serviços/repositórios → Supabase.
+No executável, a mesma API é iniciada localmente e consumida pela WebView.
 
-As imagens térmicas e os documentos enviados não são armazenados. Eles são
-processados durante a requisição e somente as métricas confirmadas são gravadas.
-As leituras de salto, GPS e termografia usam as views públicas correspondentes.
+O frontend controla widgets, desenho, formulários e estado temporário. O backend
+calcula segmentação, temperaturas, pixels quentes, divisão anatômica, comparação
+basal/atual, estatísticas e classificação EVA; também valida e persiste dados.
+Não há imports do backend no cliente. Testes de arquitetura protegem essa regra.
+
+As métricas de leitura vêm das views; cadastro de atletas continua na tabela
+`public.atleta`. Operações de escrita consultam tabelas dentro de transações para
+validar existência, duplicatas e integridade. Nenhuma alteração de schema é
+necessária para esta reorganização.
+
+As imagens permanecem temporárias na sessão do cliente e durante as requisições.
+A API não salva arquivos nem mantém análises persistentes. A timeline visual
+continua temporária; somente medidas confirmadas são gravadas no banco.
+
+Detalhes de contratos, testes e evolução para React:
+[docs/architecture.md](docs/architecture.md).
 
 ## Configuração
 
 A execução local, a API integrada e o aplicativo desktop utilizam o único arquivo
-`.env`. Em hospedagens do Streamlit, os mesmos nomes podem ser cadastrados em
-`.streamlit/secrets.toml`; variáveis de ambiente têm prioridade.
+`.env`. Em hospedagens do Streamlit, somente URL, chave e timeout do cliente
+podem ser cadastrados em `frontend/streamlit/.streamlit/secrets.toml` ou no painel
+de Secrets. Credenciais do banco e OCR pertencem ao ambiente da API.
 
 | Variável | Processo | Finalidade |
 |---|---|---|
@@ -305,6 +370,8 @@ Com a API em execução:
 | `PUT /api/v1/athletes/{id}` | Atualiza atleta, preservando `nome_alternativo` | Sim |
 | `DELETE /api/v1/athletes/{id}` | Exclui atleta sem medições | Sim |
 | `GET /api/v1/players/dashboard` | Dados do mural | Não |
+| `POST /api/v1/athletes/match` | Correlaciona um nome ao cadastro | Não |
+| `POST /api/v1/analytics/{operation}` | Calcula indicadores e estatísticas | Não |
 | `GET /api/v1/jumps` | Registros da view de saltos | Não |
 | `GET /api/v1/jumps/collections` | Lista coletas de salto editáveis | Não |
 | `POST /api/v1/jumps/collections` | Cadastra uma coleta de salto | Sim |
@@ -315,11 +382,14 @@ Com a API em execução:
 | `POST /api/v1/jumps/import` | Confirma o lote XLSX revisado | Sim |
 | `GET /api/v1/gps` | Registros da view GPS | Não |
 | `POST /api/v1/gps/extract` | Extrai um lote de PDFs | Não |
+| `POST /api/v1/gps/editor-rows` | Prepara linhas editáveis e vínculos dos atletas | Não |
 | `POST /api/v1/gps/preview` | Valida e prevê alterações do lote | Não |
 | `POST /api/v1/gps/import` | Confirma a importação GPS revisada | Sim |
 | `GET /api/v1/thermography?athlete_id=` | Histórico térmico, opcionalmente por atleta | Não |
 | `POST /api/v1/thermography/scale` | Extrai Tmin e Tmax impressos na imagem | Não |
 | `POST /api/v1/thermography/analyze` | Detecta pernas e conta pixels em uma imagem | Não |
+| `POST /api/v1/thermography/segment` | Análise completa com caixas, paleta e correções manuais | Não |
+| `POST /api/v1/thermography/operations/{operation}` | Divisão anatômica, timeline e operações de edição | Não |
 | `POST /api/v1/thermography` | Registra uma coleta de frente e verso | Sim |
 | `POST /api/v1/thermography/legacy/extract` | Extrai documentos manuscritos | Não |
 | `POST /api/v1/thermography/legacy/validate-athletes` | Correlaciona nomes revisados | Não |
@@ -328,6 +398,8 @@ Com a API em execução:
 Uploads usam `multipart/form-data`; os demais corpos usam JSON. Os esquemas,
 campos obrigatórios e exemplos para testar cada chamada ficam sempre atualizados
 na página `/docs`.
+Os formatos de imagens/matrizes e as operações permitidas estão em
+[docs/architecture.md](docs/architecture.md).
 
 ## Mural e CRUD de jogadores
 
@@ -338,38 +410,22 @@ inalterado nas edições. Atletas que já possuem medições não podem ser excl
 
 ## Deploy no Streamlit Community Cloud
 
-O repositório já contém o arquivo `requirements.txt` e utiliza `app.py` como
-ponto de entrada. No Streamlit Community Cloud, preencha o deploy com:
-
-```text
-Repository: owner/nome-do-repositorio
-Branch: main
-Main file path: app.py
-```
-
-Antes de publicar, abra **Advanced settings** e cole no campo **Secrets**:
+Hospede a API separadamente. No Community Cloud, use `app.py` como entrada de
+compatibilidade e configure somente os dados do cliente em **Secrets**:
 
 ```toml
-SUPABASE_DB_HOST = "host-do-supabase"
-SUPABASE_DB_PORT = "5432"
-SUPABASE_DB_NAME = "postgres"
-SUPABASE_DB_USER = "usuario-do-supabase"
-SUPABASE_DB_PASSWORD = "senha-do-supabase"
-SUPABASE_DB_SSLMODE = "require"
+MAC_API_BASE_URL = "https://sua-api.exemplo.com"
+MAC_API_KEY = "a-mesma-chave-configurada-no-backend"
+MAC_API_TIMEOUT_SECONDS = "300"
 ```
 
-As mesmas chaves são lidas diretamente por `database.py` nos dois ambientes. No
-desenvolvimento local, ficam em `.streamlit/secrets.toml`; no Community Cloud,
-ficam no campo **Secrets** das configurações da aplicação. Nunca envie o arquivo
-local com valores reais ao repositório.
-
-Após cadastrar os Secrets, clique em **Deploy**. Para disponibilizar o painel
-somente à equipe e ao cliente, mantenha a aplicação privada e adicione os
-e-mails deles em **App settings > Sharing**.
+Credenciais do Supabase e `LLAMA_CLOUD_API_KEY` pertencem à hospedagem da API.
+O backend não lê `secrets.toml`. O exemplo de secrets do cliente fica em
+`frontend/streamlit/.streamlit/secrets.toml.example`.
 
 ## Monitoramento de Salto
 
-A página `pages/Metricas_de_Salto.py` utiliza dados reais da view
+A página `frontend/streamlit/pages/Metricas_de_Salto.py` utiliza dados reais da view
 `public.vw_medidas_saltos`. Os dados são carregados por `jump_data.py` e ficam
 em cache no Streamlit por cinco minutos.
 
@@ -684,7 +740,7 @@ uma transação de escrita. O usuário configurado precisa de `USAGE` no schema
 `public`, `SELECT` e `INSERT` em `atleta`, `partida`, `grupo_medida`, `medida` e
 `medida_valor`, além de acesso às sequências `serial` correspondentes.
 
-A página `pages/Monitoramento_GPS.py` utiliza dados reais da view
+A página `frontend/streamlit/pages/Monitoramento_GPS.py` utiliza dados reais da view
 `public.vw_medidas_gps`, carregados por `gps_data.py` e mantidos em cache por
 cinco minutos. O seletor dos gráficos disponibiliza todas as medidas numéricas
 presentes na view:
@@ -720,7 +776,7 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 ## Termografia
 
-A página `pages/Termografia.py` registra uma nova análise a partir das imagens
+A página `frontend/streamlit/pages/Termografia.py` registra uma nova análise a partir das imagens
 de frente e verso. Ao final da página, o componente recolhido **Formulários**
 permite importar fichas manuscritas. Ao adicionar a análise à timeline ou
 registrá-la no banco, uma janela solicita a data da coleta e apresenta a data
@@ -788,7 +844,7 @@ existente para o mesmo jogador e data é rejeitada para evitar duplicidade.
 
 As fichas legadas em PDF, PNG ou JPEG são enviadas ao LlamaParse Cloud, usando
 o modo `agentic`, e apresentadas em uma grade editável. Configure
-`LLAMA_CLOUD_API_KEY` nos secrets do Streamlit. Se a chave estiver ausente, a
+`LLAMA_CLOUD_API_KEY` no ambiente da API ou no `.env` da raiz. Se a chave estiver ausente, a
 API falhar ou a resposta não contiver a tabela esperada, o sistema utiliza
 automaticamente o extrator local com OpenCV e Tesseract e informa o fallback na
 tela. O nome reconhecido é preservado para conferência e a coluna Jogador aceita

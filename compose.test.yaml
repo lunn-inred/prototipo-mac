@@ -1,0 +1,15 @@
+services:
+  backend:
+    ports: !override ["127.0.0.1:18000:8000"]
+    environment:
+      SUPABASE_DB_HOST: postgres-test
+      SUPABASE_DB_PORT: "5432"
+      SUPABASE_DB_NAME: mac_test
+      SUPABASE_DB_USER: mac_test
+      SUPABASE_DB_PASSWORD: mac_test_local
+      SUPABASE_DB_SSLMODE: disable
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+  frontend:
+    ports: !override ["127.0.0.1:18501:8501"]

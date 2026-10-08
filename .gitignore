@@ -17,6 +17,7 @@ ENV/
 .env.*
 !.env.example
 .streamlit/secrets.toml
+**/.streamlit/secrets.toml
 
 # Test and coverage artifacts
 .coverage
