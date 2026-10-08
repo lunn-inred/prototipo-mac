@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from math import isfinite
 from typing import Callable, ContextManager, Mapping
+from zoneinfo import ZoneInfo
 
 from psycopg2.extensions import connection
 
@@ -50,12 +51,22 @@ class LegacyThermographyRecord:
     observations: str | None = None
 
 
-def _timestamp(value: date | datetime) -> datetime:
+SAO_PAULO_TIMEZONE = ZoneInfo("America/Sao_Paulo")
+
+
+def current_sao_paulo_date() -> date:
+    """Data civil usada quando a coleta não informa uma data explicitamente."""
+    return datetime.now(SAO_PAULO_TIMEZONE).date()
+
+
+def _timestamp(value: date | datetime | None) -> datetime:
+    if value is None:
+        value = current_sao_paulo_date()
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
     if isinstance(value, date):
         return datetime.combine(value, time.min)
-    raise ValueError("Data da coleta é obrigatória.")
+    raise ValueError("Data da coleta deve ser uma data válida.")
 
 
 def _positive_number(value: object, label: str) -> float:
@@ -217,7 +228,7 @@ def _insert_collection(
 def save_image_thermography(
     *,
     athlete_id: int,
-    collected_at: date | datetime,
+    collected_at: date | datetime | None = None,
     mass: object,
     pain_score: object,
     front_right: object,

@@ -722,8 +722,21 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 A página `pages/Termografia.py` registra uma nova análise a partir das imagens
 de frente e verso. Ao final da página, o componente recolhido **Formulários**
-permite importar fichas manuscritas. O histórico térmico não é exibido nessa
-interface.
+permite importar fichas manuscritas. Ao adicionar a análise à timeline ou
+registrá-la no banco, uma janela solicita a data da coleta e apresenta a data
+atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
+data padrão é aplicada pelo serviço.
+
+Durante a sessão, o botão **Adicionar à timeline** mantém temporariamente as
+imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
+pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
+real pelos controles das coletas basal e atual. Os cartões da timeline permitem
+marcar independentemente uma coleta **Basal** e uma coleta **Atual** do mesmo
+jogador. A interface alerta quando a Atual antecede a Basal, sem bloquear a
+comparação. Nas abas de
+frente e verso, a comparação exibe as duas imagens, mapas normalizados por perna
+e as métricas atuais com deltas em relação à basal. Vermelho identifica pixels que
+ficaram quentes, amarelo os persistentes e azul os resolvidos.
 
 Na nova análise, o usuário informa jogador, massa, data da coleta, EVA Dor e,
 opcionalmente, observações. O sistema tenta identificar automaticamente as duas
