@@ -156,6 +156,20 @@ class MeasurementApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 409)
 
+    @patch("mac_api.main.save_image_thermography", return_value=8)
+    def test_thermography_accepts_missing_collection_date(self, save):
+        response = self.client.post(
+            "/api/v1/thermography",
+            json={
+                "athlete_id": 1, "mass": 70, "pain_score": 2,
+                "front_right": 1, "front_left": 2,
+                "back_right": 3, "back_left": 4,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(save.call_args.kwargs["collected_at"])
+
 
 if __name__ == "__main__":
     unittest.main()

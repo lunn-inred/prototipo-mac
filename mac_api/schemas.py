@@ -24,7 +24,7 @@ class GpsPayload(BaseModel):
 
 class ThermographyInput(BaseModel):
     athlete_id: int
-    collected_at: datetime
+    collected_at: date | datetime | None = None
     mass: float
     pain_score: int
     front_right: int

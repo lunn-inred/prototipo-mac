@@ -1,6 +1,6 @@
 import unittest
-from datetime import date
-from unittest.mock import MagicMock
+from datetime import date, datetime
+from unittest.mock import MagicMock, patch
 
 from thermography_service import (
     DuplicateThermographyError,
@@ -96,6 +96,54 @@ class ThermographyServiceTests(unittest.TestCase):
             )
 
         cursor.executemany.assert_not_called()
+
+    def test_missing_collection_date_uses_sao_paulo_today(self) -> None:
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [(7,), (0,)]
+        cursor.fetchall.return_value = [
+            (index, name) for index, name in enumerate(sorted(IMAGE_MEASURES), start=1)
+        ]
+
+        with patch(
+            "thermography_service.current_sao_paulo_date",
+            return_value=date(2026, 10, 5),
+        ):
+            save_image_thermography(
+                athlete_id=7,
+                mass=72,
+                pain_score=2,
+                front_right=10,
+                front_left=20,
+                back_right=30,
+                back_left=40,
+                connection_factory=connection_factory(cursor),
+            )
+
+        values = cursor.executemany.call_args.args[1]
+        self.assertEqual(values[0][5].date(), date(2026, 10, 5))
+
+    def test_explicit_collection_datetime_is_preserved(self) -> None:
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [(7,), (0,)]
+        cursor.fetchall.return_value = [
+            (index, name) for index, name in enumerate(sorted(IMAGE_MEASURES), start=1)
+        ]
+        collected_at = datetime(2026, 10, 5, 14, 35, 20)
+
+        save_image_thermography(
+            athlete_id=7,
+            collected_at=collected_at,
+            mass=72,
+            pain_score=2,
+            front_right=10,
+            front_left=20,
+            back_right=30,
+            back_left=40,
+            connection_factory=connection_factory(cursor),
+        )
+
+        values = cursor.executemany.call_args.args[1]
+        self.assertEqual(values[0][5], collected_at)
 
     def test_legacy_batch_rejects_repeated_athlete_and_date(self) -> None:
         record = LegacyThermographyRecord(
