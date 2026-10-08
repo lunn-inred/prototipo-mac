@@ -352,6 +352,51 @@ def count_hot_pixels(
     return int(np.count_nonzero((region >= threshold) & mask_region)), total
 
 
+LEG_PARTS = ("coxa", "joelho", "canela", "pe")
+DEFAULT_PART_CUTS = (45, 57, 88)
+
+
+def leg_part_metrics(
+    temperature_map: np.ndarray,
+    mask: np.ndarray,
+    threshold: float,
+    cuts: tuple[int, int, int] = DEFAULT_PART_CUTS,
+    *,
+    axis: str = "horizontal",
+    foot_at_end: bool = True,
+) -> tuple[dict[str, dict[str, float | int]], tuple[int, int, int]]:
+    """Divide a extensão da máscara, da coxa ao pé, em qualquer orientação."""
+    if mask.shape != temperature_map.shape:
+        raise ValueError("A máscara e a matriz térmica devem ter as mesmas dimensões.")
+    if axis not in ("horizontal", "vertical"):
+        raise ValueError("O eixo deve ser horizontal ou vertical.")
+    if not (0 < cuts[0] < cuts[1] < cuts[2] < 100):
+        raise ValueError("Os limites devem crescer da coxa ao pé.")
+    occupied = np.flatnonzero(np.any(mask, axis=0 if axis == "horizontal" else 1))
+    if not len(occupied):
+        raise ValueError("A segmentação não encontrou pixels da perna.")
+    start, end = int(occupied[0]), int(occupied[-1]) + 1
+    boundaries = tuple(
+        start + round((end - start) * cut / 100) if foot_at_end
+        else end - round((end - start) * cut / 100)
+        for cut in cuts
+    )
+    position = (np.arange(mask.shape[1])[None, :] if axis == "horizontal"
+                else np.arange(mask.shape[0])[:, None])
+    limits = (start, *boundaries, end) if foot_at_end else (end, *boundaries, start)
+    results: dict[str, dict[str, float | int]] = {}
+    for index, part in enumerate(LEG_PARTS):
+        low, high = sorted((limits[index], limits[index + 1]))
+        region = mask & (position >= low) & (position < high)
+        total = int(np.count_nonzero(region))
+        hot = int(np.count_nonzero(region & np.isfinite(temperature_map) &
+                                   (temperature_map >= threshold)))
+        results[part] = {
+            "hot_pixels": hot,
+            "total_pixels": total,
+            "hot_percentage": hot / total * 100 if total else 0.0,
+        }
+    return results, boundaries
 def normalize_binary_region(
     mask: np.ndarray,
     box: Mapping[str, int | float],

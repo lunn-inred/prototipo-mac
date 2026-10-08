@@ -9,6 +9,7 @@ da API e mantém um modo local de compatibilidade para a transição de hospedag
 
 - [Como executar](#como-executar)
   - [Execução separada da API e do Streamlit](#execução-separada-da-api-e-do-streamlit)
+  - [Como executar o aplicativo desktop](#como-executar-o-aplicativo-desktop)
   - [Testes](#testes)
 - [Arquitetura](#arquitetura)
 - [Configuração](#configuração)
@@ -32,11 +33,12 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 cp .env.example .env
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 ```
 
-No Windows PowerShell, ative com `.venv\Scripts\Activate.ps1`. Nunca versione
-`.env` nem `.streamlit/secrets.toml`: os dois arquivos estão no `.gitignore`.
+No Windows PowerShell, ative com `.venv\Scripts\Activate.ps1`. Nunca versione o
+`.env`: ele está no `.gitignore`. O arquivo `.streamlit/secrets.toml` é apenas
+uma alternativa para ambientes hospedados do Streamlit, não sendo necessário
+para a execução local ou desktop.
 
 ### Execução separada da API e do Streamlit
 
@@ -54,6 +56,164 @@ Se `MAC_API_BASE_URL` não estiver definido, o Streamlit utiliza os mesmos
 repositórios e serviços no próprio processo. Esse modo existe para manter o
 deploy atual funcionando durante a transição; para uma implantação definitiva,
 use os dois processos separados.
+
+### Como executar o aplicativo desktop
+
+O cliente também pode ser executado em uma janela nativa com
+`streamlit-desktop-app`. O conteúdo continua sendo renderizado pelo Streamlit,
+mas fica dentro de uma WebView, sem abrir uma aba do navegador. Durante o
+desenvolvimento com `python desktop.py`, a FastAPI é iniciada separadamente. No
+executável empacotado, API, Streamlit e WebView são iniciados automaticamente.
+
+#### 1. Instale as dependências
+
+Com o ambiente virtual ativado, instale as dependências do desktop. Esse arquivo
+também instala o conteúdo de `requirements.txt`:
+
+```bash
+python -m pip install -r requirements-desktop.txt
+```
+
+No Ubuntu/Debian, instale também as bibliotecas do sistema:
+
+```bash
+sudo apt update
+sudo apt install tesseract-ocr tesseract-ocr-por libxcb-cursor0
+```
+
+No Windows e no macOS essas bibliotecas Linux não são necessárias.
+
+#### 2. Configure o `.env`
+
+API, Streamlit e launcher desktop utilizam o mesmo arquivo `.env` na raiz do
+projeto. Você pode copiá-lo do modelo:
+
+```bash
+cp .env.example .env
+```
+
+Ou criar `.env` e copiar todo o modelo semipronto abaixo. Preencha somente os
+campos vazios do Supabase. A chave do Llama Cloud é opcional:
+
+```env
+# PostgreSQL/Supabase
+SUPABASE_DB_HOST=
+SUPABASE_DB_PORT=5432
+SUPABASE_DB_NAME=postgres
+SUPABASE_DB_USER=
+SUPABASE_DB_PASSWORD=
+SUPABASE_DB_SSLMODE=require
+
+# Extração de formulários legados — opcional
+LLAMA_CLOUD_API_KEY=
+
+# API local
+MAC_API_KEY=mac-local-dev-7f2c9a41d8e64b30b53f
+MAC_API_CORS_ORIGINS=http://localhost:8501
+MAC_API_TIMEOUT_SECONDS=300
+
+# Usada por python desktop.py e pelo modo web separado.
+# O executável empacotado substitui a porta automaticamente.
+MAC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+O inicializador repassa automaticamente a URL e a chave da API local para o
+Streamlit. Não é necessário criar ou repetir configurações em outro arquivo.
+Os campos `SUPABASE_DB_HOST`, `SUPABASE_DB_USER` e `SUPABASE_DB_PASSWORD` são
+obrigatórios para acessar os dados; os valores reais não devem ser enviados ao
+Git.
+
+#### 3. Execute em desenvolvimento
+
+No primeiro terminal, inicie a API:
+
+```bash
+source .venv/bin/activate
+uvicorn mac_api.main:app --host 127.0.0.1 --port 8000 --env-file .env
+```
+
+No segundo terminal, inicie Streamlit e WebView:
+
+```bash
+source .venv/bin/activate
+python desktop.py
+```
+
+O `python desktop.py` não inicia nem encerra a API. Ele utiliza a URL configurada
+em `MAC_API_BASE_URL`, que no modelo aponta para `http://127.0.0.1:8000`.
+Quando a inicialização estiver correta, seu terminal apresentará:
+
+```text
+[MAC Desktop] Usando API externa em http://127.0.0.1:8000.
+You can now view your Streamlit app in your browser.
+URL: http://localhost:56789
+```
+
+Valide o backend em `http://127.0.0.1:8000/health` e acesse o Swagger em
+`http://127.0.0.1:8000/docs`.
+
+No Windows PowerShell, substitua `source .venv/bin/activate` por:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+#### 4. Gere um executável
+
+Para gerar o executável da plataforma atual:
+
+```bash
+python -m PyInstaller --clean --noconfirm desktop.spec
+```
+
+O resultado fica em `dist/MAC Performance` no Linux. No Windows, o arquivo terá
+extensão `.exe`. Antes de executá-lo, copie o mesmo `.env` para o diretório do
+binário:
+
+```bash
+cp .env "dist/.env"
+```
+
+Abra o executável Linux:
+
+```bash
+"./dist/MAC Performance"
+```
+
+No Windows PowerShell, copie a configuração e abra o `.exe` com:
+
+```powershell
+Copy-Item .env "dist\.env"
+& ".\dist\MAC Performance.exe"
+```
+
+O `.env` não é incluído no pacote nem versionado, evitando que credenciais sejam
+gravadas no binário. O executável inicia a API automaticamente usando esse
+arquivo único. Diferentemente de `python desktop.py`, não é necessário executar
+o comando `uvicorn` antes de abrir o binário. Ao fechar o executável, seus
+processos internos da API e do Streamlit são encerrados.
+
+O `.env` concede acesso ao banco e deve ser entregue somente a máquinas
+confiáveis. Para distribuição fora de um ambiente controlado, prefira hospedar
+a API e não distribuir credenciais do Supabase.
+
+O build é específico do sistema operacional: gere a versão Windows no Windows,
+a versão Linux no Linux e a versão macOS no macOS. No Linux, a interface usa
+PySide6/Qt6; no Windows, a WebView depende do Microsoft Edge WebView2,
+normalmente já instalado. O build inclui o
+Tesseract e os dados de idioma quando eles estão instalados na máquina usada
+para empacotar, necessários à leitura dos formulários legados.
+
+Arquivos relacionados:
+
+- `desktop.py`: inicia FastAPI, Streamlit e a janela desktop, e encerra os processos;
+- `desktop.spec`: inclui páginas, assets, dependências dinâmicas e Tesseract;
+- `requirements-desktop.txt`: dependências adicionais do cliente desktop;
+- `.env.example`: único modelo de configuração da aplicação completa.
+
+O primeiro início do executável único pode demorar alguns segundos enquanto os
+arquivos internos são extraídos. A versão web e os comandos existentes não são
+alterados por essa modalidade.
 
 ### Testes
 
@@ -95,8 +255,9 @@ As leituras de salto, GPS e termografia usam as views públicas correspondentes.
 
 ## Configuração
 
-A API aceita variáveis de ambiente ou, no desenvolvimento, os valores de
-`.streamlit/secrets.toml`. O ambiente tem prioridade.
+A execução local, a API integrada e o aplicativo desktop utilizam o único arquivo
+`.env`. Em hospedagens do Streamlit, os mesmos nomes podem ser cadastrados em
+`.streamlit/secrets.toml`; variáveis de ambiente têm prioridade.
 
 | Variável | Processo | Finalidade |
 |---|---|---|
@@ -607,6 +768,16 @@ apresenta a quantidade de pixels quentes, a área total segmentada e o percentua
 denominador. Ao lado da máscara, uma segunda prévia usa fundo preto e mantém
 visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
 limiar térmico selecionado.
+
+Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
+**Divisão anatômica**, selecione a orientação horizontal ou vertical, indique
+onde começa a coxa e ajuste os três limites percentuais de cada perna e vista.
+Por padrão, a coxa começa à direita nas imagens horizontais. Os percentuais
+crescem da coxa ao pé mesmo em imagens invertidas. As linhas e
+os números das partes aparecem na prévia; a contagem usa somente pixels da
+máscara. A soma das quatro regiões corresponde ao total da perna. Uma região
+com área zero indica que ela não está visível na máscara. Essas métricas são
+temporárias na interface; não são enviadas ao banco.
 
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
