@@ -8,12 +8,14 @@ navegador ou em uma janela desktop (WebView).
 ## Sumário
 
 - [Resumo do projeto](#resumo-do-projeto)
-- [Preparação](#preparação)
-- [Web — execução local](#web--execução-local)
-- [Web — Docker](#web--docker)
-- [Desktop — desenvolvimento](#desktop--desenvolvimento)
-- [Desktop — standalone](#desktop--standalone)
-- [Desktop — backend em Docker](#desktop--backend-em-docker)
+- [Preparação do Ambiente de Desenvolvimento](#preparação-do-ambiente-de-desenvolvimento)
+- [Web](#web)
+  - [Execução local](#execução-local)
+  - [Docker](#docker)
+- [Desktop](#desktop)
+  - [Desenvolvimento](#desenvolvimento)
+  - [Standalone](#standalone)
+  - [Backend em Docker](#backend-em-docker)
 - [API e endpoints](#api-e-endpoints)
 - [Testes](#testes)
 - Documentação detalhada:
@@ -39,7 +41,7 @@ As métricas são consultadas nas views do banco. Escritas passam pelas validaç
 e transações da API. Imagens de termografia e a timeline ficam temporariamente
 na sessão; somente medidas confirmadas são persistidas.
 
-## Preparação
+## Preparação do Ambiente de Desenvolvimento
 
 Use Python 3.10+ e execute os comandos a partir da raiz do repositório:
 
@@ -60,7 +62,9 @@ Dependências de sistema, configuração semipronta e variáveis:
 [configuração](docs/configuration.md), [web](docs/web.md) e [desktop](docs/desktop.md).
 Para Docker web, não é necessário instalar Python ou dependências no host.
 
-## Web — execução local
+## Web
+
+### Execução local
 
 Com o ambiente ativado, execute em dois terminais:
 
@@ -78,7 +82,7 @@ Interface: [localhost:8501](http://localhost:8501).
 A API é obrigatória; ambos os processos utilizam o `.env` da raiz.
 Hospedagem e instalação por processo: [guia web](docs/web.md).
 
-## Web — Docker
+### Docker
 
 Com Docker Compose instalado e o `.env` preenchido:
 
@@ -95,7 +99,9 @@ docker compose down
 
 Logs, portas e detalhes: [Docker web](docs/web.md#docker).
 
-## Desktop — desenvolvimento
+## Desktop
+
+### Desenvolvimento
 
 Instale as dependências adicionais:
 
@@ -103,7 +109,7 @@ Instale as dependências adicionais:
 python -m pip install -r requirements-desktop.txt
 ```
 
-Inicie a API com o comando da [execução web local](#web--execução-local) e,
+Inicie a API com o comando da [execução web local](#execução-local) e,
 em outro terminal, abra a janela:
 
 ```bash
@@ -113,7 +119,7 @@ python desktop.py
 Esse comando **não inicia a API**. Requisitos de WebView e bibliotecas por
 sistema operacional: [guia desktop](docs/desktop.md).
 
-## Desktop — standalone
+### Standalone
 
 O executável empacotado inicia API, Streamlit e WebView automaticamente,
 sem exigir Python ou Docker no computador do usuário. Para gerar o binário:
@@ -133,7 +139,7 @@ Cada build deve ser gerado no sistema operacional de destino. Distribua
 credenciais do banco somente para máquinas confiáveis. Instruções para Windows,
 macOS e empacotamento do OCR: [build e distribuição](docs/desktop.md).
 
-## Desktop — backend em Docker
+### Backend em Docker
 
 Com as dependências desktop instaladas e o `.env` preenchido:
 
