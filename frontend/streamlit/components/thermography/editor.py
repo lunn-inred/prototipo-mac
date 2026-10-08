@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 from streamlit_drawable_konva import crop_box_from_json, st_canvas
 
 from frontend.streamlit.api_client.contracts import (unique_matching_athlete_id)
@@ -182,20 +182,22 @@ def _parts_preview(image: Image.Image, analysis: dict[str, Any],
                 line = (box["left"], coordinate,
                         box["left"] + box["width"], coordinate)
             draw.line(line, fill=color, width=max(2, image.width // 300))
-        for number, (first, last) in enumerate(
-            zip(endpoints, endpoints[1:]), start=1
-        ):
+        try:
+            font = ImageFont.truetype('DejaVuSans.ttf', max(12, min(24, image.height // 35)))
+        except OSError:
+            font = ImageFont.load_default()
+        for label, (first, last) in zip(('Coxa', 'Joelho', 'Canela', 'Pé'), zip(endpoints, endpoints[1:])):
             middle = (first + last) // 2
             if setting["axis"] == "horizontal":
                 label_position = (middle, box["top"] + box["height"] // 2)
             else:
                 label_position = (box["left"] + box["width"] // 2, middle)
-            draw.text(label_position, str(number), fill="white", anchor="mm",
+            draw.text(label_position, label, font=font, fill="white", anchor="mm",
                       stroke_width=2, stroke_fill="black")
     return preview
 
 
-@st.dialog("Corrigir áreas", width="large")
+@st.dialog("Corrigir Áreas", width="large")
 def edit_thermal_boxes(
     item_key: str,
     image: Image.Image,
@@ -234,7 +236,7 @@ def edit_thermal_boxes(
     )
     crop = crop_box_from_json(canvas.json_data)
     apply_column, reset_column, finish_column = st.columns([2, 2, 1])
-    if apply_column.button("Aplicar área", type="primary", disabled=crop is None):
+    if apply_column.button("Aplicar área", type="primary", disabled=crop is None, width='stretch'):
         selected_box = _scaled_box(crop, scale, image)
         if is_colorbar:
             item["manual_colorbar_box"] = selected_box
@@ -246,7 +248,7 @@ def edit_thermal_boxes(
             f"Área de {target_label.lower()} atualizada."
         )
         st.rerun(scope="fragment")
-    if reset_column.button("Restaurar detecção automática"):
+    if reset_column.button("Restaurar detecção automática", width='stretch'):
         if is_colorbar:
             item.pop("manual_colorbar_box", None)
         else:
@@ -257,7 +259,7 @@ def edit_thermal_boxes(
             f"Área de {target_label.lower()} restaurada."
         )
         st.rerun(scope="fragment")
-    if finish_column.button("Concluir"):
+    if finish_column.button("Concluir", width='stretch'):
         st.rerun()
 
 
@@ -269,16 +271,17 @@ def edit_thermal_mask(
     analysis = item.get("analysis", analysis)
     if message := st.session_state.pop(f"thermal_mask_message_{item_key}", None):
         st.success(message)
-    target_label = st.radio(
+    controls = st.columns(3)
+    target_label = controls[0].radio(
         "Perna", ("Perna direita", "Perna esquerda"), horizontal=True,
         key=f"thermal_mask_target_{item_key}",
     )
     side = "right" if target_label == "Perna direita" else "left"
-    brush_label = st.radio(
+    brush_label = controls[1].radio(
         "Pincel", ("Incluir área", "Excluir área"), horizontal=True,
         key=f"thermal_brush_{item_key}",
     )
-    brush_size = st.slider(
+    brush_size = controls[2].slider(
         "Tamanho do pincel", 2, 40, 10, key=f"thermal_brush_size_{item_key}"
     )
     st.caption("Verde inclui pixels na área; vermelho exclui pixels da área.")
@@ -301,7 +304,7 @@ def edit_thermal_mask(
                                       item['maximum_temperature'], analysis['threshold'], item)
 
     apply_column, reset_column, finish_column = st.columns([2, 2, 1])
-    if apply_column.button("Aplicar traços e recalcular", type="primary"):
+    if apply_column.button("Aplicar traços e recalcular", type="primary", width='stretch'):
         if canvas.image_data is None:
             st.warning("Faça ao menos um traço antes de aplicar.")
             return
@@ -322,7 +325,7 @@ def edit_thermal_mask(
             "Você pode continuar corrigindo."
         )
         st.rerun(scope="fragment")
-    if reset_column.button("Restaurar máscara automática"):
+    if reset_column.button("Restaurar máscara automática", width='stretch'):
         item.setdefault("mask_seeds", {}).pop(side, None)
         recalculate(side)
         item.pop("analysis_config", None)
@@ -330,7 +333,7 @@ def edit_thermal_mask(
             f"Máscara automática de {target_label.lower()} restaurada."
         )
         st.rerun(scope="fragment")
-    if finish_column.button("Concluir"):
+    if finish_column.button("Concluir", width='stretch'):
         st.rerun()
 
 

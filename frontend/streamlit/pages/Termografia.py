@@ -134,6 +134,7 @@ if all(view_metrics.values()):
             else "Mantém imagens e métricas somente durante esta sessão."
         ),
         key=f"add_thermography_timeline_{pair_signature}",
+        width='stretch',
     ):
         confirm_timeline_date(
             int(selected_player_id), views, items, pair_signature
@@ -224,6 +225,7 @@ if all(view_metrics.values()):
         type="primary",
         disabled=bool(missing_fields),
         key="save_image_thermography",
+        width='stretch',
     ):
         confirm_database_collection(
             athlete_id=int(prepared_player_id),

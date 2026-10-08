@@ -787,11 +787,13 @@ A nova análise utiliza um assistente com **Continuar** e **Voltar**, apresentan
 somente uma etapa por vez:
 
 1. Jogador, massa, EVA Dor e observações opcionais.
-2. Upload de frente/verso, prévia e rotação em incrementos de 90°.
-3. Caixas das pernas e barra de cores, Tmin/Tmax e limiar de pixels quentes.
-4. Segmentação automática por GrabCut.
-5. Divisão de cada perna em coxa, joelho, canela e pé.
-6. Revisão das métricas, tabela do registro e confirmação do envio.
+2. Upload de frente/verso, prévia e botão para girar 90° para a direita.
+3. Caixas das pernas e barra de cores.
+4. Divisão de cada perna em coxa, joelho, canela e pé, com uma prévia anatômica por vista.
+5. Segmentação automática por GrabCut e correção manual das máscaras.
+6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala, métricas,
+   tabela do registro e confirmação do envio. Cada vista apresenta a imagem
+   original com caixas, as pernas segmentadas sem fundo e os pixels quentes.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
 anatômica, arraste as três linhas sobre a imagem; não é necessário ajustar
@@ -799,6 +801,12 @@ sliders percentuais. O rascunho e as imagens ficam na sessão ao voltar para
 etapas anteriores. **Iniciar outra análise** descarta somente o rascunho atual,
 mediante confirmação, preservando o banco e a timeline. A API considera a rotação
 ao localizar as caixas e ler a barra térmica, preservando sua ordem quente/frio.
+As vistas de frente e verso são apresentadas lado a lado, com as prévias
+centralizadas e botões que ocupam a largura disponível de suas colunas.
+Na divisão anatômica, aparece somente a prévia com nomes e limites das áreas.
+Na segmentação, a segunda prévia mostra a área completa das pernas sem fundo.
+A filtragem de pixels quentes aparece
+somente na etapa de cálculo, após a definição da escala e do limiar.
 
 Durante a sessão, o botão **Adicionar à timeline** mantém temporariamente as
 imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
@@ -843,9 +851,10 @@ visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
 limiar térmico selecionado.
 
 Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
-**Divisão anatômica**, selecione a orientação horizontal ou vertical, indique
-onde começa a coxa e arraste os três limites no pop-up **Editar divisões na imagem**.
-Por padrão, a coxa começa em cima nas imagens verticais. Os percentuais internos
+**Divisão anatômica**, arraste os três limites no pop-up **Editar divisões na imagem**.
+A orientação é sempre vertical, com Coxa, Joelho, Canela e Pé de cima para baixo.
+Os nomes aparecem na imagem e as posições são salvas ao soltar o mouse.
+Os percentuais internos
 crescem da coxa ao pé mesmo em imagens invertidas. As linhas e
 os números das partes aparecem na prévia; a contagem usa somente pixels da
 máscara. A soma das quatro regiões corresponde ao total da perna. Uma região

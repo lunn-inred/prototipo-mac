@@ -54,6 +54,7 @@ def render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_labe
                 "Extrair conteúdo",
                 type="primary",
                 key="extract_legacy_documents",
+                width='stretch',
             ):
                 extracted_documents = []
                 progress = st.progress(0, text="Preparando documentos...")
@@ -257,6 +258,7 @@ def render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_labe
                     type="primary",
                     key="save_legacy_thermography",
                     disabled=has_unselected_athletes or not athletes,
+                    width='stretch',
                 ):
                     try:
                         legacy_records = []

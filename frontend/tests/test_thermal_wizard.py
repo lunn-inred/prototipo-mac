@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
+import numpy as np
 from urllib.parse import urlsplit
 
 from fastapi.testclient import TestClient
@@ -10,10 +11,19 @@ from PIL import Image, ImageDraw
 from streamlit.testing.v1 import AppTest
 
 from backend.mac_api.main import create_app
-from frontend.streamlit.components.thermography.wizard import cuts_from_objects, rotated_view
+from frontend.streamlit.components.thermography.wizard import cuts_from_objects, rotated_view, segmented_preview_image
 
 
 class ThermalWizardTests(unittest.TestCase):
+    def test_full_segmentation_preview_keeps_only_mask_pixels(self):
+        image = Image.new('RGB', (3, 2), (200, 100, 50))
+        right = np.array([[True, False, False], [False, False, False]])
+        left = np.array([[False, False, False], [False, False, True]])
+        preview = np.asarray(segmented_preview_image(image, {'right': right, 'left': left}))
+        np.testing.assert_array_equal(preview[0, 0], [200, 100, 50])
+        np.testing.assert_array_equal(preview[1, 2], [200, 100, 50])
+        np.testing.assert_array_equal(preview[0, 1], [0, 0, 0])
+
     def test_dragged_boundaries_convert_both_directions(self):
         objects = [{'x': x} for x in (45, 57, 88)]
         self.assertEqual(cuts_from_objects(objects, 100, True), [45, 57, 88])
@@ -60,7 +70,27 @@ class ThermalWizardTests(unittest.TestCase):
                 app.button(key='thermal_next').click().run()
                 self.assertEqual(len(app.exception), 0, list(app.exception))
                 self.assertEqual(app.session_state['thermal_step'], step)
-                if step == 4:
+                self.assertEqual(len(app.get('tab')), 0)
+                temperature_inputs = [widget for widget in app.number_input
+                                      if widget.key and widget.key.startswith('wizard_tmin_')]
+                self.assertEqual(len(temperature_inputs), 2 if step == 5 else 0)
+                if step in (3, 4):
+                    from frontend.streamlit.components.thermography.wizard import centered_preview
+                    with patch('frontend.streamlit.components.thermography.wizard.centered_preview', wraps=centered_preview) as preview:
+                        app.run()
+                    captions = [call.kwargs.get('caption', '') for call in preview.call_args_list]
+                    self.assertEqual(captions.count('Pernas segmentadas — área completa'), 0 if step == 3 else 2)
+                    if step == 3:
+                        self.assertEqual(captions.count('Coxa · Joelho · Canela · Pé (de cima para baixo)'), 2)
+                    self.assertFalse(any('Pixels quentes' in caption for caption in captions))
+                if step == 1:
+                    key = next(button.key for button in app.button if button.key and button.key.startswith('thermal_rotation_front_'))
+                    app.button(key=key).click().run()
+                    self.assertEqual(app.session_state['thermal_uploads']['front']['rotation'], 270)
+                    for _ in range(3):
+                        app.button(key=key).click().run()
+                    self.assertEqual(app.session_state['thermal_uploads']['front']['rotation'], 0)
+                if step == 3:
                     key = next(button.key for button in app.button if button.key and button.key.startswith('wizard_parts_front:'))
                     with patch('frontend.streamlit.components.thermography.wizard.st_canvas', return_value=SimpleNamespace(json_data=None)) as canvas:
                         app.button(key=key).click().run()
@@ -68,8 +98,27 @@ class ThermalWizardTests(unittest.TestCase):
                         scene = canvas.call_args.kwargs['initial_drawing']
                         self.assertEqual(len(scene['objects']), 3)
                         self.assertEqual(scene['objects'][0]['dragConstraint']['axis'], {'x': 0, 'y': 1})
+                        self.assertFalse(any(widget.label in ('Orientação', 'Onde está a coxa?') for widget in app.radio))
+                        next(button for button in app.button if button.label == 'Concluir').click().run()
+                    def moved_canvas(**kwargs):
+                        scene = kwargs['initial_drawing']
+                        objects = [dict(obj, y=kwargs['height'] * cut / 100)
+                                   for obj, cut in zip(scene['objects'], [40, 60, 85])]
+                        return SimpleNamespace(json_data={'objects': objects})
+                    with patch('frontend.streamlit.components.thermography.wizard.st_canvas', side_effect=moved_canvas):
+                        app.button(key=key).click().run()
+                        self.assertEqual(len(app.exception), 0, list(app.exception))
+                        item_key = key.removeprefix('wizard_parts_')
+                        item = app.session_state['thermography_items'][item_key]
+                        self.assertEqual(item['part_settings_v4']['right']['cuts'], [40, 60, 85])
+                        self.assertIn('right', item['part_scenes'])
                         next(button for button in app.button if button.label == 'Concluir').click().run()
             self.assertIn('Resumo da coleta', [h.value for h in app.subheader])
+            threshold_key = next(widget.key for widget in app.slider
+                                 if widget.key and widget.key.startswith('wizard_threshold_front:'))
+            app.slider(key=threshold_key).set_value(50.0).run()
+            item_key = threshold_key.removeprefix('wizard_threshold_')
+            self.assertEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 50.0)
             self.assertFalse(app.button(key='save_image_thermography').disabled)
             for _ in range(5):
                 app.button(key='thermal_previous').click().run()
