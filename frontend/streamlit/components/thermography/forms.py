@@ -26,7 +26,8 @@ from frontend.streamlit.components.thermography.editor import LEGS, VIEW_LABELS
 
 def render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label) -> None:
     """Renderiza o fluxo opcional de importação de formulários manuscritos."""
-    with st.expander("Formulários", expanded=False):
+    st.subheader('Envio de Formulário')
+    with st.container():
         legacy_documents = st.file_uploader(
             "Planilhas e fichas preenchidas manualmente",
             type=["pdf", "png", "jpg", "jpeg"],

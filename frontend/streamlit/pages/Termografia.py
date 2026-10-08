@@ -61,11 +61,10 @@ athlete_id_by_editor_label = {
 
 
 
-with st.expander('Timeline térmica da sessão', expanded=False):
-    render_timeline(st.session_state.get('thermal_draft', {}).get('player'))
-
 result = render_wizard(athletes_by_id)
 if result is None:
+    st.divider()
+    render_timeline(st.session_state.get('thermal_draft', {}).get('player'))
     st.divider()
     render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
     st.stop()
@@ -242,5 +241,7 @@ if all(view_metrics.values()):
 else:
     stored_metrics.clear()
 
+st.divider()
+render_timeline(st.session_state.get('thermal_draft', {}).get('player'))
 st.divider()
 render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)

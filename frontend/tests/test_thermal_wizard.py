@@ -70,6 +70,11 @@ class ThermalWizardTests(unittest.TestCase):
                 app.button(key='thermal_next').click().run()
                 self.assertEqual(len(app.exception), 0, list(app.exception))
                 self.assertEqual(app.session_state['thermal_step'], step)
+                headers = [header.value for header in app.subheader]
+                self.assertLess(headers.index('Nova análise térmica'), headers.index('Timeline térmica'))
+                self.assertLess(headers.index('Timeline térmica'), headers.index('Envio de Formulário'))
+                self.assertFalse(any(expander.label == 'Formulários' for expander in app.expander))
+                self.assertFalse(any('Timeline' in expander.label for expander in app.expander))
                 self.assertEqual(len(app.get('tab')), 0)
                 temperature_inputs = [widget for widget in app.number_input
                                       if widget.key and widget.key.startswith('wizard_tmin_')]
