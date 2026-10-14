@@ -49,6 +49,16 @@ O banco de teste não tem volume persistente: remover o container descarta seus 
 
 ## Limites da validação
 
+Para reproduzir o dimensionamento dos diálogos sem API nem banco:
+
+```bash
+python -m streamlit run frontend/tests/fixtures/dialog_browser_app.py
+```
+
+Clique em **Abrir** e compare a primeira abertura com a reabertura. A legenda
+`MEASURED` mostra os limites recebidos do navegador. Essa tela é apenas uma
+fixture de diagnóstico, não faz parte da navegação do produto.
+
 Os testes de interface usam Streamlit AppTest e simulam o retorno do canvas.
 Eles verificam navegação, rascunho, prévias e atualização das divisões, mas não
 substituem uma revisão visual do arraste no navegador/WebView. Testes opcionais

@@ -72,6 +72,8 @@ class ThermalWizardTests(unittest.TestCase):
         with patch.object(data_repository, 'list_athletes', return_value=[dict(id_atleta=1, nome='Teste', apelido=None)]), \
              patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=http), \
              patch('streamlit.file_uploader', side_effect=upload), \
+             patch('frontend.streamlit.components.thermography.wizard.dialog_canvas_limits', return_value=(1200, 650)), \
+             patch('frontend.streamlit.components.thermography.editor.dialog_canvas_limits', return_value=(720, 650)), \
              patch('frontend.streamlit.components.thermography.wizard.cached_temperature_scale', return_value=dict(minimum_temperature=20.0, maximum_temperature=40.0)):
             app = AppTest.from_file(str(root/'frontend/streamlit/pages/Termografia.py'), default_timeout=30).run()
             self.assertEqual(len(app.exception), 0)

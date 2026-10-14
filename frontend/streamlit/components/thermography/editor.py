@@ -228,7 +228,10 @@ def edit_thermal_boxes(
         "Perna direita": boxes["right"], "Perna esquerda": boxes["left"],
         "Barra térmica": colorbar,
     })
-    max_width, max_height = dialog_canvas_limits(f'boxes_{item_key}', toolbar=False)
+    limits = dialog_canvas_limits(f'boxes_{item_key}', toolbar=False)
+    if limits is None:
+        return
+    max_width, max_height = limits
     background, scale = _display_image(preview, max_width=max_width, max_height=max_height)
     st.caption(
         "Desenhe um retângulo somente sobre a faixa colorida da escala."
@@ -296,7 +299,10 @@ def edit_thermal_mask(
     st.caption("Verde inclui pixels na área; vermelho exclui pixels da área.")
     box = analysis['boxes'][side]
     bounds = (box['left'], box['top'], box['left']+box['width'], box['top']+box['height'])
-    max_width, max_height = dialog_canvas_limits(f'mask_{item_key}', columns=2, toolbar=False)
+    limits = dialog_canvas_limits(f'mask_{item_key}', columns=2, toolbar=False)
+    if limits is None:
+        return
+    max_width, max_height = limits
     background, _ = _display_image(analysis['overlay'].crop(bounds), max_width=max_width, max_height=max_height)
     preview_array = np.asarray(image.convert('RGB')).copy()
     preview_array[~analysis['masks'][side].astype(bool)] = 0

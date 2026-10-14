@@ -77,7 +77,10 @@ def edit_parts(item_key, image, analysis):
     box = analysis['boxes'][side]
     bounds = (box['left'], box['top'], box['left']+box['width'], box['top']+box['height'])
     preview = analysis['overlay'].crop(bounds)
-    max_width, max_height = dialog_canvas_limits(f'parts_{item_key}', toolbar=False)
+    limits = dialog_canvas_limits(f'parts_{item_key}', toolbar=False)
+    if limits is None:
+        return
+    max_width, max_height = limits
     background, _ = _display_image(preview, max_width=max_width, max_height=max_height)
     extent = background.height
     draw = ImageDraw.Draw(background)

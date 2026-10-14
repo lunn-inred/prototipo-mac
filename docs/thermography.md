@@ -34,7 +34,10 @@ e seu conteúdo usa 100% dessa área. Um componente mede a altura útil da janel
 e a posição do editor, reservando espaço para controles, toolbar e botões.
 O canvas reduz ou amplia sua prévia para caber nessa área, sem scroll do diálogo;
 a medição é repetida após a montagem/transição da janela, e a última dimensão
-válida é preservada para evitar reabrir com uma prévia pequena. Os botões têm
+válida é preservada para evitar reabrir com uma prévia pequena. Na primeira
+abertura, o editor aguarda uma medição estável; não desenha uma prévia provisória
+menor. A medição continua disponível mesmo quando a montagem do navegador é tardia.
+Os botões têm
 uma margem inferior reservada. **Concluir** é a ação destacada; aplicar,
 restaurar e confirmar registros são ações secundárias. As barras cinzas do canvas
 (Undo, Redo, Clear e botões de zoom) ficam ocultas; o zoom pela roda do mouse

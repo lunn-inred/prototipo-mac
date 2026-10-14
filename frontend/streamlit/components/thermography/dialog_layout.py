@@ -7,7 +7,7 @@ export default function({parentElement, setStateValue, data}) {
     const document = parentElement.ownerDocument;
     const view = document.defaultView;
     let last = JSON.stringify(data.reported || null), timer;
-    const retries = [];
+    let candidate = '', candidateSince = 0;
     function measure() {
         const dialog = document.querySelector('[data-testid="stDialog"] [role="dialog"]');
         const root = parentElement.getRootNode();
@@ -19,6 +19,13 @@ export default function({parentElement, setStateValue, data}) {
         const size = {width: Math.floor((totalWidth - (data.columns - 1) * 24) / data.columns),
                       height: Math.floor(available)};
         const signature = JSON.stringify(size);
+        if (signature !== candidate) {
+            candidate = signature;
+            candidateSince = view.performance.now();
+            return;
+        }
+        // Aguardar a estabilização do layout/animação antes de desenhar o canvas.
+        if (view.performance.now() - candidateSince < 180) return;
         if (signature !== last) {
             last = signature;
             setStateValue('size', size);
@@ -30,9 +37,10 @@ export default function({parentElement, setStateValue, data}) {
     if (dialog) {observer.observe(dialog); if (dialog.parentElement) observer.observe(dialog.parentElement);}
     observer.observe(parentElement.getRootNode().host || parentElement);
     view.addEventListener('resize', schedule);
-    // Medir depois da montagem e novamente após a transição de abertura.
-    for (const delay of [0, 80, 200, 400, 800]) retries.push(setTimeout(measure, delay));
-    return () => {clearTimeout(timer); retries.forEach(clearTimeout); observer.disconnect(); view.removeEventListener('resize', schedule);};
+    // Também cobre montagem tardia: não desistir após um timeout fixo.
+    const poll = setInterval(measure, 100);
+    schedule();
+    return () => {clearTimeout(timer); clearInterval(poll); observer.disconnect(); view.removeEventListener('resize', schedule);};
 }
 '''
 
@@ -52,5 +60,6 @@ def dialog_canvas_limits(key, *, columns=1, toolbar=True):
     if size:
         cache[key] = size
     else:
-        size = {'width': 640 if columns == 1 else 320, 'height': 280}
+        st.caption('Ajustando o editor ao tamanho da janela…')
+        return None
     return max(40, min(int(size['width']), 1400)), max(40, min(int(size['height']), 650))
