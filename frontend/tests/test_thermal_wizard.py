@@ -169,6 +169,12 @@ class ThermalWizardTests(unittest.TestCase):
                     item_key = threshold_key.removeprefix('wizard_threshold_')
                     self.assertEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 50.0)
             self.assertIn('Resumo da coleta', [h.value for h in app.subheader])
+            self.assertNotIn('Registro preparado', [h.value for h in app.subheader])
+            self.assertEqual(app.get('progress')[0].proto.text, 'Etapa 7 de 7 — Resumo da coleta')
+            labels = [button.label for button in app.button]
+            self.assertLess(labels.index('Adicionar à timeline'), labels.index('Registrar coleta no banco'))
+            self.assertLess(labels.index('Registrar coleta no banco'), labels.index('Voltar'))
+            self.assertLess(labels.index('Voltar'), labels.index('Iniciar outra análise'))
             self.assertFalse(any(widget.key and widget.key.startswith('wizard_tmin_') for widget in app.number_input))
             self.assertFalse(app.button(key='save_image_thermography').disabled)
             for _ in range(6):

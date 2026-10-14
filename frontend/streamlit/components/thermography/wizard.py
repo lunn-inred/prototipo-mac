@@ -23,7 +23,7 @@ from frontend.streamlit.presentation.thermography_data import athlete_label
 from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
 
 STEPS = ('Dados da coleta', 'Imagens e rotação', 'Caixas das pernas e barra de cores',
-         'Divisão anatômica', 'Segmentação', 'Cálculo da termografia', 'Resumo e registro')
+         'Divisão anatômica', 'Segmentação', 'Cálculo da termografia', 'Resumo da coleta')
 
 
 def centered_preview(image, caption=None, max_width=700, max_height=400):
@@ -171,7 +171,7 @@ def render_wizard(athletes_by_id):
         calculation = st.session_state.get('thermal_calculation')
         if calculation is None:
             st.warning('Volte à etapa de cálculo para preparar os dados da coleta.')
-        navigate(step)
+            navigate(step)
         return calculation
     if step == 0:
         columns = st.columns(3)

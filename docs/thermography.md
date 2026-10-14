@@ -24,8 +24,9 @@ somente uma etapa por vez:
    Cada vista apresenta a imagem
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
    e os pixels quentes.
-7. Resumo da coleta e registro: totais de frente/verso, tabela revisável,
-   adição à timeline e confirmação do envio ao banco, sem repetir as prévias.
+7. Resumo da coleta: totais de frente/verso e tabela revisável no mesmo componente.
+   Adicionar à timeline fica à esquerda de registrar no banco; Voltar e iniciar
+   outra análise aparecem abaixo, sem repetir as prévias.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
 anatômica, o GrabCut ainda não é executado: os limites são definidos sobre as
