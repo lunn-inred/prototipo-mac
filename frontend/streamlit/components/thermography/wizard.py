@@ -5,7 +5,8 @@ import io
 import numpy as np
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+from frontend.streamlit.components.image_fonts import image_font
 from streamlit_drawable_konva import st_canvas
 
 from frontend.streamlit.api_client.thermal_client import (
@@ -84,14 +85,13 @@ def edit_parts(item_key, image, analysis):
     background, _ = _display_image(preview, max_width=max_width, max_height=max_height)
     extent = background.height
     draw = ImageDraw.Draw(background)
-    try:
-        font = ImageFont.truetype('DejaVuSans.ttf', 20)
-    except OSError:
-        font = ImageFont.load_default()
+    draw.rectangle((0, 0, background.width - 1, background.height - 1),
+                   outline='#00e5ff', width=5)
+    font = image_font(25)
     limits = [0, *[extent * cut / 100 for cut in setting['cuts']], extent]
     for label, first, last in zip(('Coxa', 'Joelho', 'Canela', 'Pé'), limits, limits[1:]):
         draw.text((background.width / 2, (first + last) / 2), label,
-                  fill='white', font=font, anchor='mm', stroke_width=2, stroke_fill='black')
+                  fill='white', font=font, anchor='mm', stroke_width=1, stroke_fill='black')
     drawing = {'objects': [dict(type='rect', id=f'boundary_{index}',
                                x=0, y=extent * cut / 100,
                                width=background.width, height=12,
@@ -296,11 +296,9 @@ def render_wizard(athletes_by_id):
                 continue
             metrics[view] = analysis['metrics']
             if step == 5:
-                original = annotate_boxes(image, {'Perna direita': analysis['boxes']['right'],
-                                                 'Perna esquerda': analysis['boxes']['left'],
-                                                 'Barra térmica': analysis['colorbar_box']})
-                previews = (original, segmented_preview_image(image, analysis['masks']), analysis['hot_overlay'])
-                captions = ('Original com caixas', 'Pernas segmentadas — área completa',
+                anatomical = _parts_preview(image, dict(boxes=analysis['boxes'], overlay=image), settings)
+                previews = (anatomical, segmented_preview_image(image, analysis['masks']), analysis['hot_overlay'])
+                captions = ('Divisão anatômica — Coxa · Joelho · Canela · Pé', 'Pernas segmentadas — área completa',
                             f'Pixels quentes ≥ {threshold:.1f} °C')
                 for preview_column, preview, caption in zip(st.columns(3), previews, captions):
                     with preview_column:

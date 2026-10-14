@@ -8,7 +8,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
+from frontend.streamlit.components.image_fonts import image_font
 from streamlit_drawable_konva import crop_box_from_json, st_canvas
 from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
 
@@ -176,6 +177,10 @@ def _parts_preview(image: Image.Image, analysis: dict[str, Any],
     colors = ("#00e5ff", "#ffff00", "#ff9f1c")
     for side, setting in settings.items():
         box = analysis["boxes"][side]
+        # A mesma caixa utilizada na divisão e na segmentação, incluindo ajustes manuais.
+        draw.rectangle((box['left'], box['top'], box['left'] + box['width'] - 1,
+                        box['top'] + box['height'] - 1),
+                       outline='#00e5ff', width=max(5, image.height // 140))
         near = box['left'] if setting['axis'] == 'horizontal' else box['top']
         far = near + (box['width'] if setting['axis'] == 'horizontal' else box['height'])
         boundaries = tuple(near + round((far-near)*cut/100) if setting['foot_at_end']
@@ -190,10 +195,7 @@ def _parts_preview(image: Image.Image, analysis: dict[str, Any],
                 line = (box["left"], coordinate,
                         box["left"] + box["width"], coordinate)
             draw.line(line, fill=color, width=max(6, image.height // 100))
-        try:
-            font = ImageFont.truetype('DejaVuSans.ttf', max(12, min(24, image.height // 35)))
-        except OSError:
-            font = ImageFont.load_default()
+        font = image_font(25)
         for label, (first, last) in zip(('Coxa', 'Joelho', 'Canela', 'Pé'), zip(endpoints, endpoints[1:])):
             middle = (first + last) // 2
             if setting["axis"] == "horizontal":
@@ -201,7 +203,7 @@ def _parts_preview(image: Image.Image, analysis: dict[str, Any],
             else:
                 label_position = (box["left"] + box["width"] // 2, middle)
             draw.text(label_position, label, font=font, fill="white", anchor="mm",
-                      stroke_width=2, stroke_fill="black")
+                      stroke_width=1, stroke_fill="black")
     return preview
 
 

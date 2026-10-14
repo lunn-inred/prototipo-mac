@@ -22,7 +22,8 @@ somente uma etapa por vez:
 5. Segmentação automática por GrabCut e correção manual das máscaras.
 6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala, métricas,
    tabela do registro e confirmação do envio. Cada vista apresenta a imagem
-   original com caixas, as pernas segmentadas sem fundo e os pixels quentes.
+   com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
+   e os pixels quentes.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
 anatômica, o GrabCut ainda não é executado: os limites são definidos sobre as
@@ -111,6 +112,13 @@ Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
 **Divisão anatômica**, arraste os três limites no pop-up **Editar divisões na imagem**.
 A orientação é sempre vertical, com Coxa, Joelho, Canela e Pé de cima para baixo.
 Os nomes aparecem na imagem e as posições são salvas ao soltar o mouse.
+As prévias anatômicas também mostram o contorno da caixa atual de cada perna,
+incluindo correções manuais, com rótulos ampliados no pop-up e na etapa de cálculo.
+Os rótulos usam a DejaVu Sans incluída em `frontend/streamlit/assets/fonts/`,
+com sua licença, sem depender de fontes do sistema ou do fallback do Pillow.
+Os rótulos das caixas usam a mesma fonte a 10 px, enquanto a divisão anatômica
+permanece em 25 px; o backend distribui
+sua cópia em `backend/mac_api/assets/fonts/` para funcionar sem o frontend instalado.
 Os percentuais internos
 crescem da coxa ao pé mesmo em imagens invertidas. As linhas e
 os nomes das partes aparecem na prévia; a contagem usa somente pixels da

@@ -155,6 +155,12 @@ class ThermalWizardTests(unittest.TestCase):
                         self.assertEqual(next(button for button in app.button if button.label == 'Aplicar traços e recalcular').proto.type, 'secondary')
                         next(button for button in app.button if button.label == 'Concluir').click().run()
             self.assertIn('Resumo da coleta', [h.value for h in app.subheader])
+            from frontend.streamlit.components.thermography.wizard import centered_preview
+            with patch('frontend.streamlit.components.thermography.wizard.centered_preview', wraps=centered_preview) as preview:
+                app.run()
+            captions = [call.kwargs.get('caption', '') for call in preview.call_args_list]
+            self.assertEqual(captions.count('Divisão anatômica — Coxa · Joelho · Canela · Pé'), 2)
+            self.assertNotIn('Original com caixas', captions)
             threshold_key = next(widget.key for widget in app.slider
                                  if widget.key and widget.key.startswith('wizard_threshold_front:'))
             app.slider(key=threshold_key).set_value(50.0).run()

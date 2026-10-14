@@ -10,6 +10,7 @@ from typing import Mapping
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
+from backend.mac_api.core.image_fonts import image_font
 from scipy.spatial import cKDTree
 
 
@@ -404,13 +405,14 @@ def annotate_boxes(
     """Desenha as regiões detectadas para conferência visual no Streamlit."""
     annotated = image.convert("RGB").copy()
     draw = ImageDraw.Draw(annotated)
+    font = image_font(15)
     for label, box in boxes.items():
         left, top = box["left"], box["top"]
         right, bottom = left + box["width"], top + box["height"]
         draw.rectangle((left, top, right, bottom), outline="#00ff88", width=3)
         draw.text(
-            (left + 6, top + 6), label, fill="#00ff88",
-            stroke_fill="black", stroke_width=2,
+            (left + 6, top + 6), label, font=font, fill="#00ff88",
+            stroke_fill="black", stroke_width=1,
         )
     return annotated
 
