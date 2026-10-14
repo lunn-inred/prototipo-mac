@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr t
 COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend /app/backend
-RUN useradd --create-home mac
+RUN useradd --create-home mac && mkdir -p /app/data/thermography && chown -R mac:mac /app/data
 USER mac
 EXPOSE 8000
 CMD ["python", "-m", "uvicorn", "backend.mac_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

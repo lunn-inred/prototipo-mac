@@ -23,19 +23,25 @@ from frontend.streamlit.api_client.service_gateway import (
     save_legacy_thermography,
 )
 from frontend.streamlit.components.thermography.editor import LEGS, VIEW_LABELS
+from frontend.streamlit.api_client.local_analyses import save_local_analysis, list_local_analyses, load_local_analysis
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_saved_entry(entry):
+    return load_local_analysis(entry)
+
 
 def _timeline_sort_key(entry: dict[str, Any]) -> tuple[date, int]:
     return entry["collected_at"], int(entry["sequence"])
 
 
-def _timeline_entry_by_id(entry_id: int | None) -> dict[str, Any] | None:
+def _timeline_entry_by_id(entry_id: str | None) -> dict[str, Any] | None:
     if entry_id is None:
         return None
     return next(
         (
             entry
             for entry in st.session_state.get("thermography_timeline", [])
-            if int(entry["id"]) == int(entry_id)
+            if str(entry["id"]) == str(entry_id)
         ),
         None,
     )
@@ -43,15 +49,15 @@ def _timeline_entry_by_id(entry_id: int | None) -> dict[str, Any] | None:
 
 def _select_timeline_entry(entry: dict[str, Any], role: str) -> None:
     """Seleciona Basal ou Atual sem modificar a outra ponta da comparação."""
-    st.session_state[f"thermography_timeline_{role}"] = int(entry["id"])
+    st.session_state[f"thermography_timeline_{role}"] = str(entry["id"])
 
 
-def _select_timeline_entry_by_id(entry_id: int, role: str) -> None:
+def _select_timeline_entry_by_id(entry_id: str, role: str) -> None:
     """Callback de botão: atualiza a seleção antes do rerun do Streamlit."""
     entry = _timeline_entry_by_id(entry_id)
     if entry is None:
         st.session_state["thermography_timeline_message"] = (
-            "A coleta selecionada não está mais disponível na sessão."
+            "A análise selecionada não está mais disponível."
         )
         return
     _select_timeline_entry(entry, role)
@@ -63,6 +69,11 @@ def _timeline_view_at_threshold(source, threshold):
 
 
 def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
+    try:
+        t0, ti = _load_saved_entry(t0), _load_saved_entry(ti)
+    except ValueError as error:
+        st.error(f"Não foi possível carregar as imagens da análise: {error}")
+        return
     st.markdown("#### Comparação Basal × Atual")
     st.caption(
         f"Basal: {t0['collected_at'].strftime('%d/%m/%Y')} · "
@@ -208,33 +219,31 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                     )
 
 
-def render_timeline(selected_player_id: int | None) -> None:
+def render_timeline(athletes: list[dict[str, Any]]) -> None:
     st.subheader("Timeline térmica")
+    players = {int(athlete['id_atleta']): athlete for athlete in athletes}
+    selector_key = 'thermography_timeline_player'
+    if st.session_state.get(selector_key) not in players:
+        st.session_state.pop(selector_key, None)
+    selected_player_id = st.selectbox(
+        'Jogador da timeline', list(players), index=None,
+        format_func=lambda player_id: athlete_label(players[player_id]),
+        placeholder='Selecione um jogador para consultar suas análises',
+        disabled=not players, key=selector_key,
+    )
     if message := st.session_state.pop("thermography_timeline_message", None):
         st.warning(message)
     if selected_player_id is None:
-        st.caption("Selecione um jogador para visualizar e comparar suas coletas da sessão.")
+        st.caption("Selecione um jogador para visualizar e comparar suas análises salvas localmente.")
         return
 
-    timeline_entries = st.session_state.get("thermography_timeline", [])
-    if any(entry.get("version") != 2 for entry in timeline_entries):
-        timeline_entries = []
-        st.session_state["thermography_timeline"] = []
-        st.session_state.pop("thermography_timeline_t0", None)
-        st.session_state.pop("thermography_timeline_ti", None)
-        st.info(
-            "A timeline temporária anterior foi limpa para habilitar o ajuste "
-            "dinâmico de temperatura. Adicione as coletas novamente."
-        )
-    entries = sorted(
-        (
-            entry
-            for entry in timeline_entries
-            if int(entry["athlete_id"]) == int(selected_player_id)
-        ),
-        key=_timeline_sort_key,
-    )
-    valid_ids = {int(entry["id"]) for entry in entries}
+    try:
+        entries = sorted(list_local_analyses(selected_player_id), key=_timeline_sort_key)
+    except ValueError as error:
+        st.error(f"Não foi possível carregar as análises locais: {error}")
+        return
+    st.session_state["thermography_timeline"] = entries
+    valid_ids = {str(entry["id"]) for entry in entries}
     for role in ("t0", "ti"):
         key = f"thermography_timeline_{role}"
         if st.session_state.get(key) not in valid_ids:
@@ -242,7 +251,7 @@ def render_timeline(selected_player_id: int | None) -> None:
     if not entries:
         st.caption(
             "Analise um par de imagens e use “Adicionar à timeline”. "
-            "As imagens permanecem somente nesta sessão."
+            "As imagens e máscaras serão salvas no diretório local da API."
         )
         return
 
@@ -255,8 +264,7 @@ def render_timeline(selected_player_id: int | None) -> None:
             key="thermography_timeline_role_v2",
         )
     with clear_column:
-        if st.button("Limpar timeline", use_container_width=True):
-            st.session_state["thermography_timeline"] = []
+        if st.button("Limpar seleção", use_container_width=True):
             st.session_state.pop("thermography_timeline_t0", None)
             st.session_state.pop("thermography_timeline_ti", None)
             st.rerun()
@@ -265,7 +273,7 @@ def render_timeline(selected_player_id: int | None) -> None:
     selected_ti = st.session_state.get("thermography_timeline_ti")
     card_styles = []
     for entry in entries:
-        entry_id = int(entry["id"])
+        entry_id = str(entry["id"])
         active_selection = selected_t0 if role == "t0" else selected_ti
         is_selected = entry_id == active_selection
         selector = f".st-key-timeline_card_{entry_id}"
@@ -294,13 +302,13 @@ def render_timeline(selected_player_id: int | None) -> None:
     )
     with st.container(horizontal=True):
         for entry in entries:
-            entry_id = int(entry["id"])
+            entry_id = str(entry["id"])
             with st.container(
                 border=True,
                 width=190,
                 key=f"timeline_card_{entry_id}",
             ):
-                thumbnail = entry["views"]["front"]["image"].copy()
+                thumbnail = entry["thumbnail"].copy()
                 thumbnail.thumbnail((170, 110))
                 st.image(thumbnail, width="stretch")
                 label = entry["collected_at"].strftime("%d/%m/%Y")
@@ -311,8 +319,8 @@ def render_timeline(selected_player_id: int | None) -> None:
                     on_click=_select_timeline_entry_by_id,
                     args=(entry_id, role),
                 )
-                st.caption(f"Coleta #{entry['sequence']}")
-    st.caption("As imagens da timeline são temporárias e serão perdidas ao encerrar a sessão.")
+                st.caption(f"Análise {entry['id'][:8]}")
+    st.caption("Análises armazenadas localmente no servidor da API. Limpar seleção não exclui arquivos.")
 
     t0 = _timeline_entry_by_id(st.session_state.get("thermography_timeline_t0"))
     ti = _timeline_entry_by_id(st.session_state.get("thermography_timeline_ti"))
@@ -330,43 +338,30 @@ def add_to_timeline(
     collected_at: date | None,
     views: dict[str, dict[str, Any]],
     items: dict[str, dict[str, Any]],
+    *, athlete_name=None, mass=None, pain_score=None, observations="",
 ) -> None:
-    timeline: list[dict[str, Any]] = st.session_state.setdefault(
-        "thermography_timeline", []
-    )
-    sequence = int(st.session_state.get("thermography_timeline_sequence", 0)) + 1
-    st.session_state["thermography_timeline_sequence"] = sequence
-    stored_views: dict[str, dict[str, Any]] = {}
+    stored_views = {}
     for view_key, view in views.items():
-        analysis = items[f"{view_key}:{view['signature']}"]["analysis"]
+        item = items[f"{view_key}:{view['signature']}"]
+        analysis = item["analysis"]
         stored_views[view_key] = {
-            "image": view["image"].copy(),
-            "minimum_temperature": float(items[f"{view_key}:{view['signature']}"]["minimum_temperature"]),
-            "maximum_temperature": float(items[f"{view_key}:{view['signature']}"]["maximum_temperature"]),
+            "image": view["image"], "original_filename": view.get("name", ""),
+            "image_rotation": item.get("image_rotation", 0),
+            "minimum_temperature": float(item["minimum_temperature"]),
+            "maximum_temperature": float(item["maximum_temperature"]),
             "default_threshold": float(analysis["threshold"]),
-            "boxes": {side: dict(box) for side, box in analysis["boxes"].items()},
-            "temperatures": analysis["temperatures"].copy(),
-            "segmentation_masks": {
-                side: analysis["masks"][side].astype(bool).copy()
-                for side in LEGS.values()
-            },
+            "boxes": analysis["boxes"], "colorbar_box": analysis.get("colorbar_box"),
+            "temperatures": analysis["temperatures"], "segmentation_masks": analysis["masks"],
+            "part_settings": item.get("part_settings_v4", {}),
         }
-    entry = {
-        "version": 2,
-        "id": sequence,
-        "sequence": sequence,
-        "athlete_id": int(athlete_id),
-        "collected_at": collected_at or current_sao_paulo_date(),
-        "views": stored_views,
-    }
-    timeline.append(entry)
-    st.session_state["thermography_timeline_ti"] = sequence
-    existing_t0 = _timeline_entry_by_id(
-        st.session_state.get("thermography_timeline_t0")
-    )
-    if existing_t0 is None:
-        st.session_state["thermography_timeline_t0"] = sequence
-    st.session_state["thermography_timeline_message"] = "Coleta adicionada à timeline da sessão."
+    entry = save_local_analysis(athlete_id, athlete_name or f"Atleta {athlete_id}",
+                               collected_at or current_sao_paulo_date(), stored_views,
+                               mass=mass, pain_score=pain_score, observations=observations)
+    _load_saved_entry.clear()
+    st.session_state['thermography_timeline_player'] = int(athlete_id)
+    st.session_state["thermography_timeline_ti"] = entry["id"]
+    st.session_state.setdefault("thermography_timeline_t0", entry["id"])
+    st.session_state["thermography_timeline_message"] = "Análise salva localmente e adicionada à timeline."
 
 
 @st.dialog("Data da coleta")
@@ -375,6 +370,7 @@ def confirm_timeline_date(
     views: dict[str, dict[str, Any]],
     items: dict[str, dict[str, Any]],
     pair_signature: str,
+    *, athlete_name=None, mass=None, pain_score=None, observations="",
 ) -> None:
     st.caption("Informe a data em que as imagens termográficas foram coletadas.")
     collected_at = st.date_input(
@@ -388,8 +384,14 @@ def confirm_timeline_date(
         use_container_width=True,
         key=f"confirm_timeline_date_{pair_signature}",
     ):
-        add_to_timeline(athlete_id, collected_at, views, items)
-        st.rerun()
+        try:
+            add_to_timeline(athlete_id, collected_at, views, items,
+                            athlete_name=athlete_name, mass=mass, pain_score=pain_score,
+                            observations=observations)
+        except (ValueError, OSError) as error:
+            st.error(f"Não foi possível salvar a análise local: {error}")
+        else:
+            st.rerun()
 
     if st.button('Concluir', type='primary', width='stretch', key=f'close_timeline_collection_{pair_signature}'):
         st.rerun()

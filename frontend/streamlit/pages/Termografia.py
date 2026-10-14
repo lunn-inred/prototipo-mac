@@ -108,7 +108,7 @@ athlete_id_by_editor_label = {
 result = render_wizard(athletes_by_id)
 if result is None:
     st.divider()
-    render_timeline(st.session_state.get('thermal_draft', {}).get('player'))
+    render_timeline(athletes)
     st.divider()
     render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
     st.stop()
@@ -252,11 +252,14 @@ if all(view_metrics.values()):
         if timeline_action.button(
             "Adicionar à timeline",
             disabled=prepared_player_id is None,
-            help="Mantém imagens e métricas somente durante esta sessão.",
+            help="Salva imagens, máscaras e metadados localmente no servidor da API.",
             key=f"add_thermography_timeline_{pair_signature}",
             width="stretch",
         ):
-            confirm_timeline_date(int(prepared_player_id), views, items, pair_signature)
+            confirm_timeline_date(int(prepared_player_id), views, items, pair_signature,
+                                  athlete_name=athletes_by_id[int(prepared_player_id)]['nome'],
+                                  mass=prepared_mass, pain_score=prepared_pain_score,
+                                  observations=prepared_observations)
 
         if database_action.button(
             "Registrar coleta no banco",
@@ -276,7 +279,7 @@ if all(view_metrics.values()):
                 observations=prepared_observations,
                 pair_signature=pair_signature,
             )
-        st.caption("As imagens não são armazenadas; somente as medidas são enviadas.")
+        st.caption("Adicionar à timeline salva imagens localmente. Registrar no banco envia somente as medidas.")
 
     navigate(6)
 
@@ -284,6 +287,6 @@ else:
     stored_metrics.clear()
 
 st.divider()
-render_timeline(st.session_state.get('thermal_draft', {}).get('player'))
+render_timeline(athletes)
 st.divider()
 render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)

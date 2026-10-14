@@ -46,3 +46,6 @@ Thumbs.db
 *.log
 *.tmp
 *.temp
+
+# Imagens e dados privados das análises térmicas locais
+/data/thermography/

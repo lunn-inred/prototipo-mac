@@ -1,5 +1,6 @@
 services:
   backend:
+    volumes: !override []
     ports: !override ["127.0.0.1:18000:8000"]
     environment:
       SUPABASE_DB_HOST: postgres-test
@@ -8,6 +9,7 @@ services:
       SUPABASE_DB_USER: mac_test
       SUPABASE_DB_PASSWORD: mac_test_local
       SUPABASE_DB_SSLMODE: disable
+      MAC_ANALYSES_DIR: /tmp/mac_test_thermography
     depends_on:
       postgres-test:
         condition: service_healthy

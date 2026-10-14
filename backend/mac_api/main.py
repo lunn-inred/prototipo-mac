@@ -49,6 +49,8 @@ def require_api_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
 from backend.mac_api.modules.thermography.operations import router as processing_router
 router.include_router(processing_router)
+from backend.mac_api.modules.thermography.archive_routes import router as archive_router
+router.include_router(archive_router)
 from backend.mac_api.modules.analytics.operations import OPERATIONS as ANALYTICS
 from backend.mac_api.modules.thermography.operations import ProcessingInput, ProcessingOutput
 from backend.mac_api.core.wire import encode, decode

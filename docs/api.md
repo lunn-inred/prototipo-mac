@@ -63,6 +63,9 @@ Com a API em execução:
 | `POST /api/v1/thermography/legacy/extract` | Extrai documentos manuscritos | Não |
 | `POST /api/v1/thermography/legacy/validate-athletes` | Correlaciona nomes revisados | Não |
 | `POST /api/v1/thermography/legacy/import` | Registra o lote legado validado | Sim |
+| `POST /api/v1/thermography/analyses` | Salva imagens e dados da análise localmente | Não |
+| `GET /api/v1/thermography/analyses?athlete_id=` | Lista análises locais com miniatura | Não |
+| `GET /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Carrega imagens, máscaras e matrizes de uma análise | Não |
 
 Uploads usam `multipart/form-data`; os demais corpos usam JSON. Os esquemas,
 campos obrigatórios e exemplos para testar cada chamada ficam sempre atualizados
@@ -132,10 +135,19 @@ Para novos consumidores, prefira a rota tipada `/segment` para análise completa
 relativos à caixa escolhida antes do GrabCut. A contagem continua restrita à máscara.
 As operações granulares preservam a interação do protótipo existente.
 
-Imagens/matrizes ficam temporariamente na sessão do cliente e na requisição.
-O backend não salva imagens nem cria análises persistentes. Encerrar a sessão
-perde a timeline visual. Somente métricas confirmadas são gravadas no banco;
-o histórico de métricas não reconstrói as imagens da comparação.
+As rotas de processamento são stateless. Para persistir uma análise, utilize
+`POST /api/v1/thermography/analyses`: informe `athlete_id`, `athlete_name`,
+`collected_at` (ISO), `mass`, `pain_score`, `observations` e `views` com
+`front`/`back`. Cada vista contém `image`, `temperatures`, `segmentation_masks`
+(`right`/`left`), `boxes`, Tmin/Tmax (`minimum_temperature`/`maximum_temperature`),
+`default_threshold`, `part_settings`, `image_rotation`, `original_filename` e
+`colorbar_box` opcional. Imagens/matrizes usam o formato de transporte descrito acima.
+O backend valida e recalcula métricas antes de gravar. Resposta `201`: resumo
+com UUID, data e miniatura. Listagem retorna resumos; detalhe retorna também
+`views` e `metadata`. As três rotas exigem a mesma chave da API e não consultam
+nem alteram o banco. Data e UUID identificam arquivos, não coletas SQL.
+O arquivo local permite recuperar as imagens após encerrar a sessão;
+o histórico de medidas do banco continua sem imagens.
 
 ## Indicadores e importações
 

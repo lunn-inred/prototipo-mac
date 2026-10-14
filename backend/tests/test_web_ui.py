@@ -3,6 +3,7 @@ import io
 import hashlib
 import os
 import unittest
+from tempfile import TemporaryDirectory
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -45,6 +46,10 @@ class WebUiIntegrationTests(unittest.TestCase):
                     metric = cursor.fetchone()
                     cursor.execute("INSERT INTO public.medida_valor(id_atleta,id_medida,valor,data) VALUES (%s,%s,2.4,%s)", (athlete_id,metric[0],date.today()))
         self.client = TestClient(create_app())
+        self.local_analyses = TemporaryDirectory(prefix='mac-web-ui-analyses-')
+        self.addCleanup(self.local_analyses.cleanup)
+        environment = patch.dict(os.environ, MAC_ANALYSES_DIR=self.local_analyses.name)
+        environment.start(); self.addCleanup(environment.stop)
         self.root = Path(__file__).resolve().parents[2]
 
     def http(self, method, url, **kwargs):

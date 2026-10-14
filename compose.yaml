@@ -4,6 +4,12 @@ services:
       context: .
       dockerfile: infrastructure/docker/backend.Dockerfile
     env_file: ${MAC_ENV_FILE:-.env}
+    volumes:
+      - type: bind
+        source: ./data/thermography
+        target: /app/data/thermography
+        bind:
+          create_host_path: false
     ports: ["127.0.0.1:8000:8000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
