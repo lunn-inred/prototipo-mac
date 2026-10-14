@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 from streamlit_drawable_konva import crop_box_from_json, st_canvas
+from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
 
 from frontend.streamlit.api_client.contracts import (unique_matching_athlete_id)
 from frontend.streamlit.api_client.thermal_client import (annotate_boxes, compare_hot_masks, count_hot_pixels, detect_colorbar_box, detect_leg_boxes, hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix, DEFAULT_PART_CUTS, LEG_PARTS, leg_part_metrics, scale_percentage_from_temperature, temperature_from_scale_percentage)
@@ -78,7 +79,7 @@ def _display_image(
     max_width: int = 850,
     max_height: int | None = None,
 ) -> tuple[Image.Image, float]:
-    limits = [2.0, max_width / image.width]
+    limits = [4.0, max_width / image.width]
     if max_height is not None:
         limits.append(max_height / image.height)
     scale = min(limits)
@@ -88,6 +89,13 @@ def _display_image(
         (int(round(image.width * scale)), int(round(image.height * scale))),
         Image.Resampling.NEAREST,
     ), scale
+
+
+def centered_canvas(**kwargs):
+    """Centraliza a área real do canvas, não apenas seu iframe."""
+    with st.container(horizontal=True, horizontal_alignment='center'):
+        with st.container(width=kwargs['width']):
+            return st_canvas(**kwargs)
 
 
 def _scaled_box(
@@ -120,10 +128,15 @@ def _automatic_boxes(image: Image.Image, view_key: str) -> dict[str, dict[str, i
 
 
 def _canvas_seeds(
-    image_data: np.ndarray, image: Image.Image, box: dict[str, int]
+    image_data: np.ndarray, image: Image.Image, box: dict[str, int], *, cropped=False
 ) -> tuple[np.ndarray, int, int]:
     rgba = np.asarray(image_data, dtype=np.uint8)
-    rgba = np.asarray(Image.fromarray(rgba).resize(image.size, Image.Resampling.NEAREST))
+    if cropped:
+        local = np.asarray(Image.fromarray(rgba).resize((box['width'], box['height']), Image.Resampling.NEAREST))
+        rgba = np.zeros((image.height, image.width, local.shape[2]), dtype=np.uint8)
+        rgba[box['top']:box['top']+box['height'], box['left']:box['left']+box['width']] = local
+    else:
+        rgba = np.asarray(Image.fromarray(rgba).resize(image.size, Image.Resampling.NEAREST))
     red, green, blue = rgba[:, :, 0], rgba[:, :, 1], rgba[:, :, 2]
     alpha = rgba[:, :, 3] if rgba.shape[2] > 3 else np.full(red.shape, 255, np.uint8)
     foreground = (alpha > 20) & (green > 245) & (red < 35) & (blue < 35)
@@ -162,16 +175,11 @@ def _parts_preview(image: Image.Image, analysis: dict[str, Any],
     draw = ImageDraw.Draw(preview)
     colors = ("#00e5ff", "#ffff00", "#ff9f1c")
     for side, setting in settings.items():
-        _, boundaries = leg_part_metrics(
-            analysis["temperatures"], analysis["masks"][side],
-            analysis["threshold"], tuple(setting["cuts"]),
-            axis=setting["axis"], foot_at_end=setting["foot_at_end"],
-        )
         box = analysis["boxes"][side]
-        occupied = np.flatnonzero(np.any(
-            analysis["masks"][side], axis=0 if setting["axis"] == "horizontal" else 1
-        ))
-        near, far = int(occupied[0]), int(occupied[-1]) + 1
+        near = box['left'] if setting['axis'] == 'horizontal' else box['top']
+        far = near + (box['width'] if setting['axis'] == 'horizontal' else box['height'])
+        boundaries = tuple(near + round((far-near)*cut/100) if setting['foot_at_end']
+                           else far - round((far-near)*cut/100) for cut in setting['cuts'])
         endpoints = ((near, *boundaries, far) if setting["foot_at_end"]
                      else (far, *boundaries, near))
         for coordinate, color in zip(boundaries, colors):
@@ -181,7 +189,7 @@ def _parts_preview(image: Image.Image, analysis: dict[str, Any],
             else:
                 line = (box["left"], coordinate,
                         box["left"] + box["width"], coordinate)
-            draw.line(line, fill=color, width=max(2, image.width // 300))
+            draw.line(line, fill=color, width=max(6, image.height // 100))
         try:
             font = ImageFont.truetype('DejaVuSans.ttf', max(12, min(24, image.height // 35)))
         except OSError:
@@ -220,23 +228,24 @@ def edit_thermal_boxes(
         "Perna direita": boxes["right"], "Perna esquerda": boxes["left"],
         "Barra térmica": colorbar,
     })
-    background, scale = _display_image(preview, max_width=620, max_height=360)
+    max_width, max_height = dialog_canvas_limits(f'boxes_{item_key}')
+    background, scale = _display_image(preview, max_width=max_width, max_height=max_height)
     st.caption(
         "Desenhe um retângulo somente sobre a faixa colorida da escala."
         if is_colorbar else
         "Desenhe um retângulo sobre toda a área da perna selecionada."
     )
-    canvas = st_canvas(
+    canvas = centered_canvas(
         fill_color="rgba(0,255,255,0.12)", stroke_color="#00FFFF",
         stroke_width=3, background_image=background,
         height=background.height, width=background.width,
         drawing_mode="rect_crop", display_toolbar=True,
         enable_viewport_controls=True,
-        key=f"thermal_box_canvas_{item_key}_{'colorbar' if is_colorbar else side}",
+        key=f"thermal_box_canvas_{item_key}_{'colorbar' if is_colorbar else side}_{background.size}",
     )
     crop = crop_box_from_json(canvas.json_data)
     apply_column, reset_column, finish_column = st.columns([2, 2, 1])
-    if apply_column.button("Aplicar área", type="primary", disabled=crop is None, width='stretch'):
+    if apply_column.button("Aplicar área", disabled=crop is None, width='stretch'):
         selected_box = _scaled_box(crop, scale, image)
         if is_colorbar:
             item["manual_colorbar_box"] = selected_box
@@ -259,7 +268,7 @@ def edit_thermal_boxes(
             f"Área de {target_label.lower()} restaurada."
         )
         st.rerun(scope="fragment")
-    if finish_column.button("Concluir", width='stretch'):
+    if finish_column.button("Concluir", type='primary', width='stretch'):
         st.rerun()
 
 
@@ -285,18 +294,30 @@ def edit_thermal_mask(
         "Tamanho do pincel", 2, 40, 10, key=f"thermal_brush_size_{item_key}"
     )
     st.caption("Verde inclui pixels na área; vermelho exclui pixels da área.")
-    background, _ = _display_image(
-        analysis["overlay"], max_width=620, max_height=360
-    )
-    canvas = st_canvas(
-        fill_color="rgba(0,0,0,0)",
-        stroke_color="#00FF00" if brush_label == "Incluir área" else "#FF0000",
-        stroke_width=brush_size, background_image=background,
-        height=background.height, width=background.width,
-        drawing_mode="freedraw", display_toolbar=True,
-        enable_viewport_controls=True,
-        key=f"thermal_mask_canvas_{item_key}_{side}",
-    )
+    box = analysis['boxes'][side]
+    bounds = (box['left'], box['top'], box['left']+box['width'], box['top']+box['height'])
+    max_width, max_height = dialog_canvas_limits(f'mask_{item_key}', columns=2)
+    background, _ = _display_image(analysis['overlay'].crop(bounds), max_width=max_width, max_height=max_height)
+    preview_array = np.asarray(image.convert('RGB')).copy()
+    preview_array[~analysis['masks'][side].astype(bool)] = 0
+    segmented = Image.fromarray(preview_array).crop(bounds)
+    original_column, segmented_column = st.columns(2)
+    with original_column:
+        st.caption('Perna selecionada — edição')
+        canvas = centered_canvas(
+            fill_color="rgba(0,0,0,0)",
+            stroke_color="#00FF00" if brush_label == "Incluir área" else "#FF0000",
+            stroke_width=brush_size, background_image=background,
+            height=background.height, width=background.width,
+            drawing_mode="freedraw", display_toolbar=True,
+            enable_viewport_controls=True,
+            key=f"thermal_mask_canvas_{item_key}_{side}_{bounds}_{background.size}",
+        )
+    with segmented_column:
+        st.caption('Área segmentada')
+        preview, _ = _display_image(segmented, max_width=max_width, max_height=max_height)
+        with st.container(horizontal=True, horizontal_alignment='center'):
+            st.image(preview, width='content')
     def recalculate(selected_side: str) -> None:
         nonlocal analysis
         _invalidate_segmentation(item)
@@ -304,12 +325,12 @@ def edit_thermal_mask(
                                       item['maximum_temperature'], analysis['threshold'], item)
 
     apply_column, reset_column, finish_column = st.columns([2, 2, 1])
-    if apply_column.button("Aplicar traços e recalcular", type="primary", width='stretch'):
+    if apply_column.button("Aplicar traços e recalcular", width='stretch'):
         if canvas.image_data is None:
             st.warning("Faça ao menos um traço antes de aplicar.")
             return
         seeds, included, excluded = _canvas_seeds(
-            canvas.image_data, image, analysis["boxes"][side]
+            canvas.image_data, image, analysis["boxes"][side], cropped=True
         )
         if included + excluded == 0:
             st.warning("Nenhum traço verde ou vermelho foi identificado.")
@@ -333,7 +354,7 @@ def edit_thermal_mask(
             f"Máscara automática de {target_label.lower()} restaurada."
         )
         st.rerun(scope="fragment")
-    if finish_column.button("Concluir", width='stretch'):
+    if finish_column.button("Concluir", type='primary', width='stretch'):
         st.rerun()
 
 

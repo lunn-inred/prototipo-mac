@@ -19,12 +19,13 @@ from frontend.streamlit.components.thermography.editor import (
     edit_thermal_boxes, edit_thermal_mask, segmented_analysis,
 )
 from frontend.streamlit.presentation.thermography_data import athlete_label
+from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
 
 STEPS = ('Dados da coleta', 'Imagens e rotação', 'Caixas das pernas e barra de cores',
          'Divisão anatômica', 'Segmentação', 'Cálculo da termografia')
 
 
-def centered_preview(image, caption=None, max_width=550, max_height=330):
+def centered_preview(image, caption=None, max_width=700, max_height=400):
     preview, _ = _display_image(image, max_width=max_width, max_height=max_height)
     with st.container(horizontal=True, horizontal_alignment='center'):
         st.image(preview, caption=caption, width='content')
@@ -73,18 +74,15 @@ def edit_parts(item_key, image, analysis):
     side = LEGS[side_label]
     setting = item['part_settings_v4'][side]
     setting.update(axis='vertical', foot_at_end=True)
-    mask = analysis['masks'][side]
-    ys, xs = np.nonzero(mask)
-    if not len(xs):
-        st.error('A máscara está vazia. Corrija a segmentação primeiro.')
-        return
-    bounds = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+    box = analysis['boxes'][side]
+    bounds = (box['left'], box['top'], box['left']+box['width'], box['top']+box['height'])
     preview = analysis['overlay'].crop(bounds)
-    background, _ = _display_image(preview, max_width=620, max_height=300)
+    max_width, max_height = dialog_canvas_limits(f'parts_{item_key}', toolbar=False)
+    background, _ = _display_image(preview, max_width=max_width, max_height=max_height)
     extent = background.height
     draw = ImageDraw.Draw(background)
     try:
-        font = ImageFont.truetype('DejaVuSans.ttf', 14)
+        font = ImageFont.truetype('DejaVuSans.ttf', 20)
     except OSError:
         font = ImageFont.load_default()
     limits = [0, *[extent * cut / 100 for cut in setting['cuts']], extent]
@@ -93,7 +91,7 @@ def edit_parts(item_key, image, analysis):
                   fill='white', font=font, anchor='mm', stroke_width=2, stroke_fill='black')
     drawing = {'objects': [dict(type='rect', id=f'boundary_{index}',
                                x=0, y=extent * cut / 100,
-                               width=background.width, height=7,
+                               width=background.width, height=12,
                                fill=color, stroke=color, strokeWidth=0,
                                scalable=False, rotatable=False, deletable=False,
                                dragConstraint={'type': 'axis', 'axis': {'x': 0, 'y': 1}})
@@ -106,11 +104,13 @@ def edit_parts(item_key, image, analysis):
         geometries[side] = geometry
     drawing = scenes.get(side, drawing)
     st.caption('Arraste e solte as linhas. As posições são salvas automaticamente, de cima para baixo.')
-    canvas = st_canvas(background_image=background, width=background.width,
+    with st.container(horizontal=True, horizontal_alignment='center'):
+        with st.container(width=background.width):
+            canvas = st_canvas(background_image=background, width=background.width,
                        height=background.height, drawing_mode='transform',
                        initial_drawing=drawing, display_toolbar=False,
                        transform_options={'allow_scale': False, 'allow_rotate': False, 'allow_delete': False},
-                       key=f'parts_canvas_{item_key}_{side}_vertical')
+                       key=f'parts_canvas_{item_key}_{side}_vertical_{background.size}')
     if canvas.json_data:
         try:
             cuts = cuts_from_objects(canvas.json_data['objects'], extent, True, 'y')
@@ -125,7 +125,7 @@ def edit_parts(item_key, image, analysis):
                 context = get_script_run_ctx()
                 if context is not None and context.fragment_ids_this_run:
                     st.rerun(scope='fragment')
-    if st.button('Concluir', width='stretch'):
+    if st.button('Concluir', type='primary', width='stretch'):
         st.rerun()
 
 
@@ -133,13 +133,16 @@ def edit_parts(item_key, image, analysis):
 def restart_analysis():
     st.warning('Os dados e imagens da análise atual serão descartados da sessão. '
                'Registros no banco e coletas já adicionadas à timeline não serão alterados.')
-    if st.button('Confirmar nova análise', type='primary', width='stretch'):
+    if st.button('Confirmar nova análise', width='stretch'):
         for key in list(st.session_state):
             if key.startswith(('thermal_', 'wizard_', 'thermography_front_upload',
                                'thermography_back_upload', 'thermography_record_editor_')) or key in {
                                    'thermography_items', 'thermography_metrics', 'thermography_player',
                                    'thermography_mass', 'thermography_pain_score', 'thermography_observations'}:
                 del st.session_state[key]
+        st.rerun()
+
+    if st.button('Concluir', type='primary', width='stretch', key='close_restart_analysis'):
         st.rerun()
 
 
@@ -197,7 +200,7 @@ def render_wizard(athletes_by_id):
                               on_click=rotate_right, args=(view,))
                     try:
                         image, _, _ = rotated_view(entry['content'], entry['rotation'])
-                        centered_preview(image, caption=entry['name'], max_width=500)
+                        centered_preview(image, caption=entry['name'])
                         entry.pop('error', None)
                     except ValueError as error:
                         entry['error'] = str(error)
@@ -226,6 +229,9 @@ def render_wizard(athletes_by_id):
             image = source['image']
             key = f'{view}:{source["signature"]}'
             item = items[key]
+            settings = item.setdefault('part_settings_v4', {side: dict(cuts=list(DEFAULT_PART_CUTS), axis='vertical', foot_at_end=True) for side in LEGS.values()})
+            for setting in settings.values():
+                setting.update(axis='vertical', foot_at_end=True)
             if step == 5:
                 columns = st.columns(2)
                 item['minimum_temperature'] = columns[0].number_input('Tmin (°C)', value=float(item['minimum_temperature']), step=0.1, key=f'wizard_tmin_{key}')
@@ -251,7 +257,7 @@ def render_wizard(athletes_by_id):
                     st.error('Tmax deve ser maior que Tmin.')
                     valid = False
                     continue
-            if step == 2:
+            if step in (2, 3):
                 try:
                     regions = image_regions(image, view, item['image_rotation'])
                     automatic, colorbar = regions['boxes'], regions['colorbar_box']
@@ -261,9 +267,16 @@ def render_wizard(athletes_by_id):
                     st.error(str(error))
                     valid = False
                     continue
-                centered_preview(preview, max_width=700, max_height=380)
-                if st.button('Corrigir Áreas', key=f'wizard_boxes_{key}', width='stretch'):
-                    edit_thermal_boxes(key, image, automatic, colorbar)
+                if step == 2:
+                    centered_preview(preview, max_width=700, max_height=400)
+                    if st.button('Corrigir Áreas', key=f'wizard_boxes_{key}', width='stretch'):
+                        edit_thermal_boxes(key, image, automatic, colorbar)
+                else:
+                    geometry = dict(boxes=boxes, overlay=image)
+                    centered_preview(_parts_preview(image, geometry, settings),
+                                     caption='Coxa · Joelho · Canela · Pé (de cima para baixo)')
+                    if st.button('Editar divisões na imagem', key=f'wizard_parts_{key}', width='stretch'):
+                        edit_parts(key, image, geometry)
                 continue
             minimum, maximum = item['minimum_temperature'], item['maximum_temperature']
             if step != 5 and maximum <= minimum:
@@ -278,9 +291,6 @@ def render_wizard(athletes_by_id):
                 st.error(str(error))
                 valid = False
                 continue
-            settings = item.setdefault('part_settings_v4', {side: dict(cuts=list(DEFAULT_PART_CUTS), axis='vertical', foot_at_end=True) for side in LEGS.values()})
-            for setting in settings.values():
-                setting.update(axis='vertical', foot_at_end=True)
             metrics[view] = analysis['metrics']
             if step == 5:
                 original = annotate_boxes(image, {'Perna direita': analysis['boxes']['right'],
@@ -292,9 +302,6 @@ def render_wizard(athletes_by_id):
                 for preview_column, preview, caption in zip(st.columns(3), previews, captions):
                     with preview_column:
                         centered_preview(preview, caption=caption)
-            elif step == 3:
-                centered_preview(_parts_preview(image, analysis, settings),
-                                 caption='Coxa · Joelho · Canela · Pé (de cima para baixo)')
             else:
                 columns = st.columns(2)
                 with columns[0]:
@@ -304,15 +311,13 @@ def render_wizard(athletes_by_id):
                                      caption='Pernas segmentadas — área completa')
             if step == 4 and st.button('Corrigir segmentação', key=f'wizard_mask_{key}', width='stretch'):
                 edit_thermal_mask(key, image, analysis)
-            if step == 3 and st.button('Editar divisões na imagem', key=f'wizard_parts_{key}', width='stretch'):
-                edit_parts(key, image, analysis)
             if step == 5:
                 for column, (label, side) in zip(st.columns(2), LEGS.items()):
                     metric = analysis['metrics'][side]
                     column.metric(f'Pixels quentes — {label}', f'{metric["hot_pixels"]:,} px')
                     column.caption(f'Área: {metric["total_pixels"]:,} px · {metric["hot_percentage"]:.1f}% quentes')
                     setting = settings[side]
-                    parts, _ = leg_part_metrics(analysis['temperatures'], analysis['masks'][side], threshold, tuple(setting['cuts']), axis=setting['axis'], foot_at_end=setting['foot_at_end'])
+                    parts, _ = leg_part_metrics(analysis['temperatures'], analysis['masks'][side], threshold, tuple(setting['cuts']), axis=setting['axis'], foot_at_end=setting['foot_at_end'], region_box=analysis['boxes'][side])
                     for name, part in parts.items():
                         column.write(f'{name.capitalize()}: {part["hot_pixels"]} px quentes · {part["total_pixels"]} px de área · {part["hot_percentage"]:.1f}%')
     navigate(step, valid)

@@ -384,10 +384,13 @@ def confirm_timeline_date(
     )
     if st.button(
         "Confirmar e adicionar à timeline",
-        type="primary",
+        type="secondary",
         use_container_width=True,
         key=f"confirm_timeline_date_{pair_signature}",
     ):
         add_to_timeline(athlete_id, collected_at, views, items)
+        st.rerun()
+
+    if st.button('Concluir', type='primary', width='stretch', key=f'close_timeline_collection_{pair_signature}'):
         st.rerun()
 

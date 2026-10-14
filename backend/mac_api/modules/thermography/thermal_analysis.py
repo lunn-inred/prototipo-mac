@@ -462,6 +462,7 @@ def leg_part_metrics(
     *,
     axis: str = "horizontal",
     foot_at_end: bool = True,
+    region_box: Mapping[str, int | float] | None = None,
 ) -> tuple[dict[str, dict[str, float | int]], tuple[int, int, int]]:
     """Divide a extensão da máscara, da coxa ao pé, em qualquer orientação."""
     if mask.shape != temperature_map.shape:
@@ -474,6 +475,10 @@ def leg_part_metrics(
     if not len(occupied):
         raise ValueError("A segmentação não encontrou pixels da perna.")
     start, end = int(occupied[0]), int(occupied[-1]) + 1
+    if region_box is not None:
+        matrix_region(mask, region_box)
+        start = int(region_box['left'] if axis == 'horizontal' else region_box['top'])
+        end = start + int(region_box['width'] if axis == 'horizontal' else region_box['height'])
     boundaries = tuple(
         start + round((end - start) * cut / 100) if foot_at_end
         else end - round((end - start) * cut / 100)

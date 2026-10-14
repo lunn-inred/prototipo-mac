@@ -25,6 +25,29 @@ somente uma etapa por vez:
    original com caixas, as pernas segmentadas sem fundo e os pixels quentes.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
+anatômica, o GrabCut ainda não é executado: os limites são definidos sobre as
+caixas das pernas e mantêm suas coordenadas depois da segmentação. Os canvases
+dos pop-ups são centralizados.
+
+Os diálogos de edição ocupam até 96% da largura da janela, limitados a 1600 px,
+e seu conteúdo usa 100% dessa área. Um componente mede a altura útil da janela
+e a posição do editor, reservando espaço para controles, toolbar e botões.
+O canvas reduz ou amplia sua prévia para caber nessa área, sem scroll do diálogo;
+a medição é repetida após a montagem/transição da janela, e a última dimensão
+válida é preservada para evitar reabrir com uma prévia pequena. Os botões têm
+uma margem inferior reservada. **Concluir** é a ação destacada; aplicar,
+restaurar e confirmar registros são ações secundárias. Nos diálogos de registro,
+**Concluir** apenas fecha: a gravação exige clicar explicitamente em confirmar.
+a roda do mouse fica reservada ao zoom da imagem. A página usa 90%
+da área principal, limitada a 1440 px (100% em telas menores). Na página,
+as prévias ficam limitadas a 400 px e 40% da altura da janela, evitando expansão
+excessiva em monitores ultrawide. Os pop-ups mantêm seus limites ampliados,
+e as barras anatômicas são mais grossas para facilitar a visualização e o arraste.
+
+No editor de segmentação, aparece somente a perna selecionada,
+com a área segmentada em fundo preto à direita; os traços desse
+recorte são convertidos para coordenadas da imagem inteira antes do processamento.
+Na divisão
 anatômica, arraste as três linhas sobre a imagem; não é necessário ajustar
 sliders percentuais. O rascunho e as imagens ficam na sessão ao voltar para
 etapas anteriores. **Iniciar outra análise** descarta somente o rascunho atual,

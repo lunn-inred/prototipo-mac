@@ -15,6 +15,18 @@ from frontend.streamlit.components.thermography.wizard import cuts_from_objects,
 
 
 class ThermalWizardTests(unittest.TestCase):
+    def test_cropped_strokes_are_positioned_in_original_image(self):
+        from frontend.streamlit.components.thermography.editor import _canvas_seeds
+        strokes = np.zeros((4, 3, 4), dtype=np.uint8)
+        strokes[1, 1] = [0, 255, 0, 255]
+        strokes[2, 2] = [255, 0, 0, 255]
+        box = dict(left=5, top=6, width=3, height=4)
+        seeds, included, excluded = _canvas_seeds(strokes, Image.new('RGB', (20, 20)), box, cropped=True)
+        self.assertEqual((included, excluded), (1, 1))
+        self.assertEqual(seeds[7, 6], 1)
+        self.assertEqual(seeds[8, 7], -1)
+        self.assertEqual(np.count_nonzero(seeds), 2)
+
     def test_full_segmentation_preview_keeps_only_mask_pixels(self):
         image = Image.new('RGB', (3, 2), (200, 100, 50))
         right = np.array([[True, False, False], [False, False, False]])
@@ -40,8 +52,10 @@ class ThermalWizardTests(unittest.TestCase):
     def test_six_steps_preserve_data_and_reach_review_via_http(self):
         from backend.mac_api.repositories import data_repository
         client = TestClient(create_app())
+        processing_requests = []
         def http(method, url, **kwargs):
             kwargs.pop('timeout', None)
+            processing_requests.append(urlsplit(url).path)
             return client.request(method, urlsplit(url).path, **kwargs)
         image = Image.new('RGB', (320, 200), (15, 15, 15))
         draw = ImageDraw.Draw(image)
@@ -70,6 +84,10 @@ class ThermalWizardTests(unittest.TestCase):
                 app.button(key='thermal_next').click().run()
                 self.assertEqual(len(app.exception), 0, list(app.exception))
                 self.assertEqual(app.session_state['thermal_step'], step)
+                if step <= 3:
+                    self.assertNotIn('/api/v1/thermography/segment', processing_requests)
+                else:
+                    self.assertIn('/api/v1/thermography/segment', processing_requests)
                 headers = [header.value for header in app.subheader]
                 self.assertLess(headers.index('Nova análise térmica'), headers.index('Timeline térmica'))
                 self.assertLess(headers.index('Timeline térmica'), headers.index('Envio de Formulário'))
@@ -102,6 +120,8 @@ class ThermalWizardTests(unittest.TestCase):
                         self.assertEqual(len(app.exception), 0, list(app.exception))
                         scene = canvas.call_args.kwargs['initial_drawing']
                         self.assertEqual(len(scene['objects']), 3)
+                        self.assertEqual(next(button for button in app.button if button.label == 'Concluir').proto.type, 'primary')
+                        self.assertTrue(all(obj['height'] >= 12 for obj in scene['objects']))
                         self.assertEqual(scene['objects'][0]['dragConstraint']['axis'], {'x': 0, 'y': 1})
                         self.assertFalse(any(widget.label in ('Orientação', 'Onde está a coxa?') for widget in app.radio))
                         next(button for button in app.button if button.label == 'Concluir').click().run()
@@ -117,6 +137,19 @@ class ThermalWizardTests(unittest.TestCase):
                         item = app.session_state['thermography_items'][item_key]
                         self.assertEqual(item['part_settings_v4']['right']['cuts'], [40, 60, 85])
                         self.assertIn('right', item['part_scenes'])
+                        next(button for button in app.button if button.label == 'Concluir').click().run()
+                if step == 4:
+                    key = next(button.key for button in app.button if button.key and button.key.startswith('wizard_mask_front:'))
+                    with patch('frontend.streamlit.components.thermography.editor.st_canvas', return_value=SimpleNamespace(image_data=None, json_data=None)) as canvas:
+                        app.button(key=key).click().run()
+                        self.assertEqual(len(app.exception), 0, list(app.exception))
+                        item_key = key.removeprefix('wizard_mask_')
+                        box = app.session_state['thermography_items'][item_key]['analysis']['boxes']['right']
+                        background = canvas.call_args.kwargs['background_image']
+                        self.assertAlmostEqual(background.width/background.height, box['width']/box['height'], delta=.05)
+                        self.assertIn('Área segmentada', [caption.value for caption in app.caption])
+                        self.assertEqual(next(button for button in app.button if button.label == 'Concluir').proto.type, 'primary')
+                        self.assertEqual(next(button for button in app.button if button.label == 'Aplicar traços e recalcular').proto.type, 'secondary')
                         next(button for button in app.button if button.label == 'Concluir').click().run()
             self.assertIn('Resumo da coleta', [h.value for h in app.subheader])
             threshold_key = next(widget.key for widget in app.slider

@@ -128,6 +128,8 @@ interação. Recebe `{ "args": [...], "kwargs": {...} }` e retorna
 | `segmented_image` | Adaptador de análise completa |
 
 Para novos consumidores, prefira a rota tipada `/segment` para análise completa.
+`leg_part_metrics` aceita `region_box` opcional para manter os limites das partes
+relativos à caixa escolhida antes do GrabCut. A contagem continua restrita à máscara.
 As operações granulares preservam a interação do protótipo existente.
 
 Imagens/matrizes ficam temporariamente na sessão do cliente e na requisição.

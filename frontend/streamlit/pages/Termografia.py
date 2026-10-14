@@ -15,6 +15,59 @@ from frontend.streamlit.components.thermography.wizard import render_wizard
 
 st.set_page_config(page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide")
 
+# Estilo somente desta página; não amplia os diálogos das outras funcionalidades.
+st.html('''
+<style>
+[data-testid="stMainBlockContainer"] {
+    width: 90%;
+    max-width: 1440px;
+    margin-inline: auto;
+    padding-inline: 1rem;
+}
+[data-testid="stMainBlockContainer"] [data-testid="stImage"] {
+    width: fit-content !important;
+}
+[data-testid="stMainBlockContainer"] [data-testid="stImage"] img {
+    max-height: min(40vh, 400px);
+    max-width: 100%;
+    width: auto;
+    object-fit: contain;
+}
+[data-testid="stDialog"] {
+    padding-block: 1rem !important;
+    overflow: hidden !important;
+}
+/* Streamlit: overlay > janela externa > conteúdo com role="dialog".
+   Ampliar somente o role fazia o conteúdo exceder a janela externa. */
+[data-testid="stDialog"] > div {
+    width: min(96vw, 1600px) !important;
+    max-width: calc(100vw - 2rem) !important;
+    box-sizing: border-box;
+}
+[data-testid="stDialog"] [role="dialog"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0;
+    max-height: calc(100vh - 4rem);
+    box-sizing: border-box;
+    overflow: hidden;
+    overscroll-behavior: contain;
+    padding-bottom: 24px;
+}
+[data-testid="stDialog"] button[kind="secondary"] {
+    background-color: white;
+    color: #111827;
+}
+[data-testid="stDialog"] [data-testid="stImage"] img {
+    max-width: 100%;
+    object-fit: contain;
+}
+@media (max-width: 900px) {
+    [data-testid="stMainBlockContainer"] { width: 100%; }
+}
+</style>
+''')
+
 
 
 
