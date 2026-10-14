@@ -57,6 +57,12 @@ Contratos: [API HTTP](api.md). Validação: [testes](testing.md).
 
 ## Responsabilidades
 
+O tema compartilhado em `frontend/streamlit/components/ui.py` limita todas as
+páginas (Jogadores, GPS, Salto e Termografia) a 90% da área principal, com máximo
+de 1440 px e centralização. Em telas de até 900 px, usa 100% da largura disponível.
+Assim, monitores ultrawide não esticam os componentes indefinidamente. Os limites
+específicos das imagens e dos pop-ups térmicos continuam apenas na Termografia.
+
 `frontend/` contém Streamlit, componentes, apresentação e clientes HTTP.
 `backend/` contém FastAPI, regras, processamento e PostgreSQL.
 `desktop/` inicia os processos e empacota os mesmos módulos usados na versão web.

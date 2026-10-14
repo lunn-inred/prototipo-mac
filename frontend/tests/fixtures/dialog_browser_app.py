@@ -5,8 +5,10 @@ import streamlit as st
 from PIL import Image
 from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
 from frontend.streamlit.components.thermography.editor import _display_image
+from frontend.streamlit.components.ui import apply_global_style
 
 st.set_page_config(layout='wide')
+apply_global_style()
 page = Path(__file__).resolve().parents[2] / 'streamlit/pages/Termografia.py'
 for node in ast.walk(ast.parse(page.read_text())):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'html':

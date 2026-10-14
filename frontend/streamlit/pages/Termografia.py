@@ -18,12 +18,6 @@ st.set_page_config(page_title="MAC Performance | Termografia", page_icon="🌡�
 # Estilo somente desta página; não amplia os diálogos das outras funcionalidades.
 st.html('''
 <style>
-[data-testid="stMainBlockContainer"] {
-    width: 90%;
-    max-width: 1440px;
-    margin-inline: auto;
-    padding-inline: 1rem;
-}
 [data-testid="stMainBlockContainer"] [data-testid="stImage"] {
     width: fit-content !important;
 }
@@ -61,9 +55,6 @@ st.html('''
 [data-testid="stDialog"] [data-testid="stImage"] img {
     max-width: 100%;
     object-fit: contain;
-}
-@media (max-width: 900px) {
-    [data-testid="stMainBlockContainer"] { width: 100%; }
 }
 </style>
 ''')
