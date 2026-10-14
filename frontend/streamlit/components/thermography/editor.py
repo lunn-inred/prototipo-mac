@@ -228,7 +228,7 @@ def edit_thermal_boxes(
         "Perna direita": boxes["right"], "Perna esquerda": boxes["left"],
         "Barra térmica": colorbar,
     })
-    max_width, max_height = dialog_canvas_limits(f'boxes_{item_key}')
+    max_width, max_height = dialog_canvas_limits(f'boxes_{item_key}', toolbar=False)
     background, scale = _display_image(preview, max_width=max_width, max_height=max_height)
     st.caption(
         "Desenhe um retângulo somente sobre a faixa colorida da escala."
@@ -239,7 +239,7 @@ def edit_thermal_boxes(
         fill_color="rgba(0,255,255,0.12)", stroke_color="#00FFFF",
         stroke_width=3, background_image=background,
         height=background.height, width=background.width,
-        drawing_mode="rect_crop", display_toolbar=True,
+        drawing_mode="rect_crop", display_toolbar=False,
         enable_viewport_controls=True,
         key=f"thermal_box_canvas_{item_key}_{'colorbar' if is_colorbar else side}_{background.size}",
     )
@@ -296,7 +296,7 @@ def edit_thermal_mask(
     st.caption("Verde inclui pixels na área; vermelho exclui pixels da área.")
     box = analysis['boxes'][side]
     bounds = (box['left'], box['top'], box['left']+box['width'], box['top']+box['height'])
-    max_width, max_height = dialog_canvas_limits(f'mask_{item_key}', columns=2)
+    max_width, max_height = dialog_canvas_limits(f'mask_{item_key}', columns=2, toolbar=False)
     background, _ = _display_image(analysis['overlay'].crop(bounds), max_width=max_width, max_height=max_height)
     preview_array = np.asarray(image.convert('RGB')).copy()
     preview_array[~analysis['masks'][side].astype(bool)] = 0
@@ -309,7 +309,7 @@ def edit_thermal_mask(
             stroke_color="#00FF00" if brush_label == "Incluir área" else "#FF0000",
             stroke_width=brush_size, background_image=background,
             height=background.height, width=background.width,
-            drawing_mode="freedraw", display_toolbar=True,
+            drawing_mode="freedraw", display_toolbar=False,
             enable_viewport_controls=True,
             key=f"thermal_mask_canvas_{item_key}_{side}_{bounds}_{background.size}",
         )

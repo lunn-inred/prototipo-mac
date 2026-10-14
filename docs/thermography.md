@@ -36,7 +36,9 @@ O canvas reduz ou amplia sua prévia para caber nessa área, sem scroll do diál
 a medição é repetida após a montagem/transição da janela, e a última dimensão
 válida é preservada para evitar reabrir com uma prévia pequena. Os botões têm
 uma margem inferior reservada. **Concluir** é a ação destacada; aplicar,
-restaurar e confirmar registros são ações secundárias. Nos diálogos de registro,
+restaurar e confirmar registros são ações secundárias. As barras cinzas do canvas
+(Undo, Redo, Clear e botões de zoom) ficam ocultas; o zoom pela roda do mouse
+permanece disponível nos editores de caixas e máscaras. Nos diálogos de registro,
 **Concluir** apenas fecha: a gravação exige clicar explicitamente em confirmar.
 a roda do mouse fica reservada ao zoom da imagem. A página usa 90%
 da área principal, limitada a 1440 px (100% em telas menores). Na página,

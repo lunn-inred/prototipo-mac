@@ -146,6 +146,7 @@ class ThermalWizardTests(unittest.TestCase):
                         item_key = key.removeprefix('wizard_mask_')
                         box = app.session_state['thermography_items'][item_key]['analysis']['boxes']['right']
                         background = canvas.call_args.kwargs['background_image']
+                        self.assertFalse(canvas.call_args.kwargs['display_toolbar'])
                         self.assertAlmostEqual(background.width/background.height, box['width']/box['height'], delta=.05)
                         self.assertIn('Área segmentada', [caption.value for caption in app.caption])
                         self.assertEqual(next(button for button in app.button if button.label == 'Concluir').proto.type, 'primary')
