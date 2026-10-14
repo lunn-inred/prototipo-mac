@@ -23,7 +23,7 @@ from frontend.streamlit.presentation.thermography_data import athlete_label
 from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
 
 STEPS = ('Dados da coleta', 'Imagens e rotação', 'Caixas das pernas e barra de cores',
-         'Divisão anatômica', 'Segmentação', 'Cálculo da termografia')
+         'Divisão anatômica', 'Segmentação', 'Cálculo da termografia', 'Resumo e registro')
 
 
 def centered_preview(image, caption=None, max_width=700, max_height=400):
@@ -166,7 +166,13 @@ def render_wizard(athletes_by_id):
     step = st.session_state.setdefault('thermal_step', 0)
     draft = st.session_state.setdefault('thermal_draft', {})
     st.subheader('Nova análise térmica')
-    st.progress((step+1)/len(STEPS), text=f'Etapa {step+1} de 6 — {STEPS[step]}')
+    st.progress((step+1)/len(STEPS), text=f'Etapa {step+1} de {len(STEPS)} — {STEPS[step]}')
+    if step == 6:
+        calculation = st.session_state.get('thermal_calculation')
+        if calculation is None:
+            st.warning('Volte à etapa de cálculo para preparar os dados da coleta.')
+        navigate(step)
+        return calculation
     if step == 0:
         columns = st.columns(3)
         ids = list(athletes_by_id)
@@ -321,8 +327,11 @@ def render_wizard(athletes_by_id):
                     parts, _ = leg_part_metrics(analysis['temperatures'], analysis['masks'][side], threshold, tuple(setting['cuts']), axis=setting['axis'], foot_at_end=setting['foot_at_end'], region_box=analysis['boxes'][side])
                     for name, part in parts.items():
                         column.write(f'{name.capitalize()}: {part["hot_pixels"]} px quentes · {part["total_pixels"]} px de área · {part["hot_percentage"]:.1f}%')
+    if step == 5:
+        if valid:
+            signature = hashlib.sha256((views['front']['signature']+views['back']['signature']).encode()).hexdigest()
+            st.session_state['thermal_calculation'] = (draft, views, items, metrics, signature)
+        else:
+            st.session_state.pop('thermal_calculation', None)
     navigate(step, valid)
-    if step != 5 or not valid:
-        return None
-    signature = hashlib.sha256((views['front']['signature']+views['back']['signature']).encode()).hexdigest()
-    return draft, views, items, metrics, signature
+    return None

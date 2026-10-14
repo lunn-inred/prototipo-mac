@@ -79,7 +79,7 @@ class WebUiIntegrationTests(unittest.TestCase):
             app.number_input(key='thermography_mass').set_value(75.0)
             app.number_input(key='thermography_pain_score').set_value(0)
             app.run()
-            for _ in range(5):
+            for _ in range(6):
                 app.button(key='thermal_next').click().run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertFalse(any('Não foi possível analisar' in error.value for error in app.error), list(app.error))

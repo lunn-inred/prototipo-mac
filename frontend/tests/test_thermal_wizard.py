@@ -49,7 +49,7 @@ class ThermalWizardTests(unittest.TestCase):
         result, _, _ = rotated_view(buffer.getvalue(), 90)
         self.assertEqual(result.size, (60, 120))
 
-    def test_six_steps_preserve_data_and_reach_review_via_http(self):
+    def test_seven_steps_preserve_data_and_reach_registration_via_http(self):
         from backend.mac_api.repositories import data_repository
         client = TestClient(create_app())
         processing_requests = []
@@ -82,7 +82,7 @@ class ThermalWizardTests(unittest.TestCase):
             app.number_input(key='thermography_mass').set_value(75.0)
             app.number_input(key='thermography_pain_score').set_value(0)
             app.run()
-            for step in range(1, 6):
+            for step in range(1, 7):
                 app.button(key='thermal_next').click().run()
                 self.assertEqual(len(app.exception), 0, list(app.exception))
                 self.assertEqual(app.session_state['thermal_step'], step)
@@ -154,20 +154,24 @@ class ThermalWizardTests(unittest.TestCase):
                         self.assertEqual(next(button for button in app.button if button.label == 'Concluir').proto.type, 'primary')
                         self.assertEqual(next(button for button in app.button if button.label == 'Aplicar traços e recalcular').proto.type, 'secondary')
                         next(button for button in app.button if button.label == 'Concluir').click().run()
+                if step == 5:
+                    self.assertNotIn('Resumo da coleta', [h.value for h in app.subheader])
+                    self.assertFalse(any(button.key == 'save_image_thermography' for button in app.button))
+                    from frontend.streamlit.components.thermography.wizard import centered_preview
+                    with patch('frontend.streamlit.components.thermography.wizard.centered_preview', wraps=centered_preview) as preview:
+                        app.run()
+                    captions = [call.kwargs.get('caption', '') for call in preview.call_args_list]
+                    self.assertEqual(captions.count('Divisão anatômica — Coxa · Joelho · Canela · Pé'), 2)
+                    self.assertNotIn('Original com caixas', captions)
+                    threshold_key = next(widget.key for widget in app.slider
+                                         if widget.key and widget.key.startswith('wizard_threshold_front:'))
+                    app.slider(key=threshold_key).set_value(50.0).run()
+                    item_key = threshold_key.removeprefix('wizard_threshold_')
+                    self.assertEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 50.0)
             self.assertIn('Resumo da coleta', [h.value for h in app.subheader])
-            from frontend.streamlit.components.thermography.wizard import centered_preview
-            with patch('frontend.streamlit.components.thermography.wizard.centered_preview', wraps=centered_preview) as preview:
-                app.run()
-            captions = [call.kwargs.get('caption', '') for call in preview.call_args_list]
-            self.assertEqual(captions.count('Divisão anatômica — Coxa · Joelho · Canela · Pé'), 2)
-            self.assertNotIn('Original com caixas', captions)
-            threshold_key = next(widget.key for widget in app.slider
-                                 if widget.key and widget.key.startswith('wizard_threshold_front:'))
-            app.slider(key=threshold_key).set_value(50.0).run()
-            item_key = threshold_key.removeprefix('wizard_threshold_')
-            self.assertEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 50.0)
+            self.assertFalse(any(widget.key and widget.key.startswith('wizard_tmin_') for widget in app.number_input))
             self.assertFalse(app.button(key='save_image_thermography').disabled)
-            for _ in range(5):
+            for _ in range(6):
                 app.button(key='thermal_previous').click().run()
             self.assertEqual(app.number_input(key='thermography_mass').value, 75.0)
             self.assertEqual(app.number_input(key='thermography_pain_score').value, 0)

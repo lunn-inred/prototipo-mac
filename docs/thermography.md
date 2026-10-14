@@ -20,10 +20,12 @@ somente uma etapa por vez:
 3. Caixas das pernas e barra de cores.
 4. Divisão de cada perna em coxa, joelho, canela e pé, com uma prévia anatômica por vista.
 5. Segmentação automática por GrabCut e correção manual das máscaras.
-6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala, métricas,
-   tabela do registro e confirmação do envio. Cada vista apresenta a imagem
+6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala e métricas.
+   Cada vista apresenta a imagem
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
    e os pixels quentes.
+7. Resumo da coleta e registro: totais de frente/verso, tabela revisável,
+   adição à timeline e confirmação do envio ao banco, sem repetir as prévias.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
 anatômica, o GrabCut ainda não é executado: os limites são definidos sobre as

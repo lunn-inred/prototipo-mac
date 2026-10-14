@@ -72,7 +72,7 @@ Os formatos de imagens/matrizes e as operações permitidas estão em
 
 ## Contrato de termografia
 
-O frontend organiza a coleta em seis etapas com rascunho na sessão
+O frontend organiza a coleta em sete etapas com rascunho na sessão
 (`components/thermography/wizard.py`). O campo opcional `image_rotation`
 de `/thermography/segment` aceita 0, 90, 180 ou 270 graus anti-horários:
 `image` já deve estar rotacionada. O backend localiza as regiões na orientação
