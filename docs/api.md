@@ -37,7 +37,8 @@ Com a API em execução:
 | `GET /api/v1/athletes/{athlete_id}` | Consulta um atleta | Não |
 | `POST /api/v1/athletes` | Cadastra atleta | Sim |
 | `PUT /api/v1/athletes/{athlete_id}` | Atualiza atleta, preservando `nome_alternativo` | Sim |
-| `DELETE /api/v1/athletes/{athlete_id}` | Exclui atleta sem medições | Sim |
+| `PATCH /api/v1/athletes/{athlete_id}/deactivate` | Desativa atleta sem excluir cadastro ou medições | Sim |
+| `PATCH /api/v1/athletes/{athlete_id}/reactivate` | Reativa o cadastro existente | Sim |
 | `GET /api/v1/players/dashboard` | Dados do mural | Não |
 | `POST /api/v1/athletes/match` | Correlaciona um nome ao cadastro | Não |
 | `POST /api/v1/analytics/{operation}` | Calcula indicadores e estatísticas | Não |
@@ -63,6 +64,9 @@ Com a API em execução:
 | `POST /api/v1/thermography/legacy/extract` | Extrai documentos manuscritos | Não |
 | `POST /api/v1/thermography/legacy/validate-athletes` | Correlaciona nomes revisados | Não |
 | `POST /api/v1/thermography/legacy/import` | Registra o lote legado validado | Sim |
+| `POST /api/v1/thermography/analyses` | Salva imagens e dados da análise localmente | Não |
+| `GET /api/v1/thermography/analyses?athlete_id=` | Lista análises locais com miniatura | Não |
+| `GET /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Carrega imagens, máscaras e matrizes de uma análise | Não |
 
 Uploads usam `multipart/form-data`; os demais corpos usam JSON. Os esquemas,
 campos obrigatórios e exemplos para testar cada chamada ficam sempre atualizados
@@ -72,7 +76,7 @@ Os formatos de imagens/matrizes e as operações permitidas estão em
 
 ## Contrato de termografia
 
-O frontend organiza a coleta em seis etapas com rascunho na sessão
+O frontend organiza a coleta em sete etapas com rascunho na sessão
 (`components/thermography/wizard.py`). O campo opcional `image_rotation`
 de `/thermography/segment` aceita 0, 90, 180 ou 270 graus anti-horários:
 `image` já deve estar rotacionada. O backend localiza as regiões na orientação
@@ -128,12 +132,23 @@ interação. Recebe `{ "args": [...], "kwargs": {...} }` e retorna
 | `segmented_image` | Adaptador de análise completa |
 
 Para novos consumidores, prefira a rota tipada `/segment` para análise completa.
+`leg_part_metrics` aceita `region_box` opcional para manter os limites das partes
+relativos à caixa escolhida antes do GrabCut. A contagem continua restrita à máscara.
 As operações granulares preservam a interação do protótipo existente.
 
-Imagens/matrizes ficam temporariamente na sessão do cliente e na requisição.
-O backend não salva imagens nem cria análises persistentes. Encerrar a sessão
-perde a timeline visual. Somente métricas confirmadas são gravadas no banco;
-o histórico de métricas não reconstrói as imagens da comparação.
+As rotas de processamento são stateless. Para persistir uma análise, utilize
+`POST /api/v1/thermography/analyses`: informe `athlete_id`, `athlete_name`,
+`collected_at` (ISO), `mass`, `pain_score`, `observations` e `views` com
+`front`/`back`. Cada vista contém `image`, `temperatures`, `segmentation_masks`
+(`right`/`left`), `boxes`, Tmin/Tmax (`minimum_temperature`/`maximum_temperature`),
+`default_threshold`, `part_settings`, `image_rotation`, `original_filename` e
+`colorbar_box` opcional. Imagens/matrizes usam o formato de transporte descrito acima.
+O backend valida e recalcula métricas antes de gravar. Resposta `201`: resumo
+com UUID, data e miniatura. Listagem retorna resumos; detalhe retorna também
+`views` e `metadata`. As três rotas exigem a mesma chave da API e não consultam
+nem alteram o banco. Data e UUID identificam arquivos, não coletas SQL.
+O arquivo local permite recuperar as imagens após encerrar a sessão;
+o histórico de medidas do banco continua sem imagens.
 
 ## Indicadores e importações
 

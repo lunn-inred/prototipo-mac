@@ -40,8 +40,11 @@ def apply_global_style() -> None:
         }
 
         [data-testid="stMainBlockContainer"] {
-            max-width: none;
-            padding: 2rem 2rem 4rem;
+            width: 90%;
+            max-width: 1440px;
+            margin-inline: auto;
+            box-sizing: border-box;
+            padding: 2rem 1rem 4rem;
         }
 
         h1, h2, h3, h4 {
@@ -185,6 +188,7 @@ def apply_global_style() -> None:
 
         @media (max-width: 900px) {
             [data-testid="stMainBlockContainer"] {
+                width: 100%;
                 padding: 1.25rem 1rem 3rem;
             }
         }

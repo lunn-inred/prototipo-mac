@@ -5,9 +5,10 @@
 ## Fluxo da página
 
 A página `frontend/streamlit/pages/Termografia.py` registra uma nova análise a partir das imagens
-de frente e verso. Os componentes aparecem na ordem **Nova análise térmica**,
-**Timeline térmica** (seção independente, com título visível) e **Envio de Formulário**, este último sempre
-aberto para importar fichas manuscritas. Ao adicionar a análise à timeline ou
+de frente e verso. Os componentes aparecem na ordem **Nova análise térmica** e
+**Envio de Formulário**, este último sempre aberto para importar fichas manuscritas.
+A consulta e a comparação de análises ficam na página separada **Timeline Termo**.
+Ao adicionar a análise à timeline ou
 registrá-la no banco, uma janela solicita a data da coleta e apresenta a data
 atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
 data padrão é aplicada pelo serviço.
@@ -20,11 +21,43 @@ somente uma etapa por vez:
 3. Caixas das pernas e barra de cores.
 4. Divisão de cada perna em coxa, joelho, canela e pé, com uma prévia anatômica por vista.
 5. Segmentação automática por GrabCut e correção manual das máscaras.
-6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala, métricas,
-   tabela do registro e confirmação do envio. Cada vista apresenta a imagem
-   original com caixas, as pernas segmentadas sem fundo e os pixels quentes.
+6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala e métricas.
+   Cada vista apresenta a imagem
+   com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
+   e os pixels quentes.
+7. Resumo da coleta: totais de frente/verso e tabela revisável no mesmo componente.
+   Adicionar à timeline fica à esquerda de registrar no banco; Voltar e iniciar
+   outra análise aparecem abaixo, sem repetir as prévias.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
+anatômica, o GrabCut ainda não é executado: os limites são definidos sobre as
+caixas das pernas e mantêm suas coordenadas depois da segmentação. Os canvases
+dos pop-ups são centralizados.
+
+Os diálogos de edição ocupam até 96% da largura da janela, limitados a 1600 px,
+e seu conteúdo usa 100% dessa área. Um componente mede a altura útil da janela
+e a posição do editor, reservando espaço para controles, toolbar e botões.
+O canvas reduz ou amplia sua prévia para caber nessa área, sem scroll do diálogo;
+a medição é repetida após a montagem/transição da janela, e a última dimensão
+válida é preservada para evitar reabrir com uma prévia pequena. Na primeira
+abertura, o editor aguarda uma medição estável; não desenha uma prévia provisória
+menor. A medição continua disponível mesmo quando a montagem do navegador é tardia.
+Os botões têm
+uma margem inferior reservada. **Concluir** é a ação destacada; aplicar,
+restaurar e confirmar registros são ações secundárias. As barras cinzas do canvas
+(Undo, Redo, Clear e botões de zoom) ficam ocultas; o zoom pela roda do mouse
+permanece disponível nos editores de caixas e máscaras. Nos diálogos de registro,
+**Concluir** apenas fecha: a gravação exige clicar explicitamente em confirmar.
+a roda do mouse fica reservada ao zoom da imagem. A página usa 90%
+da área principal, limitada a 1440 px (100% em telas menores). Na página,
+as prévias ficam limitadas a 400 px e 40% da altura da janela, evitando expansão
+excessiva em monitores ultrawide. Os pop-ups mantêm seus limites ampliados,
+e as barras anatômicas são mais grossas para facilitar a visualização e o arraste.
+
+No editor de segmentação, aparece somente a perna selecionada,
+com a área segmentada em fundo preto à direita; os traços desse
+recorte são convertidos para coordenadas da imagem inteira antes do processamento.
+Na divisão
 anatômica, arraste as três linhas sobre a imagem; não é necessário ajustar
 sliders percentuais. O rascunho e as imagens ficam na sessão ao voltar para
 etapas anteriores. **Iniciar outra análise** descarta somente o rascunho atual,
@@ -37,7 +70,7 @@ Na segmentação, a segunda prévia mostra a área completa das pernas sem fundo
 A filtragem de pixels quentes aparece
 somente na etapa de cálculo, após a definição da escala e do limiar.
 
-Durante a sessão, o botão **Adicionar à timeline** mantém temporariamente as
+O botão **Adicionar à timeline** salva localmente as
 imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
 pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
 real pelos controles das coletas basal e atual. Os cartões da timeline permitem
@@ -83,12 +116,19 @@ Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
 **Divisão anatômica**, arraste os três limites no pop-up **Editar divisões na imagem**.
 A orientação é sempre vertical, com Coxa, Joelho, Canela e Pé de cima para baixo.
 Os nomes aparecem na imagem e as posições são salvas ao soltar o mouse.
+As prévias anatômicas também mostram o contorno da caixa atual de cada perna,
+incluindo correções manuais, com rótulos ampliados no pop-up e na etapa de cálculo.
+Os rótulos usam a DejaVu Sans incluída em `frontend/streamlit/assets/fonts/`,
+com sua licença, sem depender de fontes do sistema ou do fallback do Pillow.
+Os rótulos das caixas usam a mesma fonte a 10 px, enquanto a divisão anatômica
+permanece em 25 px; o backend distribui
+sua cópia em `backend/mac_api/assets/fonts/` para funcionar sem o frontend instalado.
 Os percentuais internos
 crescem da coxa ao pé mesmo em imagens invertidas. As linhas e
 os nomes das partes aparecem na prévia; a contagem usa somente pixels da
 máscara. A soma das quatro regiões corresponde ao total da perna. Uma região
 com área zero indica que ela não está visível na máscara. Essas métricas são
-temporárias na interface; não são enviadas ao banco.
+salvas nos metadados locais, mas não são enviadas ao banco.
 
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
@@ -113,8 +153,91 @@ inserções daquele envio.
 As imagens e os documentos enviados nunca são armazenados no banco. Os arquivos
 temporários locais usados no envio ao LlamaParse são removidos ao final; o
 tratamento e a retenção no serviço externo seguem as políticas do LlamaCloud.
-Somente as medidas revisadas são persistidas pelo protótipo. A conversão
+Somente as medidas revisadas são persistidas no banco. As imagens térmicas
+confirmadas para a timeline são persistidas localmente. A conversão
 de cor em temperatura e a identificação das caixas ainda são experimentais e
 devem ser validadas antes do uso definitivo.
 
+## Armazenamento local
+
+```env
+MAC_ANALYSES_DIR=./data/thermography
+```
+
+Esse é o padrão mesmo sem a variável. Caminhos relativos são resolvidos pela
+raiz do projeto; no executável, pelo diretório do binário, nunca pela pasta
+temporária do PyInstaller. Um caminho absoluto também é aceito. A API precisa
+ter permissão de escrita nesse diretório.
+
+```text
+data/thermography/
+  atleta_123/
+    2026-10-14/
+      analise_<uuid>/
+        metadados.json
+        frente/
+          original.png
+          mascara_direita.png
+          mascara_esquerda.png
+          temperaturas.npy
+        verso/
+          original.png
+          mascara_direita.png
+          mascara_esquerda.png
+          temperaturas.npy
+```
+
+`original.png` é a imagem orientada/rotacionada usada na análise, sem overlays
+adicionados pela aplicação. As máscaras são PNGs binários, não previews
+coloridos; a matriz de temperaturas é float32, carregada com `allow_pickle=False`.
+O JSON contém ID e nome do jogador, UUID, data da coleta, criação em UTC, massa,
+EVA Dor, observações, versões do formato/algoritmo e, por vista: nome do arquivo,
+dimensões, rotação, hash SHA-256, escala, limiar em °C e percentual, caixas,
+divisões em percentuais e coordenadas em pixels e métricas por perna/região.
+Não há referência a coletas do banco. Basal/Atual são seleções de comparação,
+não propriedades permanentes da análise.
+
+Cada confirmação cria um UUID diferente, inclusive na mesma data. A gravação
+é preparada em diretório temporário e publicada por renomeação somente após
+concluir todos os arquivos. Ao selecionar um jogador, a timeline lê suas análises
+salvas; **Limpar seleção** não apaga arquivos. Para visualizar Basal/Atual, as
+matrizes são carregadas pela API e as métricas recalculadas com os limiares escolhidos.
+Não é necessário registrar a coleta no banco para salvar na timeline, nem salvar
+na timeline para enviar somente medidas ao banco.
+
+O armazenamento pertence à máquina do **backend**, não ao navegador. O frontend
+não grava diretamente em disco. Faça backup dessa pasta; ela está fora do Git
+e do contexto de build Docker por conter dados e imagens dos atletas.
+Arquivos antigos não são migrados da memória: análises ainda abertas precisam
+ser confirmadas novamente em **Adicionar à timeline**.
+
+No Compose, `./data/thermography` do computador é montada diretamente em
+`/app/data/thermography` do backend. Crie a pasta antes de iniciar:
+
+```bash
+mkdir -p data/thermography
+```
+
+Os arquivos aparecem no repositório local e continuam fora do Git. Parar ou
+recriar containers não remove essa pasta. No Linux, ela deve ser gravável pelo
+UID 1000 utilizado pela API; se seu usuário tiver outro UID, ajuste as permissões
+da pasta antes de executar. Ao trocar `MAC_ANALYSES_DIR` no Docker, ajuste também
+o ponto de montagem. Os testes removem essa montagem e usam um diretório isolado.
+
+A timeline possui o seletor **Jogador da timeline**, independente da Nova análise.
+Iniciar outra análise não limpa esse filtro. Adicionar uma análise à timeline
+seleciona o respectivo jogador automaticamente.
+
+Instalações que usavam o volume `thermal-analyses` precisam copiar seus arquivos
+para a pasta do host antes de trocar a montagem. Mantenha esse volume antigo como
+backup até conferir a migração; não o remova com `docker volume rm` ou `down -v`.
+
 Contratos de imagens, matrizes e rotação: [API térmica](api.md#contrato-de-termografia).
+
+## Timeline em página própria
+
+A consulta das análises locais e a comparação Basal × Atual ficam na página
+**Timeline Termo**, acessível pelo menu lateral. A etapa 7 da Termografia
+continua oferecendo **Adicionar à timeline**, com o mesmo armazenamento local.
+Na etapa 6, cada perna é apresentada com o percentual de pixels quentes e a
+área total (pixels), por perna e por região anatômica; a esquerda aparece primeiro.

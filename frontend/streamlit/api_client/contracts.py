@@ -13,7 +13,6 @@ from typing import Any, Mapping, Iterable
 EXTRACTION_VERSION = 3
 META = ['_arquivo']
 class DuplicateThermographyError(ValueError): pass
-class AthleteInUseError(ValueError): pass
 def current_sao_paulo_date():
     return datetime.now(ZoneInfo('America/Sao_Paulo')).date()
 def athlete_display_name(athlete: Mapping[str, object]) -> str:

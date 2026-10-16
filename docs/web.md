@@ -48,6 +48,7 @@ pontos de entrada de compatibilidade; para a interface web, prefira
 Com o `.env` preenchido na raiz:
 
 ```bash
+mkdir -p data/thermography
 docker compose up --build -d
 docker compose ps
 docker compose logs -f backend frontend

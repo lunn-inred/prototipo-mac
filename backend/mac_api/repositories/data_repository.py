@@ -22,7 +22,7 @@ def list_athletes() -> list[dict[str, Any]]:
     return _fetch_all(
         """
         SELECT id_atleta, nome, apelido, nome_alternativo, posicao, grupo,
-               data_nascimento
+               data_nascimento, status
         FROM public.atleta
         ORDER BY COALESCE(NULLIF(TRIM(apelido), ''), NULLIF(TRIM(nome), '')),
                  id_atleta
@@ -34,7 +34,7 @@ def get_athlete(athlete_id: int) -> dict[str, Any] | None:
     records = _fetch_all(
         """
         SELECT id_atleta, nome, apelido, nome_alternativo, posicao, grupo,
-               data_nascimento
+               data_nascimento, status
         FROM public.atleta
         WHERE id_atleta = %s
         """,

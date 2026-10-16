@@ -45,7 +45,7 @@ def confirm_database_collection(
     )
     if st.button(
         "Confirmar registro",
-        type="primary",
+        type="secondary",
         use_container_width=True,
         key=f"confirm_database_collection_{pair_signature}",
     ):
@@ -72,4 +72,7 @@ def confirm_database_collection(
                 f"com {inserted} medida(s)."
             )
             st.rerun()
+
+    if st.button('Concluir', type='primary', width='stretch', key=f'close_database_collection_{pair_signature}'):
+        st.rerun()
 

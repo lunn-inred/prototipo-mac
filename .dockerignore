@@ -10,3 +10,4 @@ experiments
 *.xlsx
 *.pdf
 *.log
+data/thermography/

@@ -10,10 +10,6 @@ from psycopg2.extensions import connection
 from backend.mac_api.core.database import database_write_connection
 
 
-class AthleteInUseError(ValueError):
-    """Indica que o atleta possui medições e não pode ser excluído."""
-
-
 ConnectionFactory = Callable[[], ContextManager[connection]]
 
 
@@ -94,23 +90,32 @@ def update_athlete(
             raise ValueError("Atleta não encontrado.")
 
 
-def delete_athlete(
+def deactivate_athlete(
     athlete_id: int,
     *,
     connection_factory: ConnectionFactory = database_write_connection,
 ) -> None:
-    """Exclui somente atletas sem medições relacionadas."""
+    """Desativa o cadastro preservando suas medições e identidade."""
     with connection_factory() as database, database.cursor() as cursor:
         cursor.execute(
-            "SELECT COUNT(*) FROM public.medida_valor WHERE id_atleta = %s",
+            "UPDATE public.atleta SET status = 'inativo' "
+            "WHERE id_atleta = %s RETURNING id_atleta",
             (int(athlete_id),),
         )
-        if int(cursor.fetchone()[0]) > 0:
-            raise AthleteInUseError(
-                "O atleta possui medições e não pode ser excluído."
-            )
+        if cursor.fetchone() is None:
+            raise ValueError("Atleta não encontrado.")
+
+
+def reactivate_athlete(
+    athlete_id: int,
+    *,
+    connection_factory: ConnectionFactory = database_write_connection,
+) -> None:
+    """Reativa o mesmo cadastro, sem recriar identidade ou medições."""
+    with connection_factory() as database, database.cursor() as cursor:
         cursor.execute(
-            "DELETE FROM public.atleta WHERE id_atleta = %s RETURNING id_atleta",
+            "UPDATE public.atleta SET status = 'ativo' "
+            "WHERE id_atleta = %s RETURNING id_atleta",
             (int(athlete_id),),
         )
         if cursor.fetchone() is None:

@@ -228,3 +228,7 @@ média do atleta = soma dos valores válidos do atleta no período
 
 Caso menos de três atletas selecionados possuam dados válidos para a métrica no
 período, o radar é substituído por uma mensagem informativa.
+
+O gerenciamento de coletas e a importação ficam sempre visíveis. Os filtros,
+indicadores e gráficos ficam na seção **Analisar dados de salto**, recolhida
+por padrão.

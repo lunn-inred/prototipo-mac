@@ -49,13 +49,20 @@ As métricas de leitura vêm das views; cadastro de atletas continua na tabela
 validar existência, duplicatas e integridade. Nenhuma alteração de schema é
 necessária para esta reorganização.
 
-As imagens permanecem temporárias na sessão do cliente e durante as requisições.
-A API não salva arquivos nem mantém análises persistentes. A timeline visual
-continua temporária; somente medidas confirmadas são gravadas no banco.
+O rascunho permanece na sessão até a confirmação. Adicionar à timeline grava
+imagens, máscaras e matrizes no arquivo local do backend, permitindo reabrir a
+comparação em outra sessão. A API lista metadados/miniaturas e carrega matrizes
+sob demanda. O registro das medidas no banco continua uma operação separada.
 
 Contratos: [API HTTP](api.md). Validação: [testes](testing.md).
 
 ## Responsabilidades
+
+O tema compartilhado em `frontend/streamlit/components/ui.py` limita todas as
+páginas (Jogadores, GPS, Salto e Termografia) a 90% da área principal, com máximo
+de 1440 px e centralização. Em telas de até 900 px, usa 100% da largura disponível.
+Assim, monitores ultrawide não esticam os componentes indefinidamente. Os limites
+específicos das imagens e dos pop-ups térmicos continuam apenas na Termografia.
 
 `frontend/` contém Streamlit, componentes, apresentação e clientes HTTP.
 `backend/` contém FastAPI, regras, processamento e PostgreSQL.

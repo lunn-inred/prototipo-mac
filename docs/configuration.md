@@ -17,6 +17,7 @@ de Secrets. Credenciais do banco e OCR pertencem ao ambiente da API.
 | `MAC_API_CORS_ORIGINS` | API | Origens permitidas, separadas por vírgula |
 | `MAC_API_BASE_URL` | Streamlit | URL pública ou interna da API |
 | `MAC_API_TIMEOUT_SECONDS` | Streamlit | Timeout de chamadas longas, padrão 300 s |
+| `MAC_ANALYSES_DIR` | API | Arquivo local de análises; padrão `./data/thermography` |
 
 ## Modelo local semipronto
 
@@ -50,6 +51,7 @@ MAC_API_TIMEOUT_SECONDS=300
 # Usada por python desktop.py e pelo modo web separado.
 # O executável empacotado substitui a porta automaticamente.
 MAC_API_BASE_URL=http://127.0.0.1:8000
+MAC_ANALYSES_DIR=./data/thermography
 ```
 
 O inicializador repassa automaticamente a URL e a chave da API local para o

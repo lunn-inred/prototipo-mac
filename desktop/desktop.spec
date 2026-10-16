@@ -9,6 +9,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metada
 
 root = Path(SPECPATH).resolve().parent
 datas = [
+    (str(root / 'backend/mac_api/assets/fonts'), 'backend/mac_api/assets/fonts'),
     (str(root / 'frontend/streamlit/app.py'), 'frontend/streamlit'),
     (str(root / 'frontend/streamlit/pages'), 'frontend/streamlit/pages'),
     (str(root / 'frontend/streamlit/assets'), 'frontend/streamlit/assets'),

@@ -65,23 +65,6 @@ def _render_results(results: list[GpsImportResult]) -> None:
 
 def render_gps_import() -> None:
     """Renderiza o fluxo de extração e revisão sem persistir no banco."""
-    if "gps_extraction_open" not in st.session_state:
-        st.session_state["gps_extraction_open"] = False
-
-    button_label = (
-        "Fechar importação"
-        if st.session_state["gps_extraction_open"]
-        else "Adicionar novos arquivos"
-    )
-    if st.button(button_label, icon="📄"):
-        st.session_state["gps_extraction_open"] = not st.session_state[
-            "gps_extraction_open"
-        ]
-        st.rerun()
-
-    if not st.session_state["gps_extraction_open"]:
-        return
-
     with st.container(border=True):
         st.subheader("Adicionar relatórios GPS")
         st.caption(

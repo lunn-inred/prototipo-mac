@@ -108,6 +108,10 @@ O `.env` concede acesso ao banco e deve ser entregue somente a máquinas
 confiáveis. Para distribuição fora de um ambiente controlado, prefira hospedar
 a API e não distribuir credenciais do Supabase.
 
+As análises da timeline são gravadas em `data/thermography` ao lado do executável
+por padrão. A pasta deve ser gravável e incluída no backup; não fica dentro do
+binário nem da extração temporária. Configure `MAC_ANALYSES_DIR` para outro destino.
+
 O build é específico do sistema operacional: gere a versão Windows no Windows,
 a versão Linux no Linux e a versão macOS no macOS. No Linux, a interface usa
 PySide6/Qt6; no Windows, a WebView depende do Microsoft Edge WebView2,
@@ -132,6 +136,7 @@ alterados por essa modalidade.
 Com as dependências desktop instaladas e o `.env` preenchido:
 
 ```bash
+mkdir -p data/thermography
 docker compose up --build -d backend
 python desktop.py
 ```

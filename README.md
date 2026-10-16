@@ -38,8 +38,9 @@ navegador ou em uma janela desktop (WebView).
 - `infrastructure/`: imagens Docker; `docs/`: guias detalhados.
 
 As métricas são consultadas nas views do banco. Escritas passam pelas validações
-e transações da API. Imagens de termografia e a timeline ficam temporariamente
-na sessão; somente medidas confirmadas são persistidas.
+e transações da API. Adicionar à timeline salva imagens, máscaras e metadados
+localmente em `data/thermography`; registrar no banco continua enviando somente
+as medidas. Detalhes: [armazenamento térmico](docs/thermography.md#armazenamento-local).
 
 ## Preparação do Ambiente de Desenvolvimento
 
@@ -87,6 +88,7 @@ Hospedagem e instalação por processo: [guia web](docs/web.md).
 Com Docker Compose instalado e o `.env` preenchido:
 
 ```bash
+mkdir -p data/thermography
 docker compose up --build -d
 ```
 
@@ -144,6 +146,7 @@ macOS e empacotamento do OCR: [build e distribuição](docs/desktop.md).
 Com as dependências desktop instaladas e o `.env` preenchido:
 
 ```bash
+mkdir -p data/thermography
 docker compose up --build -d backend
 python desktop.py
 ```
