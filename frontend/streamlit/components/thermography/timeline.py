@@ -77,7 +77,7 @@ def choose_baseline(athlete_id: int) -> None:
                 st.image(thumbnail, width='content')
                 st.write(entry['collected_at'].strftime('%d/%m/%Y'))
                 st.caption(f"Análise {entry['id'][:8]}")
-                if st.button('Selecionar basal', key=f"timeline_basal_{entry['id']}",
+                if st.button('Selecionar', key=f"timeline_basal_{entry['id']}",
                              width='stretch', on_click=_select_baseline,
                              args=(str(entry['id']), athlete_id)):
                     st.rerun()
@@ -104,41 +104,9 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
         with tab:
             baseline_source = t0["views"][view_key]
             current_source = ti["views"][view_key]
-            threshold_columns = st.columns(2)
-            with threshold_columns[0]:
-                baseline_threshold = st.slider(
-                    "Limiar da coleta basal (°C)",
-                    min_value=float(baseline_source["minimum_temperature"]),
-                    max_value=float(baseline_source["maximum_temperature"]),
-                    value=float(baseline_source["default_threshold"]),
-                    step=max(
-                        (
-                            float(baseline_source["maximum_temperature"])
-                            - float(baseline_source["minimum_temperature"])
-                        ) / 200,
-                        0.01,
-                    ),
-                    key=f"timeline_threshold_t0_{t0['id']}_{view_key}",
-                )
-            with threshold_columns[1]:
-                current_threshold = st.slider(
-                    "Limiar da coleta atual (°C)",
-                    min_value=float(current_source["minimum_temperature"]),
-                    max_value=float(current_source["maximum_temperature"]),
-                    value=float(current_source["default_threshold"]),
-                    step=max(
-                        (
-                            float(current_source["maximum_temperature"])
-                            - float(current_source["minimum_temperature"])
-                        ) / 200,
-                        0.01,
-                    ),
-                    key=f"timeline_threshold_ti_{ti['id']}_{view_key}",
-                )
-            st.caption(
-                "O mapa e todas as métricas abaixo são recalculados imediatamente "
-                "quando um dos limiares é alterado."
-            )
+            # Cada vista utiliza exatamente o limiar persistido na coleta.
+            baseline_threshold = float(baseline_source['default_threshold'])
+            current_threshold = float(current_source['default_threshold'])
             baseline = _timeline_view_at_threshold(
                 baseline_source, baseline_threshold
             )
@@ -151,6 +119,9 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
             with t0_column:
                 st.markdown("##### Basal")
                 st.image(baseline["image"], width="stretch")
+                button_key = 'timeline_change_basal' if view_key == 'front' else 'timeline_change_basal_back'
+                if st.button('Mudar Basal', key=button_key, width='stretch'):
+                    choose_baseline(int(t0['athlete_id']))
             with ti_column:
                 st.markdown("##### Atual")
                 st.image(current["image"], width="stretch")
@@ -163,27 +134,10 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                         current["hot_masks"][side],
                         baseline["boxes"][side],
                         current["boxes"][side],
+                        only_new=True,
                     )
                     with column:
                         st.image(comparison["image"], caption=label, width="stretch")
-                        compared_total = sum(
-                            int(comparison[key])
-                            for key in (
-                                "new_pixels", "persistent_pixels", "resolved_pixels"
-                            )
-                        )
-                        def category_value(key: str) -> str:
-                            value = int(comparison[key])
-                            percentage = value / compared_total * 100 if compared_total else 0.0
-                            return f"{value:,} ({percentage:.1f}%)"
-                        st.caption(
-                            f"Novos: {category_value('new_pixels')} · "
-                            f"Persistentes: {category_value('persistent_pixels')} · "
-                            f"Resolvidos: {category_value('resolved_pixels')}"
-                        )
-                st.caption(
-                    "Vermelho: novos · Amarelo: persistentes · Azul: resolvidos"
-                )
             with metrics_column:
                 st.markdown("##### Métricas atuais")
                 st.caption(
@@ -281,13 +235,9 @@ def render_timeline(athletes: list[dict[str, Any]]) -> None:
     st.session_state['thermography_timeline_t0'] = st.session_state[basal_key]
     t0 = _timeline_entry_by_id(st.session_state['thermography_timeline_t0'])
 
-    baseline_column, button_column = st.columns([3, 1])
-    with baseline_column:
-        st.caption(f"Basal: {t0['collected_at'].strftime('%d/%m/%Y')}")
-    with button_column:
-        if st.button('Mudar Basal', key='timeline_change_basal', width='stretch'):
-            choose_baseline(selected_player_id)
-
+    # Reserva o espaço das prévias acima da barra; calcula depois de ler a data
+    # para que a comparação reflita a seleção já no mesmo rerun.
+    comparison_container = st.container()
     date_key = f'thermography_timeline_date_{selected_player_id}'
     if st.session_state.get(date_key) not in by_date:
         st.session_state[date_key] = dates[-1]
@@ -309,7 +259,8 @@ def render_timeline(athletes: list[dict[str, Any]]) -> None:
             'A coleta Atual está registrada antes da Basal. A comparação '
             'continua disponível, mas confira se essa ordem foi intencional.'
         )
-    _render_comparison(t0, ti)
+    with comparison_container:
+        _render_comparison(t0, ti)
 
 
 def add_to_timeline(
