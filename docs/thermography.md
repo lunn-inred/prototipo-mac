@@ -73,9 +73,16 @@ somente na etapa de cálculo, após a definição da escala e do limiar.
 O botão **Adicionar à timeline** salva localmente as
 imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
 pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
-real pelos controles das coletas basal e atual. Os cartões da timeline permitem
-marcar independentemente uma coleta **Basal** e uma coleta **Atual** do mesmo
-jogador. A interface alerta quando a Atual antecede a Basal, sem bloquear a
+real pelos controles das coletas basal e atual. Ao escolher o jogador, a timeline
+seleciona automaticamente a data mais antiga como **Basal** e a mais recente como
+**Atual**. O botão **Mudar Basal** abre um pop-up com as análises desse jogador;
+selecionar uma análise atualiza o basal e fecha o pop-up. A coleta **Atual** é
+escolhida por uma barra deslizante com apenas as datas disponíveis. Ao mudar a
+data, as imagens e o mapa são recalculados, mantendo o basal escolhido.
+Se houver múltiplas análises na mesma data, a barra usa a última registrada;
+o pop-up continua permitindo escolher qualquer análise como basal.
+Com uma única data, a mesma coleta é usada nas duas pontas, sem barra deslizante.
+A interface alerta quando a Atual antecede a Basal, sem bloquear a
 comparação. Nas abas de
 frente e verso, a comparação exibe as duas imagens, mapas normalizados por perna
 e as métricas atuais com deltas em relação à basal. Vermelho identifica pixels que
@@ -200,7 +207,7 @@ não propriedades permanentes da análise.
 Cada confirmação cria um UUID diferente, inclusive na mesma data. A gravação
 é preparada em diretório temporário e publicada por renomeação somente após
 concluir todos os arquivos. Ao selecionar um jogador, a timeline lê suas análises
-salvas; **Limpar seleção** não apaga arquivos. Para visualizar Basal/Atual, as
+salvas; mudar o basal ou a data atual não modifica os arquivos. Para visualizar Basal/Atual, as
 matrizes são carregadas pela API e as métricas recalculadas com os limiares escolhidos.
 Não é necessário registrar a coleta no banco para salvar na timeline, nem salvar
 na timeline para enviar somente medidas ao banco.

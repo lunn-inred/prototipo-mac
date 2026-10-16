@@ -81,9 +81,21 @@ class PersistentTimelineTests(unittest.TestCase):
                 self.assertFalse(any(widget.key == 'thermography_player' for widget in app.selectbox))
                 self.assertEqual(len(app.exception), 0, list(app.exception))
                 self.assertEqual(len(app.session_state['thermography_timeline']), 2)
-                app.button(key=f'timeline_entry_{first["id"]}_t0').click().run()
-                app.radio(key='thermography_timeline_role_v2').set_value('Atual').run()
-                app.button(key=f'timeline_entry_{second["id"]}_ti').click().run()
+                self.assertEqual(app.session_state['thermography_timeline_t0'], first['id'])
+                self.assertEqual(app.session_state['thermography_timeline_ti'], second['id'])
+                self.assertEqual(app.select_slider(key='thermography_timeline_date_1').value, date(2026, 10, 14))
+                app.select_slider(key='thermography_timeline_date_1').set_value(date(2026, 10, 1)).run()
+                self.assertEqual(app.session_state['thermography_timeline_ti'], first['id'])
+                self.assertEqual(app.session_state['thermography_timeline_t0'], first['id'])
+                app.button(key='timeline_change_basal').click().run()
+                self.assertEqual(len(app.exception), 0, list(app.exception))
+                app.button(key=f'timeline_basal_{second["id"]}').click().run()
+                self.assertEqual(app.session_state['thermography_timeline_t0'], second['id'])
+                self.assertEqual(app.session_state['thermography_timeline_ti'], first['id'])
+                self.assertFalse(any(button.key == f'timeline_basal_{second["id"]}' for button in app.button))
+                app.select_slider(key='thermography_timeline_date_1').set_value(date(2026, 10, 14)).run()
+                self.assertEqual(app.session_state['thermography_timeline_ti'], second['id'])
+                self.assertEqual(app.session_state['thermography_timeline_t0'], second['id'])
                 self.assertEqual(len(app.exception), 0, list(app.exception))
                 self.assertEqual(len(app.error), 0, list(app.error))
                 self.assertTrue(any('Comparação Basal × Atual' in text.value for text in app.markdown))
@@ -93,3 +105,36 @@ class PersistentTimelineTests(unittest.TestCase):
                 app.run()
                 self.assertEqual(app.selectbox(key='thermography_timeline_player').value, 1)
                 self.assertEqual(len(app.session_state['thermography_timeline']), 2)
+
+    def test_same_day_uses_last_registered_analysis(self):
+        from frontend.streamlit.components.thermography.timeline import _analyses_by_date
+        entries = [
+            dict(id='new', collected_at=date(2026, 10, 14), sequence=30),
+            dict(id='first', collected_at=date(2026, 10, 1), sequence=10),
+            dict(id='old', collected_at=date(2026, 10, 14), sequence=20),
+        ]
+        by_date = _analyses_by_date(entries)
+        self.assertEqual(list(by_date), [date(2026, 10, 1), date(2026, 10, 14)])
+        self.assertEqual(by_date[date(2026, 10, 14)]['id'], 'new')
+
+    def test_single_date_empty_history_and_player_switch(self):
+        from frontend.streamlit.components.thermography import timeline
+        entries = [dict(id='first', athlete_id=1, collected_at=date(2026, 10, 1), sequence=10)]
+        athletes = [dict(id_atleta=i, nome=f'Jogador {i}') for i in (1, 2, 3)]
+        other_entries = [dict(id='other', athlete_id=2, collected_at=date(2026, 10, 5), sequence=20)]
+        root = Path(__file__).resolve().parents[2]
+        with patch('frontend.streamlit.presentation.thermography_data.load_thermography_athletes', return_value=athletes), \
+             patch.object(timeline, 'list_local_analyses', side_effect=lambda player: {1: entries, 2: other_entries, 3: []}[player]), \
+             patch.object(timeline, '_render_comparison') as comparison:
+            app = AppTest.from_file(str(root/'frontend/streamlit/pages/Timeline_Termo.py')).run()
+            app.selectbox(key='thermography_timeline_player').set_value(1).run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertEqual(len(app.select_slider), 0)
+            comparison.assert_called_with(entries[0], entries[0])
+            app.selectbox(key='thermography_timeline_player').set_value(2).run()
+            comparison.assert_called_with(other_entries[0], other_entries[0])
+            self.assertEqual(app.session_state['thermography_timeline_t0'], 'other')
+            app.selectbox(key='thermography_timeline_player').set_value(3).run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertNotIn('thermography_timeline_t0', app.session_state)
+            self.assertNotIn('thermography_timeline_ti', app.session_state)
