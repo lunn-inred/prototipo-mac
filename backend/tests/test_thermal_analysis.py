@@ -221,6 +221,22 @@ class ThermalAnalysisTests(unittest.TestCase):
         self.assertGreater(comparison["new_pixels"], 0)
         self.assertGreater(comparison["resolved_pixels"], 0)
 
+    def test_only_new_hides_other_colors_without_removing_categories(self) -> None:
+        baseline = np.array([[False, True], [True, False]])
+        current = np.array([[True, True], [False, False]])
+        box = {'left': 0, 'top': 0, 'width': 2, 'height': 2}
+        full = compare_hot_masks(baseline, current, box, box, (2, 2))
+        filtered = compare_hot_masks(baseline, current, box, box, (2, 2), only_new=True)
+        for category in ('new_pixels', 'persistent_pixels', 'resolved_pixels'):
+            self.assertEqual(full[category], filtered[category])
+            self.assertEqual(filtered[category], 1)
+        pixels = np.asarray(filtered['image'])
+        np.testing.assert_array_equal(pixels[0, 0], [239, 68, 68])
+        for row, column in ((0, 1), (1, 0), (1, 1)):
+            np.testing.assert_array_equal(pixels[row, column], [18, 18, 18])
+        np.testing.assert_array_equal(np.asarray(full['image'])[0, 1], [255, 196, 0])
+        np.testing.assert_array_equal(np.asarray(full['image'])[1, 0], [42, 136, 255])
+
 
 if __name__ == "__main__":
     unittest.main()

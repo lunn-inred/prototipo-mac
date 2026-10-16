@@ -538,8 +538,10 @@ def compare_hot_masks(
     baseline_box: Mapping[str, int | float],
     current_box: Mapping[str, int | float],
     canvas_size: tuple[int, int] = (180, 320),
+    *,
+    only_new: bool = False,
 ) -> dict[str, Image.Image | int]:
-    """Compara máscaras quentes basal/atual em uma geometria normalizada comum."""
+    """Compara máscaras; only_new oculta cores antigas sem remover suas contagens."""
     baseline = normalize_binary_region(baseline_mask, baseline_box, canvas_size)
     current = normalize_binary_region(current_mask, current_box, canvas_size)
     persistent = baseline & current
@@ -547,8 +549,9 @@ def compare_hot_masks(
     resolved = baseline & ~current
 
     preview = np.full((*baseline.shape, 3), 18, dtype=np.uint8)
-    preview[resolved] = (42, 136, 255)   # azul: deixou de estar quente
-    preview[persistent] = (255, 196, 0)  # amarelo: permaneceu quente
+    if not only_new:
+        preview[resolved] = (42, 136, 255)   # azul: deixou de estar quente
+        preview[persistent] = (255, 196, 0)  # amarelo: permaneceu quente
     preview[new] = (239, 68, 68)         # vermelho: novo pixel quente
     return {
         "image": Image.fromarray(preview),

@@ -47,20 +47,40 @@ def _timeline_entry_by_id(entry_id: str | None) -> dict[str, Any] | None:
     )
 
 
-def _select_timeline_entry(entry: dict[str, Any], role: str) -> None:
-    """Seleciona Basal ou Atual sem modificar a outra ponta da comparação."""
-    st.session_state[f"thermography_timeline_{role}"] = str(entry["id"])
+def _analyses_by_date(entries: list[dict[str, Any]]) -> dict[date, dict[str, Any]]:
+    """Uma coleta por data; em duplicatas, vence a última registrada."""
+    return {entry['collected_at']: entry for entry in sorted(entries, key=_timeline_sort_key)}
 
 
-def _select_timeline_entry_by_id(entry_id: str, role: str) -> None:
-    """Callback de botão: atualiza a seleção antes do rerun do Streamlit."""
+def _select_baseline(entry_id: str, athlete_id: int) -> None:
+    """Callback: atualiza o basal antes da renderização da comparação."""
     entry = _timeline_entry_by_id(entry_id)
-    if entry is None:
-        st.session_state["thermography_timeline_message"] = (
-            "A análise selecionada não está mais disponível."
-        )
+    if entry is None or int(entry['athlete_id']) != athlete_id:
+        st.session_state['thermography_timeline_message'] = 'A análise selecionada não está mais disponível.'
         return
-    _select_timeline_entry(entry, role)
+    st.session_state[f'thermography_timeline_basal_{athlete_id}'] = str(entry['id'])
+    st.session_state['thermography_timeline_t0'] = str(entry['id'])
+
+
+@st.dialog("Mudar Basal", width="large")
+def choose_baseline(athlete_id: int) -> None:
+    st.caption("Selecione uma análise deste jogador para usar como basal.")
+    entries = st.session_state.get('thermography_timeline', [])
+    columns = st.columns(3)
+    for index, entry in enumerate(entries):
+        if int(entry['athlete_id']) != athlete_id:
+            continue
+        with columns[index % 3]:
+            with st.container(border=True):
+                thumbnail = entry['thumbnail'].copy()
+                thumbnail.thumbnail((250, 180))
+                st.image(thumbnail, width='content')
+                st.write(entry['collected_at'].strftime('%d/%m/%Y'))
+                st.caption(f"Análise {entry['id'][:8]}")
+                if st.button('Selecionar', key=f"timeline_basal_{entry['id']}",
+                             width='stretch', on_click=_select_baseline,
+                             args=(str(entry['id']), athlete_id)):
+                    st.rerun()
 
 
 def _timeline_view_at_threshold(source, threshold):
@@ -84,41 +104,9 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
         with tab:
             baseline_source = t0["views"][view_key]
             current_source = ti["views"][view_key]
-            threshold_columns = st.columns(2)
-            with threshold_columns[0]:
-                baseline_threshold = st.slider(
-                    "Limiar da coleta basal (°C)",
-                    min_value=float(baseline_source["minimum_temperature"]),
-                    max_value=float(baseline_source["maximum_temperature"]),
-                    value=float(baseline_source["default_threshold"]),
-                    step=max(
-                        (
-                            float(baseline_source["maximum_temperature"])
-                            - float(baseline_source["minimum_temperature"])
-                        ) / 200,
-                        0.01,
-                    ),
-                    key=f"timeline_threshold_t0_{t0['id']}_{view_key}",
-                )
-            with threshold_columns[1]:
-                current_threshold = st.slider(
-                    "Limiar da coleta atual (°C)",
-                    min_value=float(current_source["minimum_temperature"]),
-                    max_value=float(current_source["maximum_temperature"]),
-                    value=float(current_source["default_threshold"]),
-                    step=max(
-                        (
-                            float(current_source["maximum_temperature"])
-                            - float(current_source["minimum_temperature"])
-                        ) / 200,
-                        0.01,
-                    ),
-                    key=f"timeline_threshold_ti_{ti['id']}_{view_key}",
-                )
-            st.caption(
-                "O mapa e todas as métricas abaixo são recalculados imediatamente "
-                "quando um dos limiares é alterado."
-            )
+            # Cada vista utiliza exatamente o limiar persistido na coleta.
+            baseline_threshold = float(baseline_source['default_threshold'])
+            current_threshold = float(current_source['default_threshold'])
             baseline = _timeline_view_at_threshold(
                 baseline_source, baseline_threshold
             )
@@ -131,6 +119,9 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
             with t0_column:
                 st.markdown("##### Basal")
                 st.image(baseline["image"], width="stretch")
+                button_key = 'timeline_change_basal' if view_key == 'front' else 'timeline_change_basal_back'
+                if st.button('Mudar Basal', key=button_key, width='stretch'):
+                    choose_baseline(int(t0['athlete_id']))
             with ti_column:
                 st.markdown("##### Atual")
                 st.image(current["image"], width="stretch")
@@ -143,27 +134,10 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                         current["hot_masks"][side],
                         baseline["boxes"][side],
                         current["boxes"][side],
+                        only_new=True,
                     )
                     with column:
                         st.image(comparison["image"], caption=label, width="stretch")
-                        compared_total = sum(
-                            int(comparison[key])
-                            for key in (
-                                "new_pixels", "persistent_pixels", "resolved_pixels"
-                            )
-                        )
-                        def category_value(key: str) -> str:
-                            value = int(comparison[key])
-                            percentage = value / compared_total * 100 if compared_total else 0.0
-                            return f"{value:,} ({percentage:.1f}%)"
-                        st.caption(
-                            f"Novos: {category_value('new_pixels')} · "
-                            f"Persistentes: {category_value('persistent_pixels')} · "
-                            f"Resolvidos: {category_value('resolved_pixels')}"
-                        )
-                st.caption(
-                    "Vermelho: novos · Amarelo: persistentes · Azul: resolvidos"
-                )
             with metrics_column:
                 st.markdown("##### Métricas atuais")
                 st.caption(
@@ -243,93 +217,49 @@ def render_timeline(athletes: list[dict[str, Any]]) -> None:
         st.error(f"Não foi possível carregar as análises locais: {error}")
         return
     st.session_state["thermography_timeline"] = entries
-    valid_ids = {str(entry["id"]) for entry in entries}
-    for role in ("t0", "ti"):
-        key = f"thermography_timeline_{role}"
-        if st.session_state.get(key) not in valid_ids:
-            st.session_state.pop(key, None)
+    valid_ids = {str(entry['id']) for entry in entries}
     if not entries:
+        st.session_state.pop('thermography_timeline_t0', None)
+        st.session_state.pop('thermography_timeline_ti', None)
         st.caption(
             "Analise um par de imagens e use “Adicionar à timeline”. "
             "As imagens e máscaras serão salvas no diretório local da API."
         )
         return
 
-    action_column, clear_column = st.columns([4, 1])
-    with action_column:
-        role_label = st.radio(
-            "Ao clicar em uma coleta, definir como:",
-            ("Basal", "Atual"),
-            horizontal=True,
-            key="thermography_timeline_role_v2",
-        )
-    with clear_column:
-        if st.button("Limpar seleção", use_container_width=True):
-            st.session_state.pop("thermography_timeline_t0", None)
-            st.session_state.pop("thermography_timeline_ti", None)
-            st.rerun()
-    role = "t0" if "Basal" in role_label else "ti"
-    selected_t0 = st.session_state.get("thermography_timeline_t0")
-    selected_ti = st.session_state.get("thermography_timeline_ti")
-    card_styles = []
-    for entry in entries:
-        entry_id = str(entry["id"])
-        active_selection = selected_t0 if role == "t0" else selected_ti
-        is_selected = entry_id == active_selection
-        selector = f".st-key-timeline_card_{entry_id}"
-        border_selector = (
-            f'{selector} [data-testid="stVerticalBlockBorderWrapper"]'
-        )
-        if is_selected:
-            card_styles.append(
-                f"{selector} {{ opacity: 1; }}"
-                f"{border_selector} {{ border: 3px solid "
-                "rgba(49, 51, 63, 0.95) !important; }}"
-            )
-        else:
-            card_styles.append(
-                f"{selector} {{ opacity: 0.38; transition: opacity 0.18s ease; }}"
-                f"{selector}:hover {{ opacity: 0.72; }}"
-            )
-    if card_styles:
-        st.markdown(
-            "<style>" + "".join(card_styles) + "</style>",
-            unsafe_allow_html=True,
-        )
-    st.caption(
-        f"Mostrando a seleção de {role_label}: somente a coleta escolhida "
-        "neste estado permanece destacada."
-    )
-    with st.container(horizontal=True):
-        for entry in entries:
-            entry_id = str(entry["id"])
-            with st.container(
-                border=True,
-                width=190,
-                key=f"timeline_card_{entry_id}",
-            ):
-                thumbnail = entry["thumbnail"].copy()
-                thumbnail.thumbnail((170, 110))
-                st.image(thumbnail, width="stretch")
-                label = entry["collected_at"].strftime("%d/%m/%Y")
-                st.button(
-                    label,
-                    key=f"timeline_entry_{entry_id}_{role}",
-                    use_container_width=True,
-                    on_click=_select_timeline_entry_by_id,
-                    args=(entry_id, role),
-                )
-                st.caption(f"Análise {entry['id'][:8]}")
-    st.caption("Análises armazenadas localmente no servidor da API. Limpar seleção não exclui arquivos.")
+    by_date = _analyses_by_date(entries)
+    dates = list(by_date)
+    basal_key = f'thermography_timeline_basal_{selected_player_id}'
+    if st.session_state.get(basal_key) not in valid_ids:
+        st.session_state[basal_key] = str(by_date[dates[0]]['id'])
+    st.session_state['thermography_timeline_t0'] = st.session_state[basal_key]
+    t0 = _timeline_entry_by_id(st.session_state['thermography_timeline_t0'])
 
-    t0 = _timeline_entry_by_id(st.session_state.get("thermography_timeline_t0"))
-    ti = _timeline_entry_by_id(st.session_state.get("thermography_timeline_ti"))
-    if t0 is not None and ti is not None:
-        if _timeline_sort_key(ti) < _timeline_sort_key(t0):
-            st.warning(
-                "A coleta Atual está registrada antes da Basal. A comparação "
-                "continua disponível, mas confira se essa ordem foi intencional."
-            )
+    # Reserva o espaço das prévias acima da barra; calcula depois de ler a data
+    # para que a comparação reflita a seleção já no mesmo rerun.
+    comparison_container = st.container()
+    date_key = f'thermography_timeline_date_{selected_player_id}'
+    if st.session_state.get(date_key) not in by_date:
+        st.session_state[date_key] = dates[-1]
+    if len(dates) == 1:
+        selected_date = dates[0]
+        st.caption(f"Coleta atual: {selected_date.strftime('%d/%m/%Y')} · Única data disponível.")
+    else:
+        selected_date = st.select_slider(
+            'Data da coleta atual', options=dates,
+            format_func=lambda value: value.strftime('%d/%m/%Y'),
+            key=date_key,
+            help='Arraste para uma data com coleta. O basal permanece fixo.',
+        )
+    ti = by_date[selected_date]
+    st.session_state['thermography_timeline_ti'] = str(ti['id'])
+    st.caption('Análises armazenadas localmente no servidor da API. A seleção não altera os arquivos salvos.')
+    if ti['collected_at'] < t0['collected_at']:
+        st.warning(
+            'A coleta Atual está registrada antes da Basal. A comparação '
+            'continua disponível, mas confira se essa ordem foi intencional.'
+        )
+    with comparison_container:
         _render_comparison(t0, ti)
 
 
@@ -360,7 +290,9 @@ def add_to_timeline(
     _load_saved_entry.clear()
     st.session_state['thermography_timeline_player'] = int(athlete_id)
     st.session_state["thermography_timeline_ti"] = entry["id"]
-    st.session_state.setdefault("thermography_timeline_t0", entry["id"])
+    # Ao retornar após um novo registro, iniciar pela data mais recente disponível,
+    # mesmo quando a análise recém-enviada tiver uma data histórica.
+    st.session_state.pop(f'thermography_timeline_date_{athlete_id}', None)
     st.session_state["thermography_timeline_message"] = "Análise salva localmente e adicionada à timeline."
 
 
