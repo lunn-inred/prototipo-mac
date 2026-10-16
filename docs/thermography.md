@@ -5,9 +5,10 @@
 ## Fluxo da página
 
 A página `frontend/streamlit/pages/Termografia.py` registra uma nova análise a partir das imagens
-de frente e verso. Os componentes aparecem na ordem **Nova análise térmica**,
-**Timeline térmica** (seção independente, com título visível) e **Envio de Formulário**, este último sempre
-aberto para importar fichas manuscritas. Ao adicionar a análise à timeline ou
+de frente e verso. Os componentes aparecem na ordem **Nova análise térmica** e
+**Envio de Formulário**, este último sempre aberto para importar fichas manuscritas.
+A consulta e a comparação de análises ficam na página separada **Timeline Termo**.
+Ao adicionar a análise à timeline ou
 registrá-la no banco, uma janela solicita a data da coleta e apresenta a data
 atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
 data padrão é aplicada pelo serviço.
@@ -232,3 +233,11 @@ para a pasta do host antes de trocar a montagem. Mantenha esse volume antigo com
 backup até conferir a migração; não o remova com `docker volume rm` ou `down -v`.
 
 Contratos de imagens, matrizes e rotação: [API térmica](api.md#contrato-de-termografia).
+
+## Timeline em página própria
+
+A consulta das análises locais e a comparação Basal × Atual ficam na página
+**Timeline Termo**, acessível pelo menu lateral. A etapa 7 da Termografia
+continua oferecendo **Adicionar à timeline**, com o mesmo armazenamento local.
+Na etapa 6, cada perna é apresentada com o percentual de pixels quentes e a
+área total (pixels), por perna e por região anatômica; a esquerda aparece primeiro.

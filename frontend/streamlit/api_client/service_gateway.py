@@ -113,8 +113,12 @@ def create_athlete(**values: Any) -> int:
 def update_athlete(athlete_id: int, **values: Any) -> None:
     _request('PUT', f'/api/v1/athletes/{athlete_id}', json=_json_value(values))
 
-def delete_athlete(athlete_id: int) -> None:
-    _request('DELETE', f'/api/v1/athletes/{athlete_id}')
+def deactivate_athlete(athlete_id: int) -> None:
+    _request('PATCH', f'/api/v1/athletes/{athlete_id}/deactivate')
+
+def reactivate_athlete(athlete_id: int) -> None:
+    _request('PATCH', f'/api/v1/athletes/{athlete_id}/reactivate')
+
 
 def extract_uploaded_pdfs(files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
     multipart = [('files', (name, content, 'application/pdf')) for (name, content) in files]

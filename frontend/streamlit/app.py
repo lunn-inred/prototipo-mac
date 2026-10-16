@@ -22,13 +22,18 @@ navigation = st.navigation(
         ),
         st.Page(
             PAGE_ROOT / "Metricas_de_Salto.py",
-            title="Métricas de Salto",
+            title="Monitoramento Salto",
             icon="📈",
         ),
         st.Page(
             PAGE_ROOT / "Termografia.py",
             title="Termografia",
             icon="🌡️",
+        ),
+        st.Page(
+            PAGE_ROOT / "Timeline_Termo.py",
+            title="Timeline Termo",
+            icon="🗓️",
         ),
     ]
 )

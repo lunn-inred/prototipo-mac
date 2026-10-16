@@ -36,7 +36,7 @@ DEFAULT_HOT_POSITION = 0.90
 PERCENTAGE_MODE = "Porcentagem da escala"
 TEMPERATURE_MODE = "Temperatura (°C)"
 THRESHOLD_MODE_KEY = "thermography_threshold_mode"
-LEGS = {"Perna direita": "right", "Perna esquerda": "left"}
+LEGS = {"Perna esquerda": "left", "Perna direita": "right"}
 VIEW_LABELS = {"front": "Frente", "back": "Verso"}
 
 
@@ -218,7 +218,7 @@ def edit_thermal_boxes(
     if message := st.session_state.pop(f"thermal_box_message_{item_key}", None):
         st.success(message)
     target_label = st.radio(
-        "Área", ("Perna direita", "Perna esquerda", "Barra de cores"),
+        "Área", ("Perna esquerda", "Perna direita", "Barra de cores"),
         horizontal=True,
         key=f"thermal_box_target_{item_key}",
     )
@@ -287,7 +287,7 @@ def edit_thermal_mask(
         st.success(message)
     controls = st.columns(3)
     target_label = controls[0].radio(
-        "Perna", ("Perna direita", "Perna esquerda"), horizontal=True,
+        "Perna", ("Perna esquerda", "Perna direita"), horizontal=True,
         key=f"thermal_mask_target_{item_key}",
     )
     side = "right" if target_label == "Perna direita" else "left"

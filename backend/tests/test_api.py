@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from backend.mac_api.modules.athletes.athlete_service import AthleteInUseError
 from backend.mac_api.main import app
 from backend.mac_api.core.settings import api_key
 from backend.mac_api.modules.thermography.thermography_service import DuplicateThermographyError
@@ -60,11 +59,19 @@ class AthleteApiTests(unittest.TestCase):
             birth_date=date(2000, 1, 2),
         )
 
-    @patch("backend.mac_api.main.delete_athlete", side_effect=AthleteInUseError("em uso"))
-    def test_maps_athlete_in_use_to_conflict(self, _delete):
-        response = self.client.delete("/api/v1/athletes/2")
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["detail"], "em uso")
+    @patch("backend.mac_api.main.deactivate_athlete")
+    def test_deactivates_without_delete_endpoint(self, deactivate):
+        response = self.client.patch("/api/v1/athletes/2/deactivate")
+        self.assertEqual(response.status_code, 204)
+        deactivate.assert_called_once_with(2)
+        self.assertEqual(self.client.delete("/api/v1/athletes/2").status_code, 405)
+
+    @patch("backend.mac_api.main.reactivate_athlete")
+    def test_reactivates_athlete(self, reactivate):
+        response = self.client.patch('/api/v1/athletes/2/reactivate')
+        self.assertEqual(response.status_code, 204)
+        reactivate.assert_called_once_with(2)
+
 
 
 class MeasurementApiTests(unittest.TestCase):

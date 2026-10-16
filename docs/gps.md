@@ -6,7 +6,7 @@
 
 ### Extração de relatórios GPS
 
-O botão **Adicionar novos arquivos**, no topo da página **Monitoramento GPS**,
+O painel **Adicionar relatórios GPS**, sempre visível no topo da página **Monitoramento GPS**,
 permite enviar um ou vários relatórios PDF diretamente pelo navegador. Para cada
 relatório, o extrator renderiza e analisa por OCR as duas últimas páginas (ou a
 única página disponível), mostra uma prévia das tabelas reconhecidas e permite
@@ -125,3 +125,6 @@ orientação invertida. Se `adversario` estiver vazio e `equipe` seguir o format
 Foram removidos os componentes de distância em sprint, acelerações e
 desacelerações separadas, player load total e zonas de velocidade, pois essas
 métricas não estão disponíveis na view no formato exigido pelo protótipo.
+
+Os filtros, indicadores e gráficos dos registros do banco ficam na seção
+**Analisar dados de GPS**, recolhida por padrão.

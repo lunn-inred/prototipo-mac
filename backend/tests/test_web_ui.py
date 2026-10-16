@@ -20,6 +20,9 @@ from backend.mac_api.core.database import database_config, database_write_connec
 @unittest.skipUnless(os.getenv('MAC_TEST_DB_ENABLED') == '1', 'PostgreSQL local não habilitado')
 class WebUiIntegrationTests(unittest.TestCase):
     def setUp(self):
+        import streamlit as st
+        st.cache_data.clear()
+        self.addCleanup(st.cache_data.clear)
         config = database_config()
         self.assertIn(config['host'], ('127.0.0.1', 'localhost'))
         self.assertEqual(config['dbname'], 'mac_test')
@@ -58,11 +61,49 @@ class WebUiIntegrationTests(unittest.TestCase):
         return self.client.request(method, parsed.path + ('?' + parsed.query if parsed.query else ''), **kwargs)
 
     def test_all_pages_render_via_http_without_direct_database_access(self):
-        for filename in ('Jogadores.py','Metricas_de_Salto.py','Monitoramento_GPS.py','Termografia.py'):
+        for filename in ('Jogadores.py','Metricas_de_Salto.py','Monitoramento_GPS.py','Termografia.py','Timeline_Termo.py'):
             with self.subTest(filename=filename), patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=self.http):
                 app = AppTest.from_file(str(self.root/'frontend/streamlit/pages'/filename), default_timeout=30).run()
                 self.assertEqual(len(app.exception), 0, list(app.exception))
                 self.assertFalse(any('Não foi possível carregar' in error.value for error in app.error))
+                if filename in ('Monitoramento_GPS.py', 'Metricas_de_Salto.py'):
+                    label = 'Analisar dados de GPS' if filename == 'Monitoramento_GPS.py' else 'Analisar dados de salto'
+                    analysis = next(expander for expander in app.expander if expander.label == label)
+                    self.assertFalse(analysis.proto.expanded)
+                    self.assertFalse(any(expander.label == 'Gerenciar coletas de salto' for expander in app.expander))
+                    if filename == 'Monitoramento_GPS.py':
+                        self.assertIn('Adicionar relatórios GPS', [header.value for header in app.subheader])
+                        self.assertFalse(any(button.label == 'Adicionar novos arquivos' for button in app.button))
+                    else:
+                        self.assertIn('Gerenciar coletas de salto', [header.value for header in app.subheader])
+
+    def test_player_deactivation_form_updates_status(self):
+        headers = {'X-API-Key': os.environ['MAC_API_KEY']}
+        created = self.client.post('/api/v1/athletes', json={'name': 'Teste desativação interface'}, headers=headers)
+        self.assertEqual(created.status_code, 201, created.text)
+        athlete_id = created.json()['id_atleta']
+        from frontend.streamlit.presentation.player_data import load_player_dashboard_data
+        load_player_dashboard_data.clear()
+        with patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=self.http):
+            app = AppTest.from_file(str(self.root/'frontend/streamlit/pages/Jogadores.py'), default_timeout=30).run()
+            self.assertIn('Desativar/reativar jogador', [tab.label for tab in app.tabs])
+            self.assertNotIn('Excluir', [tab.label for tab in app.tabs])
+            app.selectbox(key='deactivate_athlete_id').set_value(athlete_id).run()
+            button = app.button(key='athlete_status_action')
+            self.assertEqual(button.label, 'Desativar jogador')
+            self.assertFalse(any(widget.key and 'confirmation' in widget.key for widget in app.text_input))
+            self.assertFalse(button.disabled)
+            button.click().run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            record = self.client.get(f'/api/v1/athletes/{athlete_id}', headers=headers).json()
+            self.assertEqual(record['status'], 'inativo')
+            button = app.button(key='athlete_status_action')
+            self.assertEqual(button.label, 'Reativar jogador')
+            self.assertFalse(button.disabled)
+            button.click().run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            record = self.client.get(f'/api/v1/athletes/{athlete_id}', headers=headers).json()
+            self.assertEqual(record['status'], 'ativo')
 
     def test_thermal_uploads_render_masks_parts_and_pair_summary(self):
         image = Image.new('RGB', (320, 200), (15, 15, 15))
@@ -100,6 +141,7 @@ class WebUiIntegrationTests(unittest.TestCase):
             with patch.object(timeline.st, 'session_state', state):
                 timeline.add_to_timeline(athletes[0]['id_atleta'], current_sao_paulo_date(), views,
                                          items)
+            app = AppTest.from_file(str(self.root/'frontend/streamlit/pages/Timeline_Termo.py'), default_timeout=60)
             for key, value in state.items():
                 app.session_state[key] = value
             app.run()

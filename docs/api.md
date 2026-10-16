@@ -37,7 +37,8 @@ Com a API em execução:
 | `GET /api/v1/athletes/{athlete_id}` | Consulta um atleta | Não |
 | `POST /api/v1/athletes` | Cadastra atleta | Sim |
 | `PUT /api/v1/athletes/{athlete_id}` | Atualiza atleta, preservando `nome_alternativo` | Sim |
-| `DELETE /api/v1/athletes/{athlete_id}` | Exclui atleta sem medições | Sim |
+| `PATCH /api/v1/athletes/{athlete_id}/deactivate` | Desativa atleta sem excluir cadastro ou medições | Sim |
+| `PATCH /api/v1/athletes/{athlete_id}/reactivate` | Reativa o cadastro existente | Sim |
 | `GET /api/v1/players/dashboard` | Dados do mural | Não |
 | `POST /api/v1/athletes/match` | Correlaciona um nome ao cadastro | Não |
 | `POST /api/v1/analytics/{operation}` | Calcula indicadores e estatísticas | Não |

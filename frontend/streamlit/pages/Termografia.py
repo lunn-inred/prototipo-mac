@@ -8,7 +8,7 @@ from frontend.streamlit.presentation.thermography_data import (
     load_thermography_athletes,
 )
 
-from frontend.streamlit.components.thermography.timeline import render_timeline, confirm_timeline_date
+from frontend.streamlit.components.thermography.timeline import confirm_timeline_date
 from frontend.streamlit.components.thermography.forms import render_forms
 from frontend.streamlit.components.thermography.registration import confirm_database_collection
 from frontend.streamlit.components.thermography.wizard import render_wizard, navigate
@@ -79,6 +79,7 @@ st.html('''
 
 
 
+
 st.title("Termografia")
 
 flash_message = st.session_state.pop("thermography_flash", None)
@@ -107,8 +108,6 @@ athlete_id_by_editor_label = {
 
 result = render_wizard(athletes_by_id)
 if result is None:
-    st.divider()
-    render_timeline(athletes)
     st.divider()
     render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
     st.stop()
@@ -286,7 +285,5 @@ if all(view_metrics.values()):
 else:
     stored_metrics.clear()
 
-st.divider()
-render_timeline(athletes)
 st.divider()
 render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)

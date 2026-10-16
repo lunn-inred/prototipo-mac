@@ -3,9 +3,9 @@ from datetime import date
 from unittest.mock import MagicMock
 
 from backend.mac_api.modules.athletes.athlete_service import (
-    AthleteInUseError,
     create_athlete,
-    delete_athlete,
+    deactivate_athlete,
+    reactivate_athlete,
     update_athlete,
 )
 
@@ -60,25 +60,37 @@ class AthleteServiceTests(unittest.TestCase):
         self.assertNotIn("nome_alternativo", query)
         self.assertIn("WHERE id_atleta = %s", query)
 
-    def test_delete_rejects_athlete_with_measurements(self) -> None:
+    def test_deactivate_preserves_athlete_with_measurements(self) -> None:
         cursor = MagicMock()
-        cursor.fetchone.return_value = (3,)
-
-        with self.assertRaises(AthleteInUseError):
-            delete_athlete(7, connection_factory=connection_factory(cursor))
-
+        cursor.fetchone.return_value = (7,)
+        deactivate_athlete(7, connection_factory=connection_factory(cursor))
         self.assertEqual(cursor.execute.call_count, 1)
-        self.assertNotIn("DELETE", cursor.execute.call_args.args[0])
+        query, parameters = cursor.execute.call_args.args
+        self.assertIn("SET status = 'inativo'", query)
+        self.assertNotIn("DELETE", query)
+        self.assertNotIn("medida_valor", query)
+        self.assertEqual(parameters, (7,))
 
-    def test_delete_unreferenced_athlete(self) -> None:
+    def test_deactivate_missing_athlete(self) -> None:
         cursor = MagicMock()
-        cursor.fetchone.side_effect = [(0,), (7,)]
+        cursor.fetchone.return_value = None
+        with self.assertRaisesRegex(ValueError, "não encontrado"):
+            deactivate_athlete(7, connection_factory=connection_factory(cursor))
 
-        delete_athlete(7, connection_factory=connection_factory(cursor))
+    def test_reactivate_preserves_identity_and_measurements(self) -> None:
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (7,)
+        reactivate_athlete(7, connection_factory=connection_factory(cursor))
+        self.assertEqual(cursor.execute.call_count, 1)
+        query, parameters = cursor.execute.call_args.args
+        self.assertIn("SET status = 'ativo'", query)
+        self.assertNotIn('DELETE', query)
+        self.assertNotIn('INSERT', query)
+        self.assertNotIn('medida_valor', query)
+        self.assertEqual(parameters, (7,))
 
-        self.assertEqual(cursor.execute.call_count, 2)
-        self.assertIn("DELETE FROM public.atleta", cursor.execute.call_args_list[1].args[0])
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_reactivate_missing_athlete(self) -> None:
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        with self.assertRaisesRegex(ValueError, 'não encontrado'):
+            reactivate_athlete(7, connection_factory=connection_factory(cursor))

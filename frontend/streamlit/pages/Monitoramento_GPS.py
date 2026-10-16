@@ -172,121 +172,123 @@ def add_average_trace(
 st.title("Monitoramento GPS")
 render_gps_import()
 
-try:
-    all_records = load_gps_records()
-except Exception as error:
-    st.error(f"Não foi possível carregar os dados de GPS: {error}")
-    st.stop()
+with st.expander("Analisar dados de GPS", expanded=False):
 
-if not all_records:
-    st.warning("A view de GPS não retornou registros.")
-    st.stop()
+    try:
+        all_records = load_gps_records()
+    except Exception as error:
+        st.error(f"Não foi possível carregar os dados de GPS: {error}")
+        st.stop()
 
-filters = render_data_filters(all_records)
-selected_position = filters.selected_position
-analysis_athletes = filters.analysis_athletes
-period_records = filters.period_records
-filtered_records = filters.filtered_records
+    if not all_records:
+        st.warning("A view de GPS não retornou registros.")
+        st.stop()
 
-st.caption(
-    "Fonte: public.vw_medidas_gps · HSR convertido de quilômetros para metros."
-)
+    filters = render_data_filters(all_records)
+    selected_position = filters.selected_position
+    analysis_athletes = filters.analysis_athletes
+    period_records = filters.period_records
+    filtered_records = filters.filtered_records
 
-if not filtered_records:
-    st.warning("Não há medições de GPS para os filtros selecionados.")
-    st.stop()
-
-card_metrics = [
-    "Distância total (km)",
-    "Distância em alta velocidade — HSR (m)",
-]
-for column, metric in zip(st.columns(len(card_metrics)), card_metrics):
-    value, deviation = average_and_standard_deviation(filtered_records, metric)
-    unit = str(METRICS[metric]["unit"])
-    with column:
-        with st.container(border=True):
-            st.metric(
-                f"Média de {metric.rsplit(' (', 1)[0]}",
-                formatted_value(value, unit),
-            )
-            if deviation is not None:
-                st.caption(f"± {deviation:.1f} {unit}")
-
-
-def evolution_chart(metric: str) -> go.Figure:
-    figure = go.Figure()
-    series_index = 0
-    for athlete in analysis_athletes:
-        athlete_records = [
-            record
-            for record in filtered_records
-            if record["atleta"] == athlete
-        ]
-        add_average_trace(
-            figure,
-            athlete_records,
-            athlete,
-            metric,
-            highlight=True,
-            color=qualitative.Plotly[series_index % len(qualitative.Plotly)],
-        )
-        series_index += 1
-
-    reference_positions = (
-        [selected_position]
-        if selected_position
-        else sorted(
-            {
-                str(record["posicao"])
-                for record in all_records
-                if record["atleta"] in analysis_athletes and record["posicao"]
-            }
-        )
+    st.caption(
+        "Fonte: public.vw_medidas_gps · HSR convertido de quilômetros para metros."
     )
-    for reference_position in reference_positions:
-        add_average_trace(
-            figure,
-            [
+
+    if not filtered_records:
+        st.warning("Não há medições de GPS para os filtros selecionados.")
+        st.stop()
+
+    card_metrics = [
+        "Distância total (km)",
+        "Distância em alta velocidade — HSR (m)",
+    ]
+    for column, metric in zip(st.columns(len(card_metrics)), card_metrics):
+        value, deviation = average_and_standard_deviation(filtered_records, metric)
+        unit = str(METRICS[metric]["unit"])
+        with column:
+            with st.container(border=True):
+                st.metric(
+                    f"Média de {metric.rsplit(' (', 1)[0]}",
+                    formatted_value(value, unit),
+                )
+                if deviation is not None:
+                    st.caption(f"± {deviation:.1f} {unit}")
+
+
+    def evolution_chart(metric: str) -> go.Figure:
+        figure = go.Figure()
+        series_index = 0
+        for athlete in analysis_athletes:
+            athlete_records = [
                 record
-                for record in period_records
-                if record["posicao"] == reference_position
-            ],
-            f"Média {reference_position}",
+                for record in filtered_records
+                if record["atleta"] == athlete
+            ]
+            add_average_trace(
+                figure,
+                athlete_records,
+                athlete,
+                metric,
+                highlight=True,
+                color=qualitative.Plotly[series_index % len(qualitative.Plotly)],
+            )
+            series_index += 1
+
+        reference_positions = (
+            [selected_position]
+            if selected_position
+            else sorted(
+                {
+                    str(record["posicao"])
+                    for record in all_records
+                    if record["atleta"] in analysis_athletes and record["posicao"]
+                }
+            )
+        )
+        for reference_position in reference_positions:
+            add_average_trace(
+                figure,
+                [
+                    record
+                    for record in period_records
+                    if record["posicao"] == reference_position
+                ],
+                f"Média {reference_position}",
+                metric,
+                color=qualitative.Plotly[series_index % len(qualitative.Plotly)],
+            )
+            series_index += 1
+
+        add_average_trace(
+            figure,
+            period_records,
+            "Média do elenco",
             metric,
+            highlight=not analysis_athletes,
             color=qualitative.Plotly[series_index % len(qualitative.Plotly)],
         )
-        series_index += 1
+        figure.update_layout(
+            height=380,
+            hovermode="x unified",
+            xaxis_title="Data da coleta",
+            yaxis_title=metric,
+        )
+        return figure
 
-    add_average_trace(
-        figure,
-        period_records,
-        "Média do elenco",
-        metric,
-        highlight=not analysis_athletes,
-        color=qualitative.Plotly[series_index % len(qualitative.Plotly)],
+
+    st.subheader("Evolução de carga e intensidade")
+    selected_variables = st.multiselect(
+        "Variáveis",
+        sorted(METRICS, key=alphabetical_key),
     )
-    figure.update_layout(
-        height=380,
-        hovermode="x unified",
-        xaxis_title="Data da coleta",
-        yaxis_title=metric,
-    )
-    return figure
 
-
-st.subheader("Evolução de carga e intensidade")
-selected_variables = st.multiselect(
-    "Variáveis",
-    sorted(METRICS, key=alphabetical_key),
-)
-
-if not selected_variables:
-    st.info("Selecione ao menos uma variável.")
-else:
-    for variable in selected_variables:
-        st.markdown(f"#### {variable}")
-        chart = evolution_chart(variable)
-        if not chart.data:
-            st.info(f"Não há dados de {variable} para os filtros selecionados.")
-        else:
-            st.plotly_chart(chart, width="stretch", key=f"gps_{variable}")
+    if not selected_variables:
+        st.info("Selecione ao menos uma variável.")
+    else:
+        for variable in selected_variables:
+            st.markdown(f"#### {variable}")
+            chart = evolution_chart(variable)
+            if not chart.data:
+                st.info(f"Não há dados de {variable} para os filtros selecionados.")
+            else:
+                st.plotly_chart(chart, width="stretch", key=f"gps_{variable}")

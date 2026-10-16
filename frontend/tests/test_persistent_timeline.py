@@ -14,6 +14,11 @@ from backend.tests.test_analysis_archive import example_views
 
 
 class PersistentTimelineTests(unittest.TestCase):
+    def setUp(self):
+        import streamlit as st
+        st.cache_data.clear()
+        self.addCleanup(st.cache_data.clear)
+
     def test_starting_another_analysis_keeps_timeline_player_and_selection(self):
         from frontend.streamlit.components.thermography import wizard
         state = {'thermal_step': 6, 'thermal_draft': {'player': 1},
@@ -71,9 +76,9 @@ class PersistentTimelineTests(unittest.TestCase):
             root = Path(__file__).resolve().parents[2]
             with patch.object(data_repository, 'list_athletes', return_value=[dict(id_atleta=1,nome='Teste',apelido=None)]), \
                  patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=http):
-                app = AppTest.from_file(str(root/'frontend/streamlit/pages/Termografia.py'), default_timeout=30).run()
+                app = AppTest.from_file(str(root/'frontend/streamlit/pages/Timeline_Termo.py'), default_timeout=30).run()
                 app.selectbox(key='thermography_timeline_player').set_value(1).run()
-                self.assertIsNone(app.selectbox(key='thermography_player').value)
+                self.assertFalse(any(widget.key == 'thermography_player' for widget in app.selectbox))
                 self.assertEqual(len(app.exception), 0, list(app.exception))
                 self.assertEqual(len(app.session_state['thermography_timeline']), 2)
                 app.button(key=f'timeline_entry_{first["id"]}_t0').click().run()

@@ -244,7 +244,8 @@ def render_jump_management() -> None:
     by_id = {int(item["id_atleta"]): item for item in athletes}
     athlete_format = lambda athlete_id: athlete_selection_label(by_id[athlete_id])
 
-    with st.expander("Gerenciar coletas de salto", expanded=False):
+    with st.container(border=True):
+        st.subheader("Gerenciar coletas de salto")
         create_tab, edit_tab, delete_tab, import_tab = st.tabs(
             ["Cadastrar", "Editar", "Excluir", "Importar planilha"]
         )

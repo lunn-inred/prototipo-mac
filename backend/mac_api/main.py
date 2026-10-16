@@ -15,7 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 import backend.mac_api.repositories.data_repository as data_repository
 from backend.mac_api.api_serialization import gps_preview_to_dict, gps_result_to_dict
-from backend.mac_api.modules.athletes.athlete_service import AthleteInUseError, create_athlete, delete_athlete, update_athlete
+from backend.mac_api.modules.athletes.athlete_service import create_athlete, deactivate_athlete, reactivate_athlete, update_athlete
 from backend.mac_api.modules.gps.gps_extraction import extract_uploaded_pdfs
 from backend.mac_api.modules.gps.gps_import_service import import_gps_documents, prepare_gps_documents, preview_gps_documents
 from backend.mac_api.modules.jumps.jump_service import (
@@ -102,9 +102,14 @@ def athlete_update(athlete_id: int, payload: AthleteInput) -> None:
     update_athlete(athlete_id, **payload.model_dump())
 
 
-@router.delete("/athletes/{athlete_id}", status_code=204, tags=["Atletas"])
-def athlete_delete(athlete_id: int) -> None:
-    delete_athlete(athlete_id)
+@router.patch("/athletes/{athlete_id}/deactivate", status_code=204, tags=["Atletas"])
+def athlete_deactivate(athlete_id: int) -> None:
+    deactivate_athlete(athlete_id)
+
+
+@router.patch("/athletes/{athlete_id}/reactivate", status_code=204, tags=["Atletas"])
+def athlete_reactivate(athlete_id: int) -> None:
+    reactivate_athlete(athlete_id)
 
 
 @router.get("/players/dashboard", tags=["Painel"])
@@ -312,10 +317,6 @@ def create_app() -> FastAPI:
             CORSMiddleware, allow_origins=origins, allow_credentials=True,
             allow_methods=["*"], allow_headers=["*"],
         )
-
-    @app.exception_handler(AthleteInUseError)
-    async def athlete_in_use_handler(_request: Any, error: AthleteInUseError) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": str(error)})
 
     @app.exception_handler(DuplicateJumpCollectionError)
     async def duplicate_jump_handler(

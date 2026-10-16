@@ -5,8 +5,7 @@ from html import escape
 
 import streamlit as st
 
-from frontend.streamlit.api_client.contracts import (AthleteInUseError)
-from frontend.streamlit.api_client.service_gateway import create_athlete, delete_athlete, update_athlete
+from frontend.streamlit.api_client.service_gateway import create_athlete, deactivate_athlete, reactivate_athlete, update_athlete
 from frontend.streamlit.components.data_filters import PERIODS, alphabetical_key
 from frontend.streamlit.presentation.player_data import (
     eva_classification,
@@ -181,6 +180,7 @@ def player_card(
                 <div class="player-name">{escape(player_name(athlete))}</div>
                 <div class="player-position">{escape(str(athlete.get("posicao") or "Sem posição"))}</div>
                 <div class="player-eva">{escape(eva_text)}</div>
+                <div class="player-eva">Cadastro: {escape(str(athlete.get("status", "ativo")))}</div>
             </div>
             <span class="risk-badge {status_class}">{escape(status)}</span>
         </div>
@@ -236,8 +236,8 @@ def refresh_after_mutation(message: str) -> None:
 
 
 with st.expander("Gerenciar jogadores", expanded=False):
-    create_tab, edit_tab, delete_tab = st.tabs(
-        ["Cadastrar", "Editar", "Excluir"]
+    create_tab, edit_tab, deactivate_tab = st.tabs(
+        ["Cadastrar", "Editar", "Desativar/reativar jogador"]
     )
 
     with create_tab:
@@ -360,9 +360,9 @@ with st.expander("Gerenciar jogadores", expanded=False):
             else:
                 refresh_after_mutation("Jogador atualizado com sucesso.")
 
-    with delete_tab:
-        delete_id = st.selectbox(
-            "Jogador que será excluído",
+    with deactivate_tab:
+        deactivate_id = st.selectbox(
+            "Jogador",
             [int(athlete["id_atleta"]) for athlete in athletes],
             format_func=lambda athlete_id: player_name(
                 next(
@@ -371,40 +371,29 @@ with st.expander("Gerenciar jogadores", expanded=False):
                     if int(athlete["id_atleta"]) == athlete_id
                 )
             ),
-            key="delete_athlete_id",
+            key="deactivate_athlete_id",
         )
-        delete_candidate = next(
+        deactivate_candidate = next(
             athlete
             for athlete in athletes
-            if int(athlete["id_atleta"]) == delete_id
+            if int(athlete["id_atleta"]) == deactivate_id
         )
-        confirmation_name = player_name(delete_candidate)
-        st.warning(
-            "A exclusão é permanente e só é permitida para jogadores sem "
-            "medições vinculadas."
-        )
-        with st.form(f"delete_athlete_form_{delete_id}"):
-            confirmation = st.text_input(
-                f'Digite "{confirmation_name}" para confirmar',
-                key=f"delete_athlete_confirmation_{delete_id}",
-            )
-            delete_submitted = st.form_submit_button(
-                "Excluir jogador",
-                type="primary",
-                disabled=confirmation.strip() != confirmation_name,
-            )
-
-        if delete_submitted:
+        inactive = deactivate_candidate.get("status") == "inativo"
+        action_label = "Reativar jogador" if inactive else "Desativar jogador"
+        st.caption(f"Status atual: {'inativo' if inactive else 'ativo'}. O cadastro e as medições serão preservados.")
+        if st.button(action_label, type="primary", width="stretch", key="athlete_status_action"):
             try:
-                delete_athlete(delete_id)
-            except AthleteInUseError as error:
-                st.error(str(error))
+                if inactive:
+                    reactivate_athlete(deactivate_id)
+                else:
+                    deactivate_athlete(deactivate_id)
             except ValueError as error:
                 st.error(str(error))
             except Exception:
-                st.error("Não foi possível excluir o jogador.")
+                st.error("Não foi possível alterar o status do jogador.")
             else:
-                refresh_after_mutation("Jogador excluído com sucesso.")
+                message = "Jogador reativado com sucesso." if inactive else "Jogador desativado com sucesso."
+                refresh_after_mutation(message)
 
 
 measurements_by_athlete = group_measurements(measurements)
