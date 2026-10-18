@@ -12,7 +12,7 @@ OPERATIONS = {name: getattr(thermal, name) for name in (
     'detect_leg_boxes', 'hot_pixels_overlay', 'segmentation_overlay', 'segment_leg_mask',
     'temperature_matrix', 'leg_part_metrics', 'scale_percentage_from_temperature',
     'temperature_from_scale_percentage', 'segmented_image', 'timeline_view_at_threshold',
-    'summarize_pair', 'image_regions',
+    'summarize_pair', 'image_regions', 'compare_temperature_maps',
 )}
 
 class ProcessingInput(BaseModel):

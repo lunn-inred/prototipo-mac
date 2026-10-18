@@ -5,6 +5,7 @@ from PIL import Image
 
 from backend.mac_api.modules.thermography.thermal_analysis import (
     compare_hot_masks,
+    compare_temperature_maps,
     count_hot_pixels,
     extract_temperature_scale,
     hot_pixels_overlay,
@@ -17,6 +18,48 @@ from backend.mac_api.modules.thermography.thermal_analysis import (
 
 
 class ThermalAnalysisTests(unittest.TestCase):
+
+    def test_temperature_difference_colors_and_shared_scale(self):
+        box = dict(left=0, top=0, width=4, height=1)
+        mask = np.array([[True, True, True, False]])
+        def source(values):
+            return dict(temperatures=np.array([values], dtype=float),
+                        boxes=dict(right=box, left=box),
+                        segmentation_masks=dict(right=mask, left=mask))
+        basal = source([30, 30, 30, 0])
+        current = source([28, 30, 31, 100])
+        result = compare_temperature_maps(basal, current, (4, 1))
+        self.assertEqual(result['limit'], 2)
+        pixels = np.asarray(result['images']['right'])[0]
+        self.assertGreater(pixels[0, 2], pixels[0, 0])
+        np.testing.assert_array_equal(pixels[1], [255, 255, 255])
+        self.assertGreater(pixels[2, 0], pixels[2, 2])
+        np.testing.assert_array_equal(pixels[3], [18, 18, 18])
+        reverse = compare_temperature_maps(current, basal, (4, 1))
+        self.assertGreater(np.asarray(reverse['images']['right'])[0, 0, 0],
+                           np.asarray(reverse['images']['right'])[0, 0, 2])
+        same = compare_temperature_maps(basal, basal, (4, 1))
+        np.testing.assert_array_equal(np.asarray(same['images']['right'])[0, :3],
+                                      np.full((3, 3), 255))
+
+    def test_identical_temperatures_stay_zero_with_different_masks_and_thresholds(self):
+        temperatures = np.array([[25., 30., 35.], [26., 31., 36.]])
+        box = dict(left=0, top=0, width=3, height=2)
+        mask = np.ones((2, 3), dtype=bool)
+        baseline = dict(temperatures=temperatures, boxes=dict(right=box, left=box),
+                        segmentation_masks=dict(right=mask, left=mask), default_threshold=30.)
+        edited = mask.copy()
+        edited[0, 0] = False
+        current = {**baseline, 'default_threshold': 34.,
+                   'segmentation_masks': dict(right=edited, left=edited)}
+        result = compare_temperature_maps(baseline, current, (17, 19))
+        self.assertTrue(result['unchanged'])
+        self.assertTrue(result['has_overlap'])
+        for image in result['images'].values():
+            pixels = np.asarray(image)
+            # Zero differences remain white except for the hot-area outlines.
+            allowed = {(255, 255, 255), (18, 18, 18), (20, 20, 20), (255, 196, 0)}
+            self.assertTrue(set(map(tuple, pixels.reshape(-1, 3))).issubset(allowed))
 
     def test_anatomical_parts_partition_mask_in_both_directions(self) -> None:
         mask = np.ones((2, 20), dtype=bool)
