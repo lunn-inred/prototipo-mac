@@ -57,8 +57,8 @@ class DesktopLauncherTests(unittest.TestCase):
         args, kwargs = start_desktop_app.call_args
         self.assertEqual(Path(args[0]).name, "app.py")
         self.assertEqual(kwargs["title"], "MAC Performance")
-        self.assertEqual(kwargs["width"], 1440)
-        self.assertEqual(kwargs["height"], 900)
+        self.assertEqual(kwargs["width"], 1920)
+        self.assertEqual(kwargs["height"], 1080)
         self.assertEqual(kwargs["options"]["server.fileWatcherType"], "none")
         start_local_api.assert_not_called()
         stop_process.assert_called_once_with(None)
@@ -88,6 +88,8 @@ class DesktopLauncherTests(unittest.TestCase):
         start_local_api.assert_called_once_with()
         stop_process.assert_called_once_with(api_process)
         start_desktop_app.assert_called_once()
+        self.assertEqual(start_desktop_app.call_args.kwargs["width"], 1920)
+        self.assertEqual(start_desktop_app.call_args.kwargs["height"], 1080)
 
     @patch("desktop.launcher.wait_for_api")
     @patch("desktop.launcher.find_free_port", return_value=9123)

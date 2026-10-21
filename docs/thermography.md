@@ -105,11 +105,14 @@ editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece 
 escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
 térmica lateral e conta como quentes os pixels a partir de 90% da escala por
 padrão: `Tmin + 0,90 × (Tmax − Tmin)`. O usuário ainda pode ajustar esse limiar
-no slider antes do cálculo. Em cada imagem, um seletor
-permite controlar o limiar pela porcentagem da escala (modo padrão) ou
-diretamente pela temperatura em °C. Ao alternar o modo, o sistema preserva o
+no bloco **Limiar de pixels quentes**, que reúne seletor de unidade, barra e
+campo numérico à direita. Barra e digitação são sincronizadas nos dois sentidos.
+Em cada imagem, o seletor permite controlar o limiar diretamente pela temperatura
+em °C (modo padrão, à esquerda) ou pela porcentagem da escala. Ao alternar o modo, o sistema preserva o
 limiar equivalente; a análise e os resultados continuam usando a temperatura
-convertida em °C.
+convertida em °C. A porcentagem aceita de 0 a 100 e a temperatura fica limitada
+a Tmin/Tmax. Se a escala mudar no modo °C, preserva-se o valor absoluto quando
+possível, limitando-o aos novos extremos. O preenchimento aceita duas casas decimais.
 
 Dentro de cada região, o GrabCut separa os pixels da perna do fundo. A prévia
 exibe a máscara sobre a imagem e oferece dois ajustes manuais: **Redefinir retângulos**, para redesenhar o retângulo de cada perna, e **Ajustar área perna**,

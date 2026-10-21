@@ -22,8 +22,8 @@ from streamlit_desktop_app import start_desktop_app
 
 
 APP_TITLE = "MAC Performance"
-WINDOW_WIDTH = 1440
-WINDOW_HEIGHT = 900
+WINDOW_WIDTH = 1920
+WINDOW_HEIGHT = 1080
 API_STARTUP_TIMEOUT_SECONDS = 30
 
 

@@ -10,6 +10,10 @@ mas fica dentro de uma WebView, sem abrir uma aba do navegador. Durante o
 desenvolvimento com `python desktop.py`, a FastAPI é iniciada separadamente. No
 executável empacotado, API, Streamlit e WebView são iniciados automaticamente.
 
+A janela abre com tamanho inicial de **1920 × 1080**, tanto em desenvolvimento
+quanto no executável. Isso não altera a resolução do monitor; o gerenciador de
+janelas pode limitar o tamanho conforme a área disponível e a escala de exibição.
+
 ## 1. Instale as dependências
 
 Com o ambiente virtual ativado, instale as dependências do desktop. Esse arquivo

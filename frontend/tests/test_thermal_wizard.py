@@ -107,16 +107,21 @@ class ThermalWizardTests(unittest.TestCase):
                 temperature_inputs = [widget for widget in app.number_input
                                       if widget.key and widget.key.startswith('wizard_tmin_')]
                 self.assertEqual(len(temperature_inputs), 2 if step == 5 else 0)
-                if step in (3, 4):
+                if step in (2, 3, 4):
                     from frontend.streamlit.components.thermography.wizard import centered_preview
                     with patch('frontend.streamlit.components.thermography.wizard.centered_preview', wraps=centered_preview) as preview:
                         app.run()
                     captions = [call.kwargs.get('caption', '') for call in preview.call_args_list]
-                    self.assertEqual(captions.count('Pernas segmentadas — área completa'), 0 if step == 3 else 2)
+                    self.assertEqual(captions.count('Pernas segmentadas'), 2 if step == 4 else 0)
+                    if step == 2:
+                        self.assertEqual(captions.count('Área das pernas'), 2)
                     if step == 3:
-                        self.assertEqual(captions.count('Coxa · Joelho · Canela · Pé (de cima para baixo)'), 2)
+                        self.assertEqual(captions.count('Divisão anatômica'), 2)
                     self.assertFalse(any('Pixels quentes' in caption for caption in captions))
                 if step == 1:
+                    labels = [button.label for button in app.button]
+                    self.assertEqual(labels.count('Girar 90° para a direita'), 2)
+                    self.assertEqual(labels[-2:], ['Voltar', 'Continuar'])
                     self.assertIn('Imagem de costas', upload_labels)
                     self.assertNotIn('Imagem de verso', upload_labels)
                     key = next(button.key for button in app.button if button.key and button.key.startswith('thermal_rotation_front_'))
@@ -191,13 +196,45 @@ class ThermalWizardTests(unittest.TestCase):
                     with patch('frontend.streamlit.components.thermography.wizard.centered_preview', wraps=centered_preview) as preview:
                         app.run()
                     captions = [call.kwargs.get('caption', '') for call in preview.call_args_list]
-                    self.assertEqual(captions.count('Divisão anatômica — Coxa · Joelho · Canela · Pé'), 2)
+                    self.assertEqual(captions.count('Divisão anatômica'), 2)
                     self.assertNotIn('Original com caixas', captions)
+                    mode_key = next(radio.key for radio in app.radio
+                                    if radio.key and radio.key.startswith('wizard_mode_front:'))
+                    self.assertEqual(app.radio(key=mode_key).options, ['Temperatura (°C)', 'Porcentagem'])
+                    self.assertEqual(app.radio(key=mode_key).value, 'Temperatura (°C)')
+                    app.radio(key=mode_key).set_value('Porcentagem').run()
                     threshold_key = next(widget.key for widget in app.slider
                                          if widget.key and widget.key.startswith('wizard_threshold_front:'))
                     app.slider(key=threshold_key).set_value(50.0).run()
                     item_key = threshold_key.removeprefix('wizard_threshold_')
                     self.assertEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 50.0)
+                    self.assertEqual([radio.label for radio in app.radio].count('Limiar de pixels quentes'), 2)
+                    percentage_number = f'wizard_threshold_number_{item_key}'
+                    self.assertEqual(app.number_input(key=percentage_number).value, 50.)
+                    app.number_input(key=percentage_number).set_value(75.25).run()
+                    self.assertEqual(app.slider(key=threshold_key).value, 75.25)
+                    self.assertEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 75.25)
+                    app.radio(key=f'wizard_mode_{item_key}').set_value('Temperatura (°C)').run()
+                    celsius_slider = f'wizard_threshold_celsius_{item_key}'
+                    celsius_number = f'wizard_threshold_celsius_number_{item_key}'
+                    self.assertAlmostEqual(app.slider(key=celsius_slider).value, 35.05)
+                    self.assertAlmostEqual(app.number_input(key=celsius_number).value, 35.05)
+                    app.number_input(key=celsius_number).set_value(32.34).run()
+                    self.assertAlmostEqual(app.slider(key=celsius_slider).value, 32.34)
+                    self.assertAlmostEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 61.7)
+                    app.slider(key=celsius_slider).set_value(34.).run()
+                    self.assertEqual(app.number_input(key=celsius_number).value, 34.)
+                    # Mudar os limites em °C mantém o valor absoluto quando
+                    # possível e limita os dois widgets quando necessário.
+                    app.number_input(key=f'wizard_tmin_{item_key}').set_value(35.).run()
+                    self.assertEqual(app.slider(key=celsius_slider).value, 35.)
+                    self.assertEqual(app.number_input(key=celsius_number).value, 35.)
+                    app.radio(key=f'wizard_mode_{item_key}').set_value('Porcentagem').run()
+                    self.assertEqual(app.slider(key=threshold_key).value, 0.)
+                    self.assertEqual(app.number_input(key=percentage_number).value, 0.)
+                    app.number_input(key=percentage_number).set_value(100.).run()
+                    self.assertEqual(app.slider(key=threshold_key).value, 100.)
+                    self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertIn('Resumo da coleta', [h.value for h in app.subheader])
             self.assertNotIn('Registro preparado', [h.value for h in app.subheader])
             self.assertEqual(app.get('progress')[0].proto.text, 'Etapa 7 de 7 — Resumo da coleta')

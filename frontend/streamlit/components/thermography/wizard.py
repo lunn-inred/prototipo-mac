@@ -53,6 +53,55 @@ def rotated_view(content, degrees):
     return image, normalized, image_signature(normalized)
 
 
+def synchronize_threshold_value(source_key, target_key):
+    """Sincroniza os widgets antes do rerun, sem editar um widget já criado."""
+    st.session_state[target_key] = st.session_state[source_key]
+
+
+def render_threshold_control(item, item_key):
+    minimum, maximum = float(item['minimum_temperature']), float(item['maximum_temperature'])
+    percentage_keys = (f'wizard_threshold_{item_key}', f'wizard_threshold_number_{item_key}')
+    celsius_keys = (f'wizard_threshold_celsius_{item_key}', f'wizard_threshold_celsius_number_{item_key}')
+    with st.container(border=True):
+        mode = st.radio('Limiar de pixels quentes', ['Temperatura (°C)', 'Porcentagem'],
+                        index=0 if item.get('threshold_mode', 'Temperatura (°C)') == 'Temperatura (°C)' else 1,
+                        horizontal=True, key=f'wizard_mode_{item_key}')
+        percentage_mode = mode == 'Porcentagem'
+        slider_key, number_key = percentage_keys if percentage_mode else celsius_keys
+        lower, upper = (0.0, 100.0) if percentage_mode else (minimum, maximum)
+        initial = (float(item['threshold_percentage']) if percentage_mode else
+                   temperature_from_scale_percentage(minimum, maximum, item['threshold_percentage']))
+        signature = (mode, minimum, maximum)
+        previous = item.get('threshold_control_signature')
+        if previous != signature:
+            # Em °C, alterações da escala preservam o valor absoluto, limitado
+            # aos novos extremos. Trocar de unidade preserva a equivalência.
+            if not percentage_mode and previous and previous[0] == mode and slider_key in st.session_state:
+                initial = min(upper, max(lower, float(st.session_state[slider_key])))
+            for widget_key in (*percentage_keys, *celsius_keys):
+                st.session_state.pop(widget_key, None)
+            item['threshold_control_signature'] = signature
+        st.session_state.setdefault(slider_key, float(min(upper, max(lower, initial))))
+        st.session_state.setdefault(number_key, st.session_state[slider_key])
+        slider_column, number_column = st.columns([4, 1.6], vertical_alignment='center')
+        unit = '%' if percentage_mode else '°C'
+        value = slider_column.slider(
+            f'Limiar de pixels quentes ({unit})', min_value=lower, max_value=upper,
+            step=0.01, format='%.2f %%' if percentage_mode else '%.2f °C',
+            key=slider_key, label_visibility='collapsed',
+            on_change=synchronize_threshold_value, args=(slider_key, number_key),
+        )
+        number_column.number_input(
+            f'Valor do limiar ({unit})', min_value=lower, max_value=upper,
+            step=0.01, format='%.2f', key=number_key, label_visibility='collapsed',
+            help=f'Digite o limiar em {unit}. O valor acompanha a barra.',
+            on_change=synchronize_threshold_value, args=(number_key, slider_key),
+        )
+        item['threshold_percentage'] = (value if percentage_mode else
+                                       scale_percentage_from_temperature(minimum, maximum, value))
+        item['threshold_mode'] = mode
+
+
 def cuts_from_objects(objects, extent, foot_at_end, coordinate='x'):
     """Converte as três linhas arrastadas em percentuais da coxa ao pé."""
     if len(objects) != 3 or extent <= 0:
@@ -193,7 +242,7 @@ def render_wizard(athletes_by_id):
         return None
     uploads = st.session_state.setdefault('thermal_uploads', {})
     if step == 1:
-        for column, view in zip(st.columns(2), VIEW_LABELS):
+        for column, view in zip(st.columns(2, gap='large'), VIEW_LABELS):
             with column:
                 uploaded = st.file_uploader(f'Imagem de {VIEW_LABELS[view].lower()}',
                                             type=['png', 'jpg', 'jpeg'], key=f'thermography_{view}_upload')
@@ -203,9 +252,6 @@ def render_wizard(athletes_by_id):
                         uploads[view] = dict(name=uploaded.name, content=content, rotation=0)
                 if view in uploads:
                     entry = uploads[view]
-                    st.button('Girar 90° para a direita', width='stretch',
-                              key=f'thermal_rotation_{view}_{image_signature(entry["content"])}',
-                              on_click=rotate_right, args=(view,))
                     try:
                         image, _, _ = rotated_view(entry['content'], entry['rotation'])
                         centered_preview(image, caption=entry['name'])
@@ -213,6 +259,11 @@ def render_wizard(athletes_by_id):
                     except ValueError as error:
                         entry['error'] = str(error)
                         st.error(str(error))
+        for button_column, view in zip(st.columns(2, gap='large'), VIEW_LABELS):
+            if view in uploads:
+                button_column.button('Girar 90° para a direita', width='stretch',
+                                     key=f'thermal_rotation_{view}_{image_signature(uploads[view]["content"])}',
+                                     on_click=rotate_right, args=(view,))
         navigate(step, all(view in uploads and not uploads[view].get('error') for view in VIEW_LABELS))
         return None
     views, metrics = {}, {}
@@ -245,23 +296,8 @@ def render_wizard(athletes_by_id):
                 columns = st.columns(2)
                 item['minimum_temperature'] = columns[0].number_input('Tmin (°C)', value=float(item['minimum_temperature']), step=0.1, key=f'wizard_tmin_{key}')
                 item['maximum_temperature'] = columns[1].number_input('Tmax (°C)', value=float(item['maximum_temperature']), step=0.1, key=f'wizard_tmax_{key}')
-                mode = st.radio('Limiar', ['Porcentagem', 'Temperatura (°C)'],
-                                        index=0 if item.get('threshold_mode', 'Porcentagem') == 'Porcentagem' else 1,
-                                        horizontal=True, key=f'wizard_mode_{key}')
                 if item['maximum_temperature'] > item['minimum_temperature']:
-                    if mode != item.get('threshold_mode', 'Porcentagem'):
-                        st.session_state.pop(f'wizard_threshold_{key}', None)
-                        st.session_state.pop(f'wizard_threshold_celsius_{key}', None)
-                    if mode == 'Porcentagem':
-                        item['threshold_percentage'] = st.slider('Limiar de pixels quentes (%)', 0.0, 100.0, float(item['threshold_percentage']), key=f'wizard_threshold_{key}')
-                    else:
-                        temperature = temperature_from_scale_percentage(item['minimum_temperature'], item['maximum_temperature'], item['threshold_percentage'])
-                        widget_key = f'wizard_threshold_celsius_{key}'
-                        if widget_key in st.session_state:
-                            st.session_state[widget_key] = min(item['maximum_temperature'], max(item['minimum_temperature'], st.session_state[widget_key]))
-                        temperature = st.slider('Temperatura mínima do pixel quente (°C)', float(item['minimum_temperature']), float(item['maximum_temperature']), float(temperature), step=0.01, key=widget_key)
-                        item['threshold_percentage'] = scale_percentage_from_temperature(item['minimum_temperature'], item['maximum_temperature'], temperature)
-                    item['threshold_mode'] = mode
+                    render_threshold_control(item, key)
                 else:
                     st.error('Tmax deve ser maior que Tmin.')
                     valid = False
@@ -277,12 +313,12 @@ def render_wizard(athletes_by_id):
                     valid = False
                     continue
                 if step == 2:
-                    centered_preview(preview, max_width=700, max_height=400)
+                    centered_preview(preview, caption='Área das pernas', max_width=700, max_height=400)
                     box_actions[view] = (key, image, automatic, colorbar)
                 else:
                     geometry = dict(boxes=boxes, overlay=image)
                     centered_preview(_parts_preview(image, geometry, settings),
-                                     caption='Coxa · Joelho · Canela · Pé (de cima para baixo)')
+                                     caption='Divisão anatômica')
                     if st.button('Redefinir regiões', key=f'wizard_parts_{key}', width='stretch'):
                         edit_parts(key, image, geometry)
                 continue
@@ -303,7 +339,7 @@ def render_wizard(athletes_by_id):
             if step == 5:
                 anatomical = _parts_preview(image, dict(boxes=analysis['boxes'], overlay=image), settings)
                 previews = (anatomical, segmented_preview_image(image, analysis['masks']), analysis['hot_overlay'])
-                captions = ('Divisão anatômica — Coxa · Joelho · Canela · Pé', 'Pernas segmentadas — área completa',
+                captions = ('Divisão anatômica', 'Pernas segmentadas',
                             f'Pixels quentes ≥ {threshold:.1f} °C')
                 for preview_column, preview, caption in zip(st.columns(3), previews, captions):
                     with preview_column:
@@ -314,7 +350,7 @@ def render_wizard(athletes_by_id):
                     centered_preview(analysis['overlay'], caption='Área segmentada')
                 with columns[1]:
                     centered_preview(segmented_preview_image(image, analysis['masks']),
-                                     caption='Pernas segmentadas — área completa')
+                                     caption='Pernas segmentadas')
             if step == 4 and st.button('Ajustar área perna', key=f'wizard_mask_{key}', width='stretch'):
                 edit_thermal_mask(key, image, analysis)
             if step == 5:
