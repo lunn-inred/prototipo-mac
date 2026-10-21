@@ -80,7 +80,7 @@ st.html('''
 
 
 
-st.title("Termografia")
+st.title("Termografia - Nova análise térmica")
 
 flash_message = st.session_state.pop("thermography_flash", None)
 if flash_message:
@@ -160,7 +160,7 @@ if all(view_metrics.values()):
         with summary_columns[1]:
             with st.container(border=True):
                 st.metric(
-                    "Pixels quentes — Verso (duas pernas)",
+                    "Pixels quentes — Costas (duas pernas)",
                     f"{back_pixels:,} px".replace(",", "."),
                 )
                 st.caption(
@@ -170,7 +170,7 @@ if all(view_metrics.values()):
 
         st.caption(
             "Edite Jogador, Massa, EVA Dor e Observações diretamente na tabela. "
-            "Frente e Verso são calculados automaticamente."
+            "Frente e Costas são calculados automaticamente."
         )
         prepared_frame = pd.DataFrame([record])
         prepared_frame["Jogador"] = prepared_frame["Jogador"].astype("string")
@@ -210,7 +210,7 @@ if all(view_metrics.values()):
                     required=True,
                 ),
                 "Frente": st.column_config.NumberColumn(format="%d"),
-                "Verso": st.column_config.NumberColumn(format="%d"),
+                "Verso": st.column_config.NumberColumn("Costas", format="%d"),
                 "Observações": st.column_config.TextColumn(
                     width="large",
                     default="",

@@ -69,7 +69,9 @@ class ThermalWizardTests(unittest.TestCase):
         for y in range(20, 180):
             draw.line((280, y, 294, y), fill=(255-y, y, 40))
         buffer = io.BytesIO(); image.save(buffer, format='PNG')
+        upload_labels = []
         def upload(label, **kwargs):
+            upload_labels.append(label)
             if kwargs.get('accept_multiple_files'): return []
             result = io.BytesIO(buffer.getvalue()); result.name = 'teste.png'
             return result
@@ -96,10 +98,8 @@ class ThermalWizardTests(unittest.TestCase):
                 else:
                     self.assertIn('/api/v1/thermography/segment', processing_requests)
                 headers = [header.value for header in app.subheader]
-                self.assertIn('Nova análise térmica', headers)
-                # A importação de formulários pode estar desabilitada na página.
-                if 'Envio de Formulário' in headers:
-                    self.assertLess(headers.index('Nova análise térmica'), headers.index('Envio de Formulário'))
+                self.assertIn('Termografia - Nova análise térmica', [title.value for title in app.title])
+                self.assertNotIn('Nova análise térmica', headers)
                 self.assertNotIn('Timeline térmica', headers)
                 self.assertFalse(any(expander.label == 'Formulários' for expander in app.expander))
                 self.assertFalse(any('Timeline' in expander.label for expander in app.expander))
@@ -117,13 +117,22 @@ class ThermalWizardTests(unittest.TestCase):
                         self.assertEqual(captions.count('Coxa · Joelho · Canela · Pé (de cima para baixo)'), 2)
                     self.assertFalse(any('Pixels quentes' in caption for caption in captions))
                 if step == 1:
+                    self.assertIn('Imagem de costas', upload_labels)
+                    self.assertNotIn('Imagem de verso', upload_labels)
                     key = next(button.key for button in app.button if button.key and button.key.startswith('thermal_rotation_front_'))
                     app.button(key=key).click().run()
                     self.assertEqual(app.session_state['thermal_uploads']['front']['rotation'], 270)
                     for _ in range(3):
                         app.button(key=key).click().run()
                     self.assertEqual(app.session_state['thermal_uploads']['front']['rotation'], 0)
+                if step == 2:
+                    labels = [button.label for button in app.button]
+                    self.assertEqual(labels.count('Redefinir retângulos'), 2)
+                    self.assertNotIn('Corrigir Áreas', labels)
+                    self.assertEqual(labels[-2:], ['Voltar', 'Continuar'])
+                    self.assertIn('#### Costas', [text.value for text in app.markdown])
                 if step == 3:
+                    self.assertEqual([button.label for button in app.button].count('Redefinir regiões'), 2)
                     key = next(button.key for button in app.button if button.key and button.key.startswith('wizard_parts_front:'))
                     with patch('frontend.streamlit.components.thermography.wizard.st_canvas', return_value=SimpleNamespace(json_data=None)) as canvas:
                         app.button(key=key).click().run()
@@ -150,6 +159,7 @@ class ThermalWizardTests(unittest.TestCase):
                         self.assertIn('left', item['part_scenes'])
                         next(button for button in app.button if button.label == 'Concluir').click().run()
                 if step == 4:
+                    self.assertEqual([button.label for button in app.button].count('Ajustar área perna'), 2)
                     key = next(button.key for button in app.button if button.key and button.key.startswith('wizard_mask_front:'))
                     with patch('frontend.streamlit.components.thermography.editor.st_canvas', return_value=SimpleNamespace(image_data=None, json_data=None)) as canvas:
                         app.button(key=key).click().run()

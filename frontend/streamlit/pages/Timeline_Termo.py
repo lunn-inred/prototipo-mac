@@ -5,7 +5,7 @@ import streamlit as st
 from frontend.streamlit.components.thermography.timeline import render_timeline
 from frontend.streamlit.presentation.thermography_data import load_thermography_athletes
 
-st.set_page_config(page_title="MAC Performance | Timeline Termo", page_icon="🗓️", layout="wide")
+st.set_page_config(page_title="MAC Performance | Timeline térmica", page_icon="🗓️", layout="wide")
 st.html('''
 <style>
 [data-testid="stMainBlockContainer"] [data-testid="stImage"] {
@@ -20,7 +20,7 @@ st.html('''
 </style>
 ''')
 
-st.title("Timeline Termo")
+st.title("Timeline térmica")
 
 try:
     athletes = load_thermography_athletes()

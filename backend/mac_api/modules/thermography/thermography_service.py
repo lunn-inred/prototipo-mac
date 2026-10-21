@@ -119,8 +119,8 @@ def image_measurements(
     """Valida e organiza todas as medidas extraídas das duas imagens."""
     right_front = _pixel_count(front_right, "Perna direita — frente")
     left_front = _pixel_count(front_left, "Perna esquerda — frente")
-    right_back = _pixel_count(back_right, "Perna direita — verso")
-    left_back = _pixel_count(back_left, "Perna esquerda — verso")
+    right_back = _pixel_count(back_right, "Perna direita — costas")
+    left_back = _pixel_count(back_left, "Perna esquerda — costas")
     result: dict[str, float | int | str] = {
         "MASSA": _positive_number(mass, "Massa"),
         "EVA_DOR": _pain_score(pain_score),
@@ -143,7 +143,7 @@ def legacy_measurements(record: LegacyThermographyRecord) -> dict[str, float | i
         "MASSA": _positive_number(record.mass, "Massa"),
         "EVA_DOR": _pain_score(record.pain_score),
         "SOMA_FRENTE": _pixel_count(record.front, "Frente"),
-        "SOMA_VERSO": _pixel_count(record.back, "Verso"),
+        "SOMA_VERSO": _pixel_count(record.back, "Costas"),
     }
     text = _optional_text(record.observations)
     if text is not None:

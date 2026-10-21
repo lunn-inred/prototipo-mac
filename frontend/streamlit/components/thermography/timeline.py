@@ -118,7 +118,7 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
         'A coleta atual é alinhada por coxa, joelho, canela e pé na segmentação basal. '
         'O encaixe é aproximado e depende das divisões e máscaras revisadas pelo usuário.'
     )
-    tabs = st.tabs(['Frente', 'Verso'])
+    tabs = st.tabs(['Frente', 'Costas'])
     for tab, view_key in zip(tabs, ('front', 'back')):
         with tab:
             baseline = t0['views'][view_key]
@@ -138,13 +138,7 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                 st.image(current['image'], width='stretch')
             with map_column:
                 st.markdown('##### Mapa comparativo')
-                if comparison['unchanged']:
-                    st.info(
-                        'Sem variação de temperatura nas áreas comparadas: 0 °C (cor central da escala). '
-                        'Alterar apenas o limiar '
-                        'não altera as temperaturas salvas.'
-                    )
-                elif not comparison['has_overlap']:
+                if not comparison['has_overlap']:
                     st.warning('As segmentações não possuem área em comum para comparação.')
                 map_columns = st.columns(2)
                 # Vista frontal: a direita anatômica aparece à esquerda de quem vê.
@@ -170,7 +164,6 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
 
 
 def render_timeline(athletes: list[dict[str, Any]]) -> None:
-    st.subheader("Timeline térmica")
     players = {int(athlete['id_atleta']): athlete for athlete in athletes}
     selector_key = 'thermography_timeline_player'
     if st.session_state.get(selector_key) not in players:

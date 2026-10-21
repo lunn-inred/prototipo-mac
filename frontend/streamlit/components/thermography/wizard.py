@@ -67,7 +67,7 @@ def cuts_from_objects(objects, extent, foot_at_end, coordinate='x'):
     return percentages
 
 
-@st.dialog('Editar divisão anatômica', width='large')
+@st.dialog('Redefinir regiões', width='large')
 def edit_parts(item_key, image, analysis):
     item = st.session_state['thermography_items'][item_key]
     side_label = st.radio('Perna', list(LEGS), horizontal=True,
@@ -150,7 +150,7 @@ def restart_analysis():
 
 
 def navigate(step, valid=True):
-    left, right = st.columns(2)
+    left, right = st.columns(2, gap='large')
     if left.button('Voltar', disabled=step == 0, key='thermal_previous', width='stretch'):
         st.session_state['thermal_step'] = step - 1
         st.rerun()
@@ -165,7 +165,6 @@ def navigate(step, valid=True):
 def render_wizard(athletes_by_id):
     step = st.session_state.setdefault('thermal_step', 0)
     draft = st.session_state.setdefault('thermal_draft', {})
-    st.subheader('Nova análise térmica')
     st.progress((step+1)/len(STEPS), text=f'Etapa {step+1} de {len(STEPS)} — {STEPS[step]}')
     if step == 6:
         calculation = st.session_state.get('thermal_calculation')
@@ -231,6 +230,7 @@ def render_wizard(athletes_by_id):
                 scale = dict(minimum_temperature=DEFAULT_MIN_TEMPERATURE,
                              maximum_temperature=DEFAULT_MAX_TEMPERATURE)
             items[key] = {**scale, 'threshold_percentage': 90.0, 'image_rotation': entry['rotation']}
+    box_actions = {}
     for column, view in zip(st.columns(2, gap='large'), VIEW_LABELS):
         with column:
             st.markdown(f'#### {VIEW_LABELS[view]}')
@@ -278,13 +278,12 @@ def render_wizard(athletes_by_id):
                     continue
                 if step == 2:
                     centered_preview(preview, max_width=700, max_height=400)
-                    if st.button('Corrigir Áreas', key=f'wizard_boxes_{key}', width='stretch'):
-                        edit_thermal_boxes(key, image, automatic, colorbar)
+                    box_actions[view] = (key, image, automatic, colorbar)
                 else:
                     geometry = dict(boxes=boxes, overlay=image)
                     centered_preview(_parts_preview(image, geometry, settings),
                                      caption='Coxa · Joelho · Canela · Pé (de cima para baixo)')
-                    if st.button('Editar divisões na imagem', key=f'wizard_parts_{key}', width='stretch'):
+                    if st.button('Redefinir regiões', key=f'wizard_parts_{key}', width='stretch'):
                         edit_parts(key, image, geometry)
                 continue
             minimum, maximum = item['minimum_temperature'], item['maximum_temperature']
@@ -316,7 +315,7 @@ def render_wizard(athletes_by_id):
                 with columns[1]:
                     centered_preview(segmented_preview_image(image, analysis['masks']),
                                      caption='Pernas segmentadas — área completa')
-            if step == 4 and st.button('Corrigir segmentação', key=f'wizard_mask_{key}', width='stretch'):
+            if step == 4 and st.button('Ajustar área perna', key=f'wizard_mask_{key}', width='stretch'):
                 edit_thermal_mask(key, image, analysis)
             if step == 5:
                 for column, (label, side) in zip(st.columns(2), LEGS.items()):
@@ -329,6 +328,14 @@ def render_wizard(athletes_by_id):
                         part_label = 'Pé' if name == 'pe' else name.capitalize()
                         lines.append(f'{part_label}: **{part["hot_percentage"]:.1f}%** (de {part["total_pixels"]}px)')
                     column.markdown('  \n'.join(lines))
+    if step == 2:
+        # Uma única linha de ações, independente da altura de cada prévia.
+        # A grade usa o mesmo espaçamento dos botões Voltar/Continuar.
+        for button_column, view in zip(st.columns(2, gap='large'), VIEW_LABELS):
+            if view in box_actions:
+                key, image, automatic, colorbar = box_actions[view]
+                if button_column.button('Redefinir retângulos', key=f'wizard_boxes_{key}', width='stretch'):
+                    edit_thermal_boxes(key, image, automatic, colorbar)
     if step == 5:
         if valid:
             signature = hashlib.sha256((views['front']['signature']+views['back']['signature']).encode()).hexdigest()

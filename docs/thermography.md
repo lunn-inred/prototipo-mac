@@ -5,9 +5,10 @@
 ## Fluxo da página
 
 A página `frontend/streamlit/pages/Termografia.py` registra uma nova análise a partir das imagens
-de frente e verso. Os componentes aparecem na ordem **Nova análise térmica** e
-**Envio de Formulário**, este último sempre aberto para importar fichas manuscritas.
-A consulta e a comparação de análises ficam na página separada **Timeline Termo**.
+de frente e costas. O título **Termografia - Nova análise térmica** reúne o
+nome da página e do assistente, sem um subtítulo duplicado. Quando habilitado,
+o componente **Envio de Formulário** aparece ao final para importar fichas manuscritas.
+A consulta e a comparação de análises ficam na página separada **Timeline térmica**.
 Ao adicionar a análise à timeline ou
 registrá-la no banco, uma janela solicita a data da coleta e apresenta a data
 atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
@@ -17,15 +18,17 @@ A nova análise utiliza um assistente com **Continuar** e **Voltar**, apresentan
 somente uma etapa por vez:
 
 1. Jogador, massa, EVA Dor e observações opcionais.
-2. Upload de frente/verso, prévia e botão para girar 90° para a direita.
-3. Caixas das pernas e barra de cores.
-4. Divisão de cada perna em coxa, joelho, canela e pé, com uma prévia anatômica por vista.
-5. Segmentação automática por GrabCut e correção manual das máscaras.
+2. Upload de frente/costas, prévia e botão para girar 90° para a direita.
+3. Caixas das pernas e barra de cores, com **Redefinir retângulos** em uma linha
+   alinhada às colunas de **Voltar** e **Continuar**.
+4. Divisão de cada perna em coxa, joelho, canela e pé, com uma prévia anatômica por vista
+   e o botão **Redefinir regiões**.
+5. Segmentação automática por GrabCut e correção manual pelo botão **Ajustar área perna**.
 6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala e métricas.
    Cada vista apresenta a imagem
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
    e os pixels quentes.
-7. Resumo da coleta: totais de frente/verso e tabela revisável no mesmo componente.
+7. Resumo da coleta: totais de frente/costas e tabela revisável no mesmo componente.
    Adicionar à timeline fica à esquerda de registrar no banco; Voltar e iniciar
    outra análise aparecem abaixo, sem repetir as prévias.
 
@@ -63,7 +66,7 @@ sliders percentuais. O rascunho e as imagens ficam na sessão ao voltar para
 etapas anteriores. **Iniciar outra análise** descarta somente o rascunho atual,
 mediante confirmação, preservando o banco e a timeline. A API considera a rotação
 ao localizar as caixas e ler a barra térmica, preservando sua ordem quente/frio.
-As vistas de frente e verso são apresentadas lado a lado, com as prévias
+As vistas de frente e costas são apresentadas lado a lado, com as prévias
 centralizadas e botões que ocupam a largura disponível de suas colunas.
 Na divisão anatômica, aparece somente a prévia com nomes e limites das áreas.
 Na segmentação, a segunda prévia mostra a área completa das pernas sem fundo.
@@ -85,7 +88,7 @@ o pop-up continua permitindo escolher qualquer análise como basal.
 Com uma única data, a mesma coleta é usada nas duas pontas, sem barra deslizante.
 A interface alerta quando a Atual antecede a Basal, sem bloquear a
 comparação. Nas abas de
-frente e verso, a comparação exibe as duas imagens, mapas normalizados por perna
+frente e costas, a comparação exibe as duas imagens, mapas normalizados por perna
 e as métricas atuais com deltas em relação à basal. O mapa destaca somente em
 vermelho os pixels quentes na Atual que não estavam quentes na Basal selecionada.
 As demais áreas ficam no fundo escuro. A função `compare_hot_masks` preserva as
@@ -96,7 +99,7 @@ Na nova análise, o usuário informa jogador, massa, data da coleta, EVA Dor e,
 opcionalmente, observações. O sistema tenta identificar automaticamente as duas
 caixas R1/R2; quando elas não existem ou estão incorretas, cria regiões iniciais
 que podem ser redesenhadas pelo usuário. A lateralidade é invertida entre frente
-e verso e o OCR é aplicado às regiões superior e inferior
+e costas e o OCR é aplicado às regiões superior e inferior
 do canto direito para preencher automaticamente Tmax e Tmin. Os campos continuam
 editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece uma
 escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
@@ -109,14 +112,14 @@ limiar equivalente; a análise e os resultados continuam usando a temperatura
 convertida em °C.
 
 Dentro de cada região, o GrabCut separa os pixels da perna do fundo. A prévia
-exibe a máscara sobre a imagem e oferece dois ajustes manuais: **Corrigir Áreas**, para redesenhar o retângulo de cada perna, e **Corrigir segmentação**,
+exibe a máscara sobre a imagem e oferece dois ajustes manuais: **Redefinir retângulos**, para redesenhar o retângulo de cada perna, e **Ajustar área perna**,
 com pincel verde para incluir área e vermelho para excluir área. Os controles
 Perna, Pincel e Tamanho do pincel ficam lado a lado no diálogo. Cada ajuste
 recalcula as métricas. A barra térmica vertical também é localizada
-automaticamente e destacada na prévia. Dentro de **Corrigir Áreas**, a opção
+automaticamente e destacada na prévia. Dentro de **Redefinir retângulos**, a opção
 **Barra de cores** permite redesenhar sua caixa; a paleta extraída dessa região é a fonte usada
 para converter as cores da imagem em temperaturas aproximadas. Para cada perna
-e para os totais de frente/verso, a tela
+e para os totais de frente/costas, a tela
 apresenta a quantidade de pixels quentes, a área total segmentada e o percentual
 `pixels quentes ÷ área segmentada × 100`. A área do retângulo não é usada como
 denominador. Ao lado da máscara, uma segunda prévia usa fundo preto e mantém
@@ -124,7 +127,7 @@ visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
 limiar térmico selecionado.
 
 Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
-**Divisão anatômica**, arraste os três limites no pop-up **Editar divisões na imagem**.
+**Divisão anatômica**, arraste os três limites no pop-up **Redefinir regiões**.
 A orientação é sempre vertical, com Coxa, Joelho, Canela e Pé de cima para baixo.
 Os nomes aparecem na imagem e as posições são salvas ao soltar o mouse.
 As prévias anatômicas também mostram o contorno da caixa atual de cada perna,
@@ -241,7 +244,7 @@ originais, e as diferenças não são um diagnóstico de alteração muscular.
 ### Cores e escala dinâmica do par
 
 A comparação reutiliza a paleta extraída da barra térmica do basal de frente,
-compartilhada nas duas pernas e nas vistas de frente e verso. Seu extremo frio
+compartilhada nas duas pernas e nas vistas de frente e costas. Seu extremo frio
 representa diferenças negativas, a cor central representa zero e o extremo
 quente representa diferenças positivas. A legenda mostra diferenças em °C,
 não temperaturas absolutas. Registros sem imagem/barra basal disponível usam
@@ -327,7 +330,11 @@ Contratos de imagens, matrizes e rotação: [API térmica](api.md#contrato-de-te
 ## Timeline em página própria
 
 A consulta das análises locais e a comparação Basal × Atual ficam na página
-**Timeline Termo**, acessível pelo menu lateral. A etapa 7 da Termografia
+**Timeline térmica**, acessível pelo menu lateral. A etapa 7 da Termografia
 continua oferecendo **Adicionar à timeline**, com o mesmo armazenamento local.
 Na etapa 6, cada perna é apresentada com o percentual de pixels quentes e a
 área total (pixels), por perna e por região anatômica; a esquerda aparece primeiro.
+
+Na interface, a vista posterior é identificada como **Costas**. Chaves da API,
+colunas existentes (`Verso`, `SOMA_VERSO` etc.) e a pasta local `verso/` são
+preservadas para manter compatibilidade com o banco e as análises já salvas.

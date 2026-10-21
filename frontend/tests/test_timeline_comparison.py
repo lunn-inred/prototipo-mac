@@ -75,6 +75,9 @@ class TimelineComparisonTests(unittest.TestCase):
             app.selectbox(key='thermography_timeline_player').set_value(1).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertEqual(len(app.error), 0)
+            self.assertEqual([title.value for title in app.title], ['Timeline térmica'])
+            self.assertNotIn('Timeline térmica', [header.value for header in app.subheader])
+            self.assertEqual([tab.label for tab in app.tabs], ['Frente', 'Costas'])
             titles = [text.value for text in app.markdown]
             self.assertIn('##### Basal (01/10/2026)', titles)
             self.assertIn('##### Atual (03/10/2026)', titles)
@@ -100,3 +103,6 @@ class TimelineComparisonTests(unittest.TestCase):
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertIn('##### Atual (02/10/2026)', [text.value for text in app.markdown])
             self.assertEqual(len(app.dataframe), 0)
+            app.select_slider(key='thermography_timeline_date_1').set_value(date(2026, 10, 1)).run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertFalse(any('Sem variação de temperatura' in message.value for message in app.info))

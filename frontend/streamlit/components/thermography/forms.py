@@ -216,7 +216,7 @@ def render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_labe
                             min_value=0, step=1, format="%d"
                         ),
                         "Verso": st.column_config.NumberColumn(
-                            min_value=0, step=1, format="%d"
+                            "Costas", min_value=0, step=1, format="%d"
                         ),
                         "Observações": st.column_config.TextColumn(
                             width="large",
@@ -250,7 +250,7 @@ def render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_labe
                     st.success("Todos os jogadores estão vinculados a cadastros.")
 
                 st.info(
-                    "Frente e Verso dos documentos serão associados às medidas "
+                    "Frente e Costas dos documentos serão associados às medidas "
                     "SOMA_FRENTE e SOMA_VERSO. As quatro medidas individuais por "
                     "perna permanecerão vazias nos registros legados."
                 )

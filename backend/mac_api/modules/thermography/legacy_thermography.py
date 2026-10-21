@@ -454,7 +454,7 @@ def parse_llamaparse_page(
         if front is None or front < 0:
             issues.append("Frente inválida")
         if back is None or back < 0:
-            issues.append("Verso inválido")
+            issues.append("Costas inválido")
         if collection_date is None:
             issues.append("Data não identificada")
         rows.append(
@@ -607,7 +607,7 @@ def extract_page(
         if front is None or front < 0:
             issues.append("Frente inválida")
         if back is None or back < 0:
-            issues.append("Verso inválido")
+            issues.append("Costas inválido")
         if collection_date is None:
             issues.append("Data não identificada")
 

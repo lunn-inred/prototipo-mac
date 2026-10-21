@@ -37,7 +37,7 @@ PERCENTAGE_MODE = "Porcentagem da escala"
 TEMPERATURE_MODE = "Temperatura (°C)"
 THRESHOLD_MODE_KEY = "thermography_threshold_mode"
 LEGS = {"Perna esquerda": "left", "Perna direita": "right"}
-VIEW_LABELS = {"front": "Frente", "back": "Verso"}
+VIEW_LABELS = {"front": "Frente", "back": "Costas"}
 
 
 def threshold_mode_key(view_key: str) -> str:
@@ -207,7 +207,7 @@ def _parts_preview(image: Image.Image, analysis: dict[str, Any],
     return preview
 
 
-@st.dialog("Corrigir Áreas", width="large")
+@st.dialog("Redefinir retângulos", width="large")
 def edit_thermal_boxes(
     item_key: str,
     image: Image.Image,
@@ -277,7 +277,7 @@ def edit_thermal_boxes(
         st.rerun()
 
 
-@st.dialog("Corrigir segmentação", width="large")
+@st.dialog("Ajustar área perna", width="large")
 def edit_thermal_mask(
     item_key: str, image: Image.Image, analysis: dict[str, Any]
 ) -> None:
@@ -533,7 +533,7 @@ def render_view(
     if view_key == "front":
         convention = "Frente: R1 superior = direita; R2 inferior = esquerda."
     else:
-        convention = "Verso: R1 superior = esquerda; R2 inferior = direita."
+        convention = "Costas: R1 superior = esquerda; R2 inferior = direita."
 
     settings = item.setdefault("part_settings_v4", {
         side: {"cuts": list(DEFAULT_PART_CUTS), "axis": "horizontal",
@@ -622,7 +622,7 @@ def render_view(
     )
     edit_columns = st.columns(2)
     if edit_columns[0].button(
-        "Corrigir áreas", key=f"thermal_edit_boxes_{item_key}",
+        "Redefinir retângulos", key=f"thermal_edit_boxes_{item_key}",
         width="stretch",
     ):
         edit_thermal_boxes(
@@ -630,7 +630,7 @@ def render_view(
             analysis["automatic_colorbar_box"],
         )
     if edit_columns[1].button(
-        "Corrigir segmentação", key=f"thermal_edit_masks_{item_key}",
+        "Ajustar área perna", key=f"thermal_edit_masks_{item_key}",
         width="stretch",
     ):
         edit_thermal_mask(item_key, image, analysis)

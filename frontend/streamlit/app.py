@@ -32,7 +32,7 @@ navigation = st.navigation(
         ),
         st.Page(
             PAGE_ROOT / "Timeline_Termo.py",
-            title="Timeline Termo",
+            title="Timeline térmica",
             icon="🗓️",
         ),
     ]
