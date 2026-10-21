@@ -108,8 +108,8 @@ athlete_id_by_editor_label = {
 
 result = render_wizard(athletes_by_id)
 if result is None:
-    st.divider()
-    render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
+    # st.divider()
+    # render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
     st.stop()
 
 draft, views, items, view_metrics, pair_signature = result
@@ -285,5 +285,5 @@ if all(view_metrics.values()):
 else:
     stored_metrics.clear()
 
-st.divider()
-render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
+# st.divider()
+# render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
