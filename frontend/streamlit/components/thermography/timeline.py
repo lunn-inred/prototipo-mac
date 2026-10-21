@@ -101,10 +101,6 @@ def _cached_comparison(baseline_entry, current_entry, limit=None, gamma=0.5):
 
 def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
     st.markdown('#### Comparação Basal × Atual')
-    st.caption(
-        f"Basal: {t0['collected_at'].strftime('%d/%m/%Y')} · "
-        f"Atual: {ti['collected_at'].strftime('%d/%m/%Y')}"
-    )
     gamma = st.slider(
         'Contraste das cores (gamma)', min_value=0.2, max_value=1.0,
         value=0.5, step=0.05, key='timeline_comparison_gamma',
@@ -128,25 +124,17 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
             baseline = t0['views'][view_key]
             current = ti['views'][view_key]
             comparison = comparisons[view_key]
-            baseline_threshold = float(baseline['default_threshold'])
-            current_threshold = float(current['default_threshold'])
-            st.caption(
-                f'Limiares originais — basal: {baseline_threshold:.2f} °C; '
-                f'atual: {current_threshold:.2f} °C. '
-                f'Os percentuais de área quente das duas coletas usam {baseline_threshold:.2f} °C '
-                '(limiar do basal).'
-            )
             t0_column, ti_column, map_column, metrics_column = st.columns(
                 [1.1, 1.1, 1.4, 1.2], gap='medium'
             )
             with t0_column:
-                st.markdown('##### Basal')
+                st.markdown(f"##### Basal ({t0['collected_at'].strftime('%d/%m/%Y')})")
                 st.image(baseline['image'], width='stretch')
                 button_key = 'timeline_change_basal' if view_key == 'front' else 'timeline_change_basal_back'
                 if st.button('Mudar Basal', key=button_key, width='stretch'):
                     choose_baseline(int(t0['athlete_id']))
             with ti_column:
-                st.markdown('##### Atual')
+                st.markdown(f"##### Atual ({ti['collected_at'].strftime('%d/%m/%Y')})")
                 st.image(current['image'], width='stretch')
             with map_column:
                 st.markdown('##### Mapa comparativo')
@@ -158,9 +146,6 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                     )
                 elif not comparison['has_overlap']:
                     st.warning('As segmentações não possuem área em comum para comparação.')
-                st.caption('Atual − basal por pixel, sobre a segmentação basal. Preto: fundo ou correspondência indisponível.')
-                st.caption(f"Escala deste comparativo: −{comparison['limit']:.1f} a +{comparison['limit']:.1f} °C. Zero usa a cor central da paleta térmica basal.")
-                st.caption(f"Contraste {'linear' if gamma == 1.0 else 'não linear'} · gamma {gamma:.2f}. A legenda usa o mesmo ajuste; os valores permanecem em °C.")
                 map_columns = st.columns(2)
                 # Vista frontal: a direita anatômica aparece à esquerda de quem vê.
                 leg_order = list(LEGS.items())
@@ -172,7 +157,6 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                 st.image(comparison['legend'], width='stretch')
             with metrics_column:
                 st.markdown('##### Área quente comparada')
-                st.caption(f'Mesmo limiar nas duas coletas: {baseline_threshold:.2f} °C.')
                 for label, side in LEGS.items():
                     previous = comparison['summaries'][side]['baseline']['total']['hot_percentage']
                     actual = comparison['summaries'][side]['current']['total']['hot_percentage']
@@ -245,7 +229,6 @@ def render_timeline(athletes: list[dict[str, Any]]) -> None:
         )
     ti = by_date[selected_date]
     st.session_state['thermography_timeline_ti'] = str(ti['id'])
-    st.caption('Análises armazenadas localmente no servidor da API. A seleção não altera os arquivos salvos.')
     if ti['collected_at'] < t0['collected_at']:
         st.warning(
             'A coleta Atual está registrada antes da Basal. A comparação '

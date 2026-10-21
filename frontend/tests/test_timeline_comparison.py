@@ -75,19 +75,28 @@ class TimelineComparisonTests(unittest.TestCase):
             app.selectbox(key='thermography_timeline_player').set_value(1).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertEqual(len(app.error), 0)
+            titles = [text.value for text in app.markdown]
+            self.assertIn('##### Basal (01/10/2026)', titles)
+            self.assertIn('##### Atual (03/10/2026)', titles)
+            self.assertFalse(any(caption.value.startswith('Basal:') and 'Atual:' in caption.value
+                                 for caption in app.caption))
             leg_captions = [call.kwargs.get('caption') for call in show_image.call_args_list
                             if call.kwargs.get('caption') in ('Perna esquerda', 'Perna direita')]
             self.assertEqual(leg_captions, ['Perna direita', 'Perna esquerda',
                                            'Perna esquerda', 'Perna direita'])
             self.assertEqual(len(app.dataframe), 0)
             self.assertTrue(all(metric.value.endswith('%') for metric in app.metric))
-            self.assertTrue(any('atual: 33.00 °C' in caption.value for caption in app.caption))
+            removed_texts = ('Limiares originais', 'Atual − basal por pixel',
+                             'Escala deste comparativo', 'Contraste não linear',
+                             'Mesmo limiar nas duas coletas', 'Análises armazenadas localmente')
+            self.assertFalse(any(text in caption.value for caption in app.caption for text in removed_texts))
             self.assertEqual(app.slider(key='timeline_comparison_gamma').value, .5)
             before = [metric.value for metric in app.metric]
             app.slider(key='timeline_comparison_gamma').set_value(1.).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertEqual([metric.value for metric in app.metric], before)
-            self.assertTrue(any('Contraste linear' in caption.value for caption in app.caption))
+            self.assertEqual(app.slider(key='timeline_comparison_gamma').value, 1.)
             app.select_slider(key='thermography_timeline_date_1').set_value(date(2026, 10, 2)).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertIn('##### Atual (02/10/2026)', [text.value for text in app.markdown])
             self.assertEqual(len(app.dataframe), 0)

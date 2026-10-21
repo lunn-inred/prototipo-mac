@@ -270,8 +270,8 @@ permite ajustar de 0,2 a 1: valores menores afastam diferenças pequenas da cor
 central; 1 restaura o mapeamento linear. O backend aplica a curva simétrica
 `sign(ΔT) × (abs(ΔT) / limite)^gamma` somente na busca da cor na paleta. Zero,
 o sinal e os extremos permanecem nas mesmas posições de referência. A legenda
-usa a mesma transformação e continua rotulada em diferenças reais de °C;
-a interface informa quando o contraste é não linear.
+usa a mesma transformação e continua rotulada em diferenças reais de °C.
+O valor de gamma aparece no próprio controle de contraste.
 
 Não há alteração das temperaturas, diferenças numéricas, segmentação, escala
 dinâmica, limiares ou percentuais de área quente. Não há gravação de novas
@@ -285,8 +285,9 @@ controle, incluído na chave de cache de cada comparação.
 
 O limiar salvo no basal continua sendo aplicado às duas coletas para os
 percentuais de área quente. Esses indicadores usam os pixels nativos de cada
-coleta, não os pixels interpolados do mapa; seus dois limiares originais ficam
-visíveis. O gradiente de diferenças não depende desses limiares. Cálculos e
+coleta, não os pixels interpolados do mapa; os limiares originais permanecem
+nos arquivos salvos, sem descrições auxiliares na tela. O gradiente de diferenças
+não depende desses limiares. Cálculos e
 carregamentos são armazenados em cache por até 60 segundos para cada par.
 
 A timeline apresenta os percentuais de área quente por perna, sem tabela
