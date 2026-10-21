@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 from backend.mac_api.core.image_fonts import image_font
+from .comparison_alignment import align_leg_to_baseline, fit_baseline_field
 from scipy.spatial import cKDTree
 
 
@@ -530,6 +531,171 @@ def normalize_binary_region(
         offset_x:offset_x + resized_width,
     ] = resized
     return canvas
+
+
+def _validate_comparison_gamma(gamma):
+    try:
+        gamma = float(gamma)
+    except (TypeError, ValueError) as error:
+        raise ValueError('Gamma deve ser positivo e finito.') from error
+    if not math.isfinite(gamma) or gamma <= 0:
+        raise ValueError('Gamma deve ser positivo e finito.')
+    return gamma
+
+
+def _difference_colors(values, limit, palette=None, *, gamma=1.0):
+    gamma = _validate_comparison_gamma(gamma)
+    if palette is not None:
+        # extract_colorbar returns hot-to-cold; map negative-to-positive in
+        # the reverse direction and interpolate the original RGB samples.
+        palette = np.asarray(palette, dtype=float)
+        if palette.ndim != 2 or palette.shape[1] != 3 or len(palette) < 2 or not np.isfinite(palette).all():
+            raise ValueError('Paleta térmica inválida.')
+        normalized = np.clip(np.nan_to_num(values) / limit, -1, 1)
+        # Symmetric power law: preserve sign, zero and endpoints. Only the
+        # palette lookup changes; the temperature differences stay untouched.
+        contrasted = np.sign(normalized) * np.abs(normalized) ** gamma
+        position = (1 - contrasted) * .5 * (len(palette) - 1)
+        low = np.floor(position).astype(int)
+        high = np.minimum(low + 1, len(palette) - 1)
+        weight = (position - low)[..., None]
+        return np.rint(np.clip(palette[low] * (1 - weight) + palette[high] * weight, 0, 255)).astype(np.uint8)
+    # Explicit hot-to-cold palette: zero is always green, independent of JPEG LUT.
+    return _difference_colors(values, limit, np.array([
+        [239, 68, 68], [0, 200, 80], [42, 136, 255],
+    ], dtype=np.uint8), gamma=gamma)
+
+
+def _temperature_region_summary(source, side, threshold):
+    """Summarize native pixels, respecting each saved anatomical partition."""
+    temperatures = np.asarray(source['temperatures'])
+    mask = np.asarray(source['segmentation_masks'][side], dtype=bool)
+    mask = mask & np.isfinite(temperatures)
+    box = source['boxes'][side]
+    settings = source.get('part_settings', {}).get(side, {})
+    axis = settings.get('axis', 'vertical')
+    cuts = tuple(settings.get('cuts', DEFAULT_PART_CUTS))
+    if axis not in ('horizontal', 'vertical') or len(cuts) != 3 or not 0 < cuts[0] < cuts[1] < cuts[2] < 100:
+        raise ValueError('Divisões anatômicas inválidas.')
+    start = int(box['top'] if axis == 'vertical' else box['left'])
+    end = start + int(box['height'] if axis == 'vertical' else box['width'])
+    foot_at_end = settings.get('foot_at_end', True)
+    boundaries = [start + round((end - start) * cut / 100) if foot_at_end
+                  else end - round((end - start) * cut / 100) for cut in cuts]
+    limits = [start, *boundaries, end] if foot_at_end else [end, *boundaries, start]
+    position = (np.arange(mask.shape[0])[:, None] if axis == 'vertical'
+                else np.arange(mask.shape[1])[None, :])
+    regions = {'total': mask}
+    for index, part in enumerate(LEG_PARTS):
+        low, high = sorted(limits[index:index + 2])
+        regions[part] = mask & (position >= low) & (position < high)
+    result = {}
+    for part, region in regions.items():
+        values = temperatures[region]
+        result[part] = {
+            'mean_temperature': float(np.mean(values)) if values.size else None,
+            'hot_percentage': (float(np.count_nonzero(values >= threshold) / values.size * 100)
+                               if values.size and threshold is not None else None),
+        }
+    return result
+
+
+def _hot_contour(mask, dashed=False):
+    """One-pixel contour; dash lengths follow the boundary, including holes."""
+    contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    line = np.zeros(mask.shape, dtype=np.uint8)
+    if not dashed:
+        cv2.drawContours(line, contours, -1, 1, 1)
+    else:
+        for contour in contours:
+            points = contour[:, 0, :]
+            for index, point in enumerate(points):
+                if index % 12 < 7:
+                    x, y = point
+                    line[y, x] = 1
+    return line.astype(bool)
+
+
+def _comparison_legend(limit, palette=None, *, gamma=1.0):
+    legend = Image.new('RGB', (420, 58), 'white')
+    # The scale positions represent actual °C. Use the exact same nonlinear
+    # color mapping as the map, keeping zero at the center label (x=210).
+    values = np.interp(np.arange(380), [0, 190, 379], [-limit, 0, limit])[None, :]
+    gradient = _difference_colors(values, limit, palette, gamma=gamma)
+    legend.paste(Image.fromarray(gradient).resize((380, 20)), (20, 8))
+    draw = ImageDraw.Draw(legend)
+    font = image_font(13)
+    for x, value, anchor in ((20, -limit, 'lt'), (210, 0, 'mt'), (400, limit, 'rt')):
+        draw.text((x, 33), f'{value:+.1f} °C' if value else '0 °C', fill='black', font=font, anchor=anchor)
+    return legend
+
+
+def compare_temperature_maps(baseline, current, canvas_size=(180, 320), *, limit=None, palette=None, gamma=1.0):
+    """Compare temperatures on basal geometry using saved anatomical partitions.
+
+    The default scale uses only this pair and view, shared by both legs.
+    Custom palettes/limits remain explicit optional API overrides.
+    """
+    gamma = _validate_comparison_gamma(gamma)
+    if limit is not None:
+        try:
+            limit = float(limit)
+        except (TypeError, ValueError) as error:
+            raise ValueError('O limite da escala deve ser positivo e finito.') from error
+        if not math.isfinite(limit) or limit <= 0:
+            raise ValueError('O limite da escala deve ser positivo e finito.')
+    threshold = baseline.get('default_threshold')
+    if threshold is not None:
+        threshold = float(threshold)
+        if not math.isfinite(threshold):
+            raise ValueError('O limiar basal deve ser finito.')
+    if palette is None and baseline.get('image') is not None and baseline.get('colorbar_box') is not None:
+        palette = extract_colorbar(baseline['image'], baseline['colorbar_box'],
+                                   baseline.get('image_rotation', 0))
+    if palette is None:
+        palette = np.array([[239, 68, 68], [0, 200, 80], [42, 136, 255]], dtype=np.uint8)
+
+    differences, aligned, baseline_masks = {}, {}, {}
+    max_difference = 0.0
+    for side in ('right', 'left'):
+        base, actual, mask = align_leg_to_baseline(baseline, current, side)
+        aligned[side] = (base, actual, mask)
+        native_delta = actual - base
+        valid_native = mask & np.isfinite(native_delta)
+        if valid_native.any():
+            max_difference = max(max_difference, float(np.max(np.abs(native_delta[valid_native]))))
+        differences[side] = fit_baseline_field(native_delta, mask, canvas_size)
+        local_box = dict(left=0, top=0, width=mask.shape[1], height=mask.shape[0])
+        baseline_masks[side] = normalize_binary_region(mask, local_box, canvas_size)
+    has_overlap = any(np.isfinite(delta).any() for delta in differences.values())
+    unchanged = has_overlap and all(np.all(np.abs(delta[np.isfinite(delta)]) <= 1e-6)
+                                    for delta in differences.values())
+    if limit is None:
+        # Use native aligned temperatures, not downsampled preview values, so
+        # small extreme regions also contribute to the visual range.
+        limit = max(0.1, math.ceil(max_difference * 10) / 10)
+    images, contours, summaries, valid_masks = {}, {}, {}, {}
+    for side, delta in differences.items():
+        valid = np.isfinite(delta) & baseline_masks[side]
+        valid_masks[side] = valid
+        colors = _difference_colors(delta, limit, palette, gamma=gamma)
+        contours[side], summaries[side] = {}, {}
+        base, actual, mask = aligned[side]
+        local_box = dict(left=0, top=0, width=mask.shape[1], height=mask.shape[0])
+        for name, source, values in (('baseline', baseline, base), ('current', current, actual)):
+            hot = (mask & np.isfinite(values) & (values >= threshold)
+                   if threshold is not None else np.zeros(mask.shape, dtype=bool))
+            normalized_hot = normalize_binary_region(hot, local_box, canvas_size)
+            contours[side][name] = _hot_contour(normalized_hot) & valid
+            summaries[side][name] = _temperature_region_summary(source, side, threshold)
+        colors[~valid] = 0
+        images[side] = Image.fromarray(colors)
+    return {'images': images, 'limit': limit, 'unchanged': unchanged,
+            'has_overlap': has_overlap, 'max_difference': max_difference,
+            'threshold': threshold, 'contours': contours, 'summaries': summaries,
+            'baseline_masks': baseline_masks, 'valid_masks': valid_masks,
+            'alignment': 'anatomical-baseline-v1', 'gamma': gamma,
+            'legend': _comparison_legend(limit, palette, gamma=gamma), 'palette': palette}
 
 
 def compare_hot_masks(

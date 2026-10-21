@@ -9,6 +9,7 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 from streamlit_drawable_konva import crop_box_from_json, st_canvas
 from frontend.streamlit.api_client.contracts import (unique_matching_athlete_id)
+from frontend.streamlit.api_client.thermal_client import compare_temperature_maps
 from frontend.streamlit.api_client.thermal_client import (annotate_boxes, compare_hot_masks, count_hot_pixels, detect_colorbar_box, detect_leg_boxes, hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix, DEFAULT_PART_CUTS, LEG_PARTS, leg_part_metrics, scale_percentage_from_temperature, temperature_from_scale_percentage)
 from frontend.streamlit.presentation.thermography_data import (
     athlete_label,
@@ -88,109 +89,84 @@ def _timeline_view_at_threshold(source, threshold):
     return timeline_view_at_threshold(source, threshold)
 
 
+@st.cache_data(ttl=60, max_entries=64, show_spinner=False)
+def _cached_comparison(baseline_entry, current_entry, limit=None, gamma=0.5):
+    baseline = _load_saved_entry(baseline_entry)
+    current = _load_saved_entry(current_entry)
+    front = compare_temperature_maps(baseline['views']['front'], current['views']['front'], limit=limit, gamma=gamma)
+    back = compare_temperature_maps(baseline['views']['back'], current['views']['back'],
+                                    limit=limit, palette=front.get('palette'), gamma=gamma)
+    return {'front': front, 'back': back}
+
+
 def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
-    try:
-        t0, ti = _load_saved_entry(t0), _load_saved_entry(ti)
-    except ValueError as error:
-        st.error(f"Não foi possível carregar as imagens da análise: {error}")
-        return
-    st.markdown("#### Comparação Basal × Atual")
-    st.caption(
-        f"Basal: {t0['collected_at'].strftime('%d/%m/%Y')} · "
-        f"Atual: {ti['collected_at'].strftime('%d/%m/%Y')}"
+    st.markdown('#### Comparação Basal × Atual')
+    gamma = st.slider(
+        'Contraste das cores (gamma)', min_value=0.2, max_value=1.0,
+        value=0.5, step=0.05, key='timeline_comparison_gamma',
+        help='Valores menores destacam diferenças pequenas. 1 mantém o contraste linear. '
+             'Não altera temperaturas, limiares ou métricas e também pode realçar ruído.',
     )
-    tabs = st.tabs(["Frente", "Verso"])
-    for tab, view_key in zip(tabs, ("front", "back")):
+    try:
+        with st.spinner('Preparando comparação térmica…'):
+            comparisons = _cached_comparison(t0, ti, gamma=gamma)
+            t0, ti = _load_saved_entry(t0), _load_saved_entry(ti)
+    except ValueError as error:
+        st.error(f'Não foi possível carregar a comparação: {error}')
+        return
+    st.caption(
+        'A coleta atual é alinhada por coxa, joelho, canela e pé na segmentação basal. '
+        'O encaixe é aproximado e depende das divisões e máscaras revisadas pelo usuário.'
+    )
+    tabs = st.tabs(['Frente', 'Verso'])
+    for tab, view_key in zip(tabs, ('front', 'back')):
         with tab:
-            baseline_source = t0["views"][view_key]
-            current_source = ti["views"][view_key]
-            # Cada vista utiliza exatamente o limiar persistido na coleta.
-            baseline_threshold = float(baseline_source['default_threshold'])
-            current_threshold = float(current_source['default_threshold'])
-            baseline = _timeline_view_at_threshold(
-                baseline_source, baseline_threshold
-            )
-            current = _timeline_view_at_threshold(
-                current_source, current_threshold
-            )
+            baseline = t0['views'][view_key]
+            current = ti['views'][view_key]
+            comparison = comparisons[view_key]
             t0_column, ti_column, map_column, metrics_column = st.columns(
-                [1.1, 1.1, 1.4, 1.2], gap="medium"
+                [1.1, 1.1, 1.4, 1.2], gap='medium'
             )
             with t0_column:
-                st.markdown("##### Basal")
-                st.image(baseline["image"], width="stretch")
+                st.markdown(f"##### Basal ({t0['collected_at'].strftime('%d/%m/%Y')})")
+                st.image(baseline['image'], width='stretch')
                 button_key = 'timeline_change_basal' if view_key == 'front' else 'timeline_change_basal_back'
                 if st.button('Mudar Basal', key=button_key, width='stretch'):
                     choose_baseline(int(t0['athlete_id']))
             with ti_column:
-                st.markdown("##### Atual")
-                st.image(current["image"], width="stretch")
+                st.markdown(f"##### Atual ({ti['collected_at'].strftime('%d/%m/%Y')})")
+                st.image(current['image'], width='stretch')
             with map_column:
-                st.markdown("##### Mapa comparativo")
+                st.markdown('##### Mapa comparativo')
+                if comparison['unchanged']:
+                    st.info(
+                        'Sem variação de temperatura nas áreas comparadas: 0 °C (cor central da escala). '
+                        'Alterar apenas o limiar '
+                        'não altera as temperaturas salvas.'
+                    )
+                elif not comparison['has_overlap']:
+                    st.warning('As segmentações não possuem área em comum para comparação.')
                 map_columns = st.columns(2)
-                for column, (label, side) in zip(map_columns, LEGS.items()):
-                    comparison = compare_hot_masks(
-                        baseline["hot_masks"][side],
-                        current["hot_masks"][side],
-                        baseline["boxes"][side],
-                        current["boxes"][side],
-                        only_new=True,
-                    )
+                # Vista frontal: a direita anatômica aparece à esquerda de quem vê.
+                leg_order = list(LEGS.items())
+                if view_key == 'front':
+                    leg_order.reverse()
+                for column, (label, side) in zip(map_columns, leg_order):
                     with column:
-                        st.image(comparison["image"], caption=label, width="stretch")
+                        st.image(comparison['images'][side], caption=label, width='stretch')
+                st.image(comparison['legend'], width='stretch')
             with metrics_column:
-                st.markdown("##### Métricas atuais")
-                st.caption(
-                    f"Tmin {current['minimum_temperature']:.1f} °C · "
-                    f"Tmax {current['maximum_temperature']:.1f} °C · "
-                    f"limiar {current['threshold']:.1f} °C"
-                )
-                current_hot_total = sum(
-                    int(current["metrics"][side]["hot_pixels"])
-                    for side in LEGS.values()
-                )
-                baseline_hot_total = sum(
-                    int(baseline["metrics"][side]["hot_pixels"])
-                    for side in LEGS.values()
-                )
-                current_area_total = sum(
-                    int(current["metrics"][side]["total_pixels"])
-                    for side in LEGS.values()
-                )
-                baseline_area_total = sum(
-                    int(baseline["metrics"][side]["total_pixels"])
-                    for side in LEGS.values()
-                )
-                current_view_percentage = current_hot_total / current_area_total * 100
-                baseline_view_percentage = baseline_hot_total / baseline_area_total * 100
-                st.metric(
-                    "Total da vista",
-                    f"{current_hot_total:,} px".replace(",", "."),
-                    delta=f"{current_hot_total - baseline_hot_total:+,} px".replace(",", "."),
-                )
-                st.caption(
-                    f"{current_view_percentage:.1f}% "
-                    f"({current_view_percentage - baseline_view_percentage:+.1f} p.p.)"
-                )
+                st.markdown('##### Área quente comparada')
                 for label, side in LEGS.items():
-                    current_metric = current["metrics"][side]
-                    baseline_metric = baseline["metrics"][side]
-                    hot_delta = int(current_metric["hot_pixels"]) - int(
-                        baseline_metric["hot_pixels"]
-                    )
-                    percentage_delta = float(current_metric["hot_percentage"]) - float(
-                        baseline_metric["hot_percentage"]
-                    )
-                    st.metric(
-                        f"Pixels quentes — {label}",
-                        f"{int(current_metric['hot_pixels']):,} px".replace(",", "."),
-                        delta=f"{hot_delta:+,} px".replace(",", "."),
-                    )
-                    st.caption(
-                        f"{float(current_metric['hot_percentage']):.1f}% "
-                        f"({percentage_delta:+.1f} p.p.) · área: "
-                        f"{int(current_metric['total_pixels']):,} px".replace(",", ".")
-                    )
+                    previous = comparison['summaries'][side]['baseline']['total']['hot_percentage']
+                    actual = comparison['summaries'][side]['current']['total']['hot_percentage']
+                    if previous is None or actual is None:
+                        st.caption(f'{label}: sem pixels válidos para calcular a área quente.')
+                        continue
+                    st.metric(f'Área quente — {label}', f'{actual:.1f}%',
+                              delta=f'{actual - previous:+.1f} p.p.')
+                    st.caption(f'Basal: {previous:.1f}% da área segmentada.')
+
 
 
 def render_timeline(athletes: list[dict[str, Any]]) -> None:
@@ -253,7 +229,6 @@ def render_timeline(athletes: list[dict[str, Any]]) -> None:
         )
     ti = by_date[selected_date]
     st.session_state['thermography_timeline_ti'] = str(ti['id'])
-    st.caption('Análises armazenadas localmente no servidor da API. A seleção não altera os arquivos salvos.')
     if ti['collected_at'] < t0['collected_at']:
         st.warning(
             'A coleta Atual está registrada antes da Basal. A comparação '
