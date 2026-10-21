@@ -232,3 +232,8 @@ período, o radar é substituído por uma mensagem informativa.
 O gerenciamento de coletas e a importação ficam sempre visíveis. Os filtros,
 indicadores e gráficos ficam na seção **Analisar dados de salto**, recolhida
 por padrão.
+
+Na importação, **Limpar dados extraídos** permite descartar o lote sem enviá-lo.
+Um pop-up exige confirmação; cancelar mantém os dados. A limpeza reinicia os
+arquivos selecionados, a grade editável, a validação e o resultado do lote,
+sem afetar o cadastro/edição de coletas nem registros já existentes no banco.

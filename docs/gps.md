@@ -128,3 +128,8 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 Os filtros, indicadores e gráficos dos registros do banco ficam na seção
 **Analisar dados de GPS**, recolhida por padrão.
+
+Após uma extração, **Limpar dados extraídos** abre uma confirmação. Confirmar
+descarta os arquivos selecionados, tabelas, edições, validação e resultado do
+componente, permitindo uma nova importação. Cancelar preserva tudo. A limpeza
+não exclui nem desfaz registros do banco, mesmo se o lote já tiver sido enviado.
