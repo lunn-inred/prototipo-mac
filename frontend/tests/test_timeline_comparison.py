@@ -25,32 +25,42 @@ class TimelineComparisonTests(unittest.TestCase):
             self.saved[entry['id']] = {**entry, 'views': views}
 
     @staticmethod
-    def comparison_response(baseline, current, limit=None, palette=None):
+    def comparison_response(baseline, current, limit=None, palette=None, gamma=1.0):
         # Simulate the HTTP adapter's decoded response; numerical processing is
         # tested separately in backend/tests/test_temperature_comparison.py.
         previous, actual = baseline['temperature'], current['temperature']
         regions = lambda mean: {part: dict(mean_temperature=mean, hot_percentage=100 if mean >= 31 else 0)
                                 for part in ('total', 'coxa', 'joelho', 'canela', 'pe')}
-        return dict(max_difference=abs(actual - previous), limit=limit or abs(actual - previous) or .1,
+        return dict(max_difference=abs(actual - previous), limit=limit or max(.1, abs(actual - previous)),
                     unchanged=previous == actual, has_overlap=True,
                     images={side: Image.new('RGB', (20, 20), 'white') for side in ('right', 'left')},
                     legend=Image.new('RGB', (420, 125)),
                     summaries={side: dict(baseline=regions(previous), current=regions(actual))
                                for side in ('right', 'left')})
 
-    def test_scale_is_shared_cached_and_invalidated_for_baseline_or_records(self):
+    def test_comparison_is_cached_without_scanning_other_dates(self):
         with patch.object(timeline, 'load_local_analysis', side_effect=lambda entry: self.saved[entry['id']]), \
              patch.object(timeline, 'compare_temperature_maps', side_effect=self.comparison_response) as compare:
-            self.assertEqual(timeline._timeline_color_limit(self.entries[0], self.entries), 3)
+            result = timeline._cached_comparison(self.entries[0], self.entries[1])
+            self.assertEqual(result['front']['limit'], 1)
+            self.assertEqual(result['back']['limit'], 1.5)
             count = compare.call_count
-            self.assertEqual(count, 6)
-            self.assertEqual(timeline._timeline_color_limit(self.entries[0], self.entries), 3)
-            self.assertEqual(compare.call_count, count)
-            # Changing the selected date reuses the scanned pair calculations.
+            self.assertEqual(count, 2)
             timeline._cached_comparison(self.entries[0], self.entries[1])
             self.assertEqual(compare.call_count, count)
-            self.assertEqual(timeline._timeline_color_limit(self.entries[1], self.entries), 1.5)
-            self.assertEqual(timeline._timeline_color_limit(self.entries[0], self.entries[:2]), 1.5)
+            changed = timeline._cached_comparison(self.entries[1], self.entries[2])
+            self.assertEqual(compare.call_count, count + 2)
+            self.assertEqual(changed['front']['limit'], 1)
+            self.assertEqual(changed['back']['limit'], 1.5)
+            farther = timeline._cached_comparison(self.entries[0], self.entries[2])
+            self.assertEqual(compare.call_count, count + 4)
+            self.assertEqual(farther['front']['limit'], 2)
+            self.assertEqual(farther['back']['limit'], 3)
+            linear = timeline._cached_comparison(self.entries[0], self.entries[1], gamma=1.0)
+            self.assertEqual(compare.call_count, count + 6)
+            self.assertEqual(compare.call_args.kwargs['gamma'], 1.0)
+            self.assertEqual(linear['front']['limit'], result['front']['limit'])
+            self.assertEqual(linear['back']['limit'], result['back']['limit'])
 
     def test_timeline_renders_percentages_without_regional_table(self):
         root = Path(__file__).resolve().parents[2]
@@ -58,15 +68,26 @@ class TimelineComparisonTests(unittest.TestCase):
                    return_value=[dict(id_atleta=1, nome='Teste')]), \
              patch.object(timeline, 'list_local_analyses', return_value=self.entries), \
              patch.object(timeline, 'load_local_analysis', side_effect=lambda entry: self.saved[entry['id']]), \
-             patch.object(timeline, 'compare_temperature_maps', side_effect=self.comparison_response):
+             patch.object(timeline, 'compare_temperature_maps', side_effect=self.comparison_response), \
+             patch.object(timeline.st, 'image', wraps=timeline.st.image) as show_image:
             app = AppTest.from_file(str(root / 'frontend/streamlit/pages/Timeline_Termo.py'),
                                    default_timeout=30).run()
             app.selectbox(key='thermography_timeline_player').set_value(1).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertEqual(len(app.error), 0)
+            leg_captions = [call.kwargs.get('caption') for call in show_image.call_args_list
+                            if call.kwargs.get('caption') in ('Perna esquerda', 'Perna direita')]
+            self.assertEqual(leg_captions, ['Perna direita', 'Perna esquerda',
+                                           'Perna esquerda', 'Perna direita'])
             self.assertEqual(len(app.dataframe), 0)
             self.assertTrue(all(metric.value.endswith('%') for metric in app.metric))
             self.assertTrue(any('atual: 33.00 °C' in caption.value for caption in app.caption))
+            self.assertEqual(app.slider(key='timeline_comparison_gamma').value, .5)
+            before = [metric.value for metric in app.metric]
+            app.slider(key='timeline_comparison_gamma').set_value(1.).run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertEqual([metric.value for metric in app.metric], before)
+            self.assertTrue(any('Contraste linear' in caption.value for caption in app.caption))
             app.select_slider(key='thermography_timeline_date_1').set_value(date(2026, 10, 2)).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertEqual(len(app.dataframe), 0)

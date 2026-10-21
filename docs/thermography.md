@@ -212,29 +212,82 @@ Cada confirmação cria um UUID diferente, inclusive na mesma data. A gravação
 é preparada em diretório temporário e publicada por renomeação somente após
 concluir todos os arquivos. Ao selecionar um jogador, a timeline lê suas análises
 salvas; mudar o basal ou a data atual não modifica os arquivos. Para visualizar Basal/Atual, as
-matrizes são carregadas pela API. O mapa comparativo calcula `atual − basal` por pixel
-nas áreas segmentadas em comum, usando a paleta extraída da barra térmica da
-imagem basal de frente, compartilhada por pernas, vistas e datas. O extremo
-frio representa a diferença negativa e o quente, a positiva; zero usa a cor
-central da paleta, que não necessariamente é branca. A legenda usa essa mesma
-paleta e mostra diferenças em °C, não temperaturas absolutas. Fontes sem imagem
-e barra salvas mantêm o gradiente azul–branco–vermelho como compatibilidade.
-O encaixe usa redimensionamento dos recortes completos das pernas e é aproximado,
-sem alinhamento anatômico automático. Nas mesmas caixas e dimensões, a subtração
-ocorre antes do redimensionamento para evitar artefatos de borda entre máscaras.
+matrizes são carregadas pela API. O mapa calcula `atual − basal` em °C sobre
+**a geometria da segmentação basal**, sem modificar os arquivos de nenhuma coleta.
 
-O limiar salvo no basal é aplicado às duas coletas para os percentuais de áreas
-quentes. Os dois limiares originais continuam visíveis. O gradiente não depende
-do limiar; temperaturas iguais produzem diferença zero, com a cor central na
-área comparada. O mapa não apresenta contornos sobrepostos; a legenda mostra
-apenas as cores e os valores de diferença em °C.
+### Alinhamento anatômico na referência basal
 
-A barra de cores é simétrica em torno de zero e compartilha a mesma escala
-entre pernas, frente/verso e datas. Seu limite é a maior diferença absoluta
-entre o basal selecionado e todos os registros disponíveis do jogador,
-arredondada para cima em décimos de °C, com mínimo de 0,1 °C. Mudar o basal ou
-os registros recalcula a escala; cálculos e carregamentos são armazenados em
-cache por até 60 segundos, com chaves que incluem os registros e o basal.
+O backend utiliza as divisões salvas de coxa, joelho, canela e pé. Cada região
+atual é mapeada separadamente para a região correspondente no basal, evitando
+que diferenças nas proporções do recorte comparem joelho com coxa, por exemplo.
+Dentro de cada região, a posição vertical é proporcional aos seus limites; na
+horizontal, as bordas segmentadas de cada linha estabelecem a correspondência
+entre as larguras das pernas. A silhueta basal não é deformada. A orientação
+horizontal/invertida de registros antigos também é respeitada.
+
+A interpolação pondera apenas temperaturas de pixels válidos da perna, sem
+misturar o fundo com a borda. Buracos, linhas e regiões ausentes na coleta atual
+não são preenchidos artificialmente: ficam pretos no mapa, assim como o fundo.
+Zero corresponde à cor central da paleta; preto não significa ausência de variação. Quando as
+coordenadas e máscaras já coincidem, preserva-se a comparação direta; uma edição
+somente de máscara em um mesmo campo térmico não cria aquecimento artificial.
+
+Esse alinhamento é **aproximado**, baseado nos limites revisados pelo usuário,
+e não corresponde a registro anatômico por pontos ósseos, detecção de postura
+ou fluxo óptico. Mudanças de pose, oclusões e divisões incorretas ainda afetam a
+comparação. As temperaturas são estimadas de JPEG, não medições radiométricas
+originais, e as diferenças não são um diagnóstico de alteração muscular.
+
+### Cores e escala dinâmica do par
+
+A comparação reutiliza a paleta extraída da barra térmica do basal de frente,
+compartilhada nas duas pernas e nas vistas de frente e verso. Seu extremo frio
+representa diferenças negativas, a cor central representa zero e o extremo
+quente representa diferenças positivas. A legenda mostra diferenças em °C,
+não temperaturas absolutas. Registros sem imagem/barra basal disponível usam
+um gradiente azul–verde–vermelho como alternativa. Essa escolha de cores não
+altera o alinhamento nem a escala dinâmica calculada para cada vista.
+
+A escala é calculada **somente entre a imagem basal e a atual da vista aberta**,
+compartilhada pelas duas pernas. Seu limite é a maior diferença absoluta válida
+após alinhamento, antes da redução da prévia, arredondada para cima em décimos
+de °C. Por exemplo, diferenças de −4 a +5 °C usam uma escala de −5 a +5 °C.
+Frente e verso podem ter escalas diferentes; nenhuma outra coleta participa do
+cálculo. Ao trocar a data ou o basal, a legenda acompanha o novo par. Uma mesma
+cor pode representar diferenças distintas em pares diferentes: consulte a legenda.
+Sem variação ou sem correspondência, a faixa mínima é ±0,1 °C para manter uma
+legenda válida; as mensagens distinguem esses dois casos.
+
+Não é necessária configuração no `.env`: a antiga variável
+`MAC_THERMOGRAPHY_DELTA_LIMIT_C` não é mais utilizada. O limite explícito opcional
+da operação da API permanece disponível, mas a timeline não o envia. A escala
+é uma referência visual, não um limiar clínico.
+
+### Contraste visual com gamma
+
+A timeline inicia com **gamma 0,5**. O controle **Contraste das cores (gamma)**
+permite ajustar de 0,2 a 1: valores menores afastam diferenças pequenas da cor
+central; 1 restaura o mapeamento linear. O backend aplica a curva simétrica
+`sign(ΔT) × (abs(ΔT) / limite)^gamma` somente na busca da cor na paleta. Zero,
+o sinal e os extremos permanecem nas mesmas posições de referência. A legenda
+usa a mesma transformação e continua rotulada em diferenças reais de °C;
+a interface informa quando o contraste é não linear.
+
+Não há alteração das temperaturas, diferenças numéricas, segmentação, escala
+dinâmica, limiares ou percentuais de área quente. Não há gravação de novas
+temperaturas nem migração dos arquivos existentes. Isso é contraste visual,
+não tolerância térmica: a amplificação também pode realçar ruído e artefatos
+de alinhamento. O ajuste é implementado com NumPy, mantendo as imagens Pillow
+e os previews do Streamlit, sem Matplotlib ou outra dependência adicional.
+A operação `compare_temperature_maps` aceita `gamma` opcional e preserva 1
+como padrão para clientes da API; a timeline envia explicitamente o valor do
+controle, incluído na chave de cache de cada comparação.
+
+O limiar salvo no basal continua sendo aplicado às duas coletas para os
+percentuais de área quente. Esses indicadores usam os pixels nativos de cada
+coleta, não os pixels interpolados do mapa; seus dois limiares originais ficam
+visíveis. O gradiente de diferenças não depende desses limiares. Cálculos e
+carregamentos são armazenados em cache por até 60 segundos para cada par.
 
 A timeline apresenta os percentuais de área quente por perna, sem tabela
 regional. A comparação não modifica os arquivos salvos e não exige migração.

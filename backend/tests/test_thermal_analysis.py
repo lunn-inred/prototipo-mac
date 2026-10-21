@@ -32,15 +32,15 @@ class ThermalAnalysisTests(unittest.TestCase):
         self.assertEqual(result['limit'], 2)
         pixels = np.asarray(result['images']['right'])[0]
         self.assertGreater(pixels[0, 2], pixels[0, 0])
-        np.testing.assert_array_equal(pixels[1], [255, 255, 255])
+        np.testing.assert_array_equal(pixels[1], [0, 200, 80])
         self.assertGreater(pixels[2, 0], pixels[2, 2])
-        np.testing.assert_array_equal(pixels[3], [18, 18, 18])
+        np.testing.assert_array_equal(pixels[3], [0, 0, 0])
         reverse = compare_temperature_maps(current, basal, (4, 1))
         self.assertGreater(np.asarray(reverse['images']['right'])[0, 0, 0],
                            np.asarray(reverse['images']['right'])[0, 0, 2])
         same = compare_temperature_maps(basal, basal, (4, 1))
         np.testing.assert_array_equal(np.asarray(same['images']['right'])[0, :3],
-                                      np.full((3, 3), 255))
+                                      np.tile([0, 200, 80], (3, 1)))
 
     def test_identical_temperatures_stay_zero_with_different_masks_and_thresholds(self):
         temperatures = np.array([[25., 30., 35.], [26., 31., 36.]])
@@ -57,8 +57,8 @@ class ThermalAnalysisTests(unittest.TestCase):
         self.assertTrue(result['has_overlap'])
         for image in result['images'].values():
             pixels = np.asarray(image)
-            # Zero differences remain white except for the hot-area outlines.
-            allowed = {(255, 255, 255), (18, 18, 18), (20, 20, 20), (255, 196, 0)}
+            # Zero is green; unavailable samples and background are black.
+            allowed = {(0, 200, 80), (0, 0, 0)}
             self.assertTrue(set(map(tuple, pixels.reshape(-1, 3))).issubset(allowed))
 
     def test_anatomical_parts_partition_mask_in_both_directions(self) -> None:

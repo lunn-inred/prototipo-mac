@@ -90,44 +90,37 @@ def _timeline_view_at_threshold(source, threshold):
 
 
 @st.cache_data(ttl=60, max_entries=64, show_spinner=False)
-def _cached_comparison(baseline_entry, current_entry, limit=None):
+def _cached_comparison(baseline_entry, current_entry, limit=None, gamma=0.5):
     baseline = _load_saved_entry(baseline_entry)
     current = _load_saved_entry(current_entry)
-    front = compare_temperature_maps(baseline['views']['front'], current['views']['front'], limit=limit)
+    front = compare_temperature_maps(baseline['views']['front'], current['views']['front'], limit=limit, gamma=gamma)
     back = compare_temperature_maps(baseline['views']['back'], current['views']['back'],
-                                    limit=limit, palette=front.get('palette'))
+                                    limit=limit, palette=front.get('palette'), gamma=gamma)
     return {'front': front, 'back': back}
 
 
-@st.cache_data(ttl=60, max_entries=16, show_spinner=False)
-def _timeline_color_limit(baseline_entry, entries):
-    maximum = max(
-        comparison['max_difference']
-        for entry in entries
-        for comparison in _cached_comparison(baseline_entry, entry).values()
-    )
-    return max(0.1, float(np.ceil(maximum * 10) / 10))
-
-
 def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
-    try:
-        entries = st.session_state.get('thermography_timeline', [t0, ti])
-        with st.spinner('Preparando comparação térmica…'):
-            limit = _timeline_color_limit(t0, entries)
-            comparisons = _cached_comparison(t0, ti, limit)
-            t0, ti = _load_saved_entry(t0), _load_saved_entry(ti)
-    except ValueError as error:
-        st.error(f'Não foi possível carregar a comparação: {error}')
-        return
     st.markdown('#### Comparação Basal × Atual')
     st.caption(
         f"Basal: {t0['collected_at'].strftime('%d/%m/%Y')} · "
         f"Atual: {ti['collected_at'].strftime('%d/%m/%Y')}"
     )
+    gamma = st.slider(
+        'Contraste das cores (gamma)', min_value=0.2, max_value=1.0,
+        value=0.5, step=0.05, key='timeline_comparison_gamma',
+        help='Valores menores destacam diferenças pequenas. 1 mantém o contraste linear. '
+             'Não altera temperaturas, limiares ou métricas e também pode realçar ruído.',
+    )
+    try:
+        with st.spinner('Preparando comparação térmica…'):
+            comparisons = _cached_comparison(t0, ti, gamma=gamma)
+            t0, ti = _load_saved_entry(t0), _load_saved_entry(ti)
+    except ValueError as error:
+        st.error(f'Não foi possível carregar a comparação: {error}')
+        return
     st.caption(
-        'Encaixe aproximado por redimensionamento dos recortes das pernas, sem alinhamento '
-        'anatômico automático. A escala de cores é fixa entre datas e vistas para o basal '
-        'selecionado; mudar o basal ou os registros disponíveis recalcula a escala.'
+        'A coleta atual é alinhada por coxa, joelho, canela e pé na segmentação basal. '
+        'O encaixe é aproximado e depende das divisões e máscaras revisadas pelo usuário.'
     )
     tabs = st.tabs(['Frente', 'Verso'])
     for tab, view_key in zip(tabs, ('front', 'back')):
@@ -165,10 +158,15 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                     )
                 elif not comparison['has_overlap']:
                     st.warning('As segmentações não possuem área em comum para comparação.')
-                st.caption('Atual − basal por pixel. Áreas sem correspondência ficam escuras.')
-                st.caption('Paleta da barra térmica do basal (frente). Zero fica na cor central da escala.')
+                st.caption('Atual − basal por pixel, sobre a segmentação basal. Preto: fundo ou correspondência indisponível.')
+                st.caption(f"Escala deste comparativo: −{comparison['limit']:.1f} a +{comparison['limit']:.1f} °C. Zero usa a cor central da paleta térmica basal.")
+                st.caption(f"Contraste {'linear' if gamma == 1.0 else 'não linear'} · gamma {gamma:.2f}. A legenda usa o mesmo ajuste; os valores permanecem em °C.")
                 map_columns = st.columns(2)
-                for column, (label, side) in zip(map_columns, LEGS.items()):
+                # Vista frontal: a direita anatômica aparece à esquerda de quem vê.
+                leg_order = list(LEGS.items())
+                if view_key == 'front':
+                    leg_order.reverse()
+                for column, (label, side) in zip(map_columns, leg_order):
                     with column:
                         st.image(comparison['images'][side], caption=label, width='stretch')
                 st.image(comparison['legend'], width='stretch')
