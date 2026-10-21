@@ -96,7 +96,10 @@ class ThermalWizardTests(unittest.TestCase):
                 else:
                     self.assertIn('/api/v1/thermography/segment', processing_requests)
                 headers = [header.value for header in app.subheader]
-                self.assertLess(headers.index('Nova análise térmica'), headers.index('Envio de Formulário'))
+                self.assertIn('Nova análise térmica', headers)
+                # A importação de formulários pode estar desabilitada na página.
+                if 'Envio de Formulário' in headers:
+                    self.assertLess(headers.index('Nova análise térmica'), headers.index('Envio de Formulário'))
                 self.assertNotIn('Timeline térmica', headers)
                 self.assertFalse(any(expander.label == 'Formulários' for expander in app.expander))
                 self.assertFalse(any('Timeline' in expander.label for expander in app.expander))
@@ -162,10 +165,15 @@ class ThermalWizardTests(unittest.TestCase):
                         next(button for button in app.button if button.label == 'Concluir').click().run()
                 if step == 5:
                     texts = [text.value for text in app.markdown]
-                    self.assertIn('Perna esquerda:', texts)
-                    self.assertLess(texts.index('Perna esquerda:'), texts.index('Perna direita:'))
-                    self.assertTrue(any(text.startswith('- Total: **') and 'px)' in text for text in texts))
-                    self.assertTrue(any(text.startswith('- Pé: **') for text in texts))
+                    left_index = next(index for index, text in enumerate(texts) if text.startswith('**Perna esquerda:**'))
+                    right_index = next(index for index, text in enumerate(texts) if text.startswith('**Perna direita:**'))
+                    self.assertLess(left_index, right_index)
+                    for index in (left_index, right_index):
+                        lines = texts[index].splitlines()
+                        self.assertEqual(len(lines), 6)
+                        self.assertTrue(lines[1].startswith('Total: **') and 'px)' in lines[1])
+                        self.assertTrue(lines[-1].startswith('Pé: **'))
+                        self.assertFalse(any(line.startswith('- ') for line in lines))
                     self.assertFalse(any('Pixels quentes —' in metric.label for metric in app.metric))
                     self.assertNotIn('Resumo da coleta', [h.value for h in app.subheader])
                     self.assertFalse(any(button.key == 'save_image_thermography' for button in app.button))

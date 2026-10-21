@@ -321,13 +321,14 @@ def render_wizard(athletes_by_id):
             if step == 5:
                 for column, (label, side) in zip(st.columns(2), LEGS.items()):
                     metric = analysis['metrics'][side]
-                    column.markdown(f"{label}:")
-                    column.markdown(f'- Total: **{metric["hot_percentage"]:.1f}%** (de {metric["total_pixels"]}px)')
+                    lines = [f'**{label}:**',
+                             f'Total: **{metric["hot_percentage"]:.1f}%** (de {metric["total_pixels"]}px)']
                     setting = settings[side]
                     parts, _ = leg_part_metrics(analysis['temperatures'], analysis['masks'][side], threshold, tuple(setting['cuts']), axis=setting['axis'], foot_at_end=setting['foot_at_end'], region_box=analysis['boxes'][side])
                     for name, part in parts.items():
                         part_label = 'Pé' if name == 'pe' else name.capitalize()
-                        column.markdown(f'- {part_label}: **{part["hot_percentage"]:.1f}%** (de {part["total_pixels"]}px)')
+                        lines.append(f'{part_label}: **{part["hot_percentage"]:.1f}%** (de {part["total_pixels"]}px)')
+                    column.markdown('  \n'.join(lines))
     if step == 5:
         if valid:
             signature = hashlib.sha256((views['front']['signature']+views['back']['signature']).encode()).hexdigest()
