@@ -8,6 +8,12 @@ A página `frontend/streamlit/pages/Metricas_de_Salto.py` utiliza dados reais da
 `public.vw_medidas_saltos`. Os dados são carregados por `jump_data.py` e ficam
 em cache no Streamlit por cinco minutos.
 
+O histórico e os cálculos são carregados somente ao abrir **Analisar dados de
+salto**. Alterar os filtros de análise não reconstrói o gerenciamento. No CRUD,
+as coletas são buscadas ao selecionar **Editar** ou **Excluir**, com cache de
+60 segundos invalidado após uma gravação bem-sucedida. Mais detalhes em
+[carregamento e cache](architecture.md#carregamento-e-cache).
+
 ### CRUD e importação de planilhas
 
 O painel **Gerenciar coletas de salto** permite cadastrar, editar e excluir uma

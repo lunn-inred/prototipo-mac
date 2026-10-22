@@ -62,7 +62,7 @@ class WebUiIntegrationTests(unittest.TestCase):
 
     def test_all_pages_render_via_http_without_direct_database_access(self):
         for filename in ('Jogadores.py','Metricas_de_Salto.py','Monitoramento_GPS.py','Termografia.py','Timeline_Termo.py'):
-            with self.subTest(filename=filename), patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=self.http):
+            with self.subTest(filename=filename), patch('frontend.streamlit.api_client.service_gateway._http_request', side_effect=self.http):
                 app = AppTest.from_file(str(self.root/'frontend/streamlit/pages'/filename), default_timeout=30).run()
                 self.assertEqual(len(app.exception), 0, list(app.exception))
                 self.assertFalse(any('Não foi possível carregar' in error.value for error in app.error))
@@ -84,7 +84,7 @@ class WebUiIntegrationTests(unittest.TestCase):
         athlete_id = created.json()['id_atleta']
         from frontend.streamlit.presentation.player_data import load_player_dashboard_data
         load_player_dashboard_data.clear()
-        with patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=self.http):
+        with patch('frontend.streamlit.api_client.service_gateway._http_request', side_effect=self.http):
             app = AppTest.from_file(str(self.root/'frontend/streamlit/pages/Jogadores.py'), default_timeout=30).run()
             self.assertIn('Desativar/reativar jogador', [tab.label for tab in app.tabs])
             self.assertNotIn('Excluir', [tab.label for tab in app.tabs])
@@ -117,7 +117,7 @@ class WebUiIntegrationTests(unittest.TestCase):
             if kwargs.get('accept_multiple_files'): return []
             upload = io.BytesIO(buffer.getvalue()); upload.name = 'teste.png'
             return upload
-        with patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=self.http), patch('streamlit.file_uploader', side_effect=uploads):
+        with patch('frontend.streamlit.api_client.service_gateway._http_request', side_effect=self.http), patch('streamlit.file_uploader', side_effect=uploads):
             app = AppTest.from_file(str(self.root/'frontend/streamlit/pages/Termografia.py'), default_timeout=60).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             athletes = self.client.get('/api/v1/athletes', headers={'X-API-Key': os.environ['MAC_API_KEY']}).json()

@@ -25,7 +25,7 @@ class PlayersWallTests(unittest.TestCase):
         for mock in (
             patch('backend.mac_api.main.data_repository.player_dashboard_data',
                   return_value=dict(athletes=self.athletes, measurements=[])),
-            patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=self.http),
+            patch('frontend.streamlit.api_client.service_gateway._http_request', side_effect=self.http),
             patch('psycopg2.connect', side_effect=AssertionError('Teste não acessa banco')),
         ):
             mock.start()

@@ -56,6 +56,38 @@ sob demanda. O registro das medidas no banco continua uma operação separada.
 
 Contratos: [API HTTP](api.md). Validação: [testes](testing.md).
 
+## Carregamento e cache
+
+- Em GPS e salto, o painel de análise só consulta o histórico e calcula os
+  gráficos quando aberto. Os filtros dos gráficos executam em um `st.fragment`,
+  sem reconstruir o CRUD/importador a cada interação.
+- No salto, a lista de coletas editáveis é buscada somente nas abas **Editar**
+  e **Excluir**. O importador permanece montado para preservar o upload e as
+  edições durante a troca de abas.
+- As leituras de jogadores e coletas do CRUD têm cache de 60 segundos, separado
+  por URL da API, credencial e endpoint. Cadastros, alterações, mudança de status,
+  exclusão e importação de saltos invalidam esse cache após sucesso. Falhas não
+  invalidam as leituras anteriores. Alterações externas podem levar até 60
+  segundos para aparecer nessas listas; o TTL não faz atualização automática.
+- Os caches já existentes dos históricos gráficos (cinco minutos) e dos cálculos
+  (60 segundos) permanecem. As confirmações do CRUD/importadores continuam
+  invalidando o histórico correspondente; validação e gravação não usam o
+  cache de referências e continuam consultando o backend.
+- O cliente HTTP mantém conexões reutilizáveis, com autenticação enviada em
+  cada requisição e encerramento do cliente na saída do processo. Isso não muda
+  o timeout configurado em `MAC_API_TIMEOUT_SECONDS`.
+
+As abas e painéis usam rastreamento de abertura do Streamlit. A versão mínima
+do frontend é **1.63**; atualize as dependências com
+`python -m pip install -r requirements.txt` (ambiente completo) ou
+`python -m pip install -r frontend/requirements.txt` (somente frontend).
+As mesmas otimizações se aplicam ao modo web e desktop. Não há alteração de
+schema, índices ou permissões do banco, nem mudança nas fórmulas das métricas.
+
+Essas mudanças reduzem requisições; não eliminam a latência de uma consulta
+inicial ao Supabase. A suíte verifica contagens de chamadas com API/banco
+simulados, não um benchmark de tempo do ambiente de produção.
+
 ## Responsabilidades
 
 O tema compartilhado em `frontend/streamlit/components/ui.py` limita todas as

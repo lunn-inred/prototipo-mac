@@ -46,6 +46,9 @@ as medidas. Detalhes: [armazenamento térmico](docs/thermography.md#armazenament
 
 Use Python 3.10+ e execute os comandos a partir da raiz do repositório:
 
+O frontend requer Streamlit 1.63+ para carregar análises e históricos sob demanda.
+Se já possui o ambiente, atualize-o com `python -m pip install -r requirements.txt`.
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate

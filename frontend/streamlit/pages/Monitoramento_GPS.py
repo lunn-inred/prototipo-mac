@@ -172,7 +172,8 @@ def add_average_trace(
 st.title("Monitoramento GPS")
 render_gps_import()
 
-with st.expander("Analisar dados de GPS", expanded=False):
+@st.fragment
+def render_gps_analysis() -> None:
 
     try:
         all_records = load_gps_records()
@@ -292,3 +293,12 @@ with st.expander("Analisar dados de GPS", expanded=False):
                 st.info(f"Não há dados de {variable} para os filtros selecionados.")
             else:
                 st.plotly_chart(chart, width="stretch", key=f"gps_{variable}")
+
+
+analysis_panel = st.expander(
+    "Analisar dados de GPS", expanded=False,
+    key="gps_analysis_open", on_change="rerun",
+)
+with analysis_panel:
+    if analysis_panel.open:
+        render_gps_analysis()

@@ -242,7 +242,6 @@ def render_jump_management() -> None:
         st.success(message)
     try:
         athletes = load_athletes()
-        collections = load_jump_collections()
     except Exception as error:
         st.error(f"Não foi possível carregar o gerenciamento de saltos: {error}")
         return
@@ -256,8 +255,16 @@ def render_jump_management() -> None:
     with st.container(border=True):
         st.subheader("Gerenciar coletas de salto")
         create_tab, edit_tab, delete_tab, import_tab = st.tabs(
-            ["Cadastrar", "Editar", "Excluir", "Importar planilha"]
+            ["Cadastrar", "Editar", "Excluir", "Importar planilha"],
+            key="jump_management_tab", on_change="rerun",
         )
+        collections = []
+        if edit_tab.open or delete_tab.open:
+            try:
+                collections = load_jump_collections()
+            except Exception as error:
+                st.error(f"Não foi possível carregar as coletas de salto: {error}")
+                return
         with create_tab:
             with st.form("jump_create_form", clear_on_submit=True):
                 header = st.columns(2)
