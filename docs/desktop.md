@@ -14,6 +14,12 @@ A janela abre com tamanho inicial de **1920 × 1080**, tanto em desenvolvimento
 quanto no executável. Isso não altera a resolução do monitor; o gerenciador de
 janelas pode limitar o tamanho conforme a área disponível e a escala de exibição.
 
+O primeiro fluxo de login Google usa um redirect fixo para a versão web em
+`localhost:8000`. A WebView/desktop usa portas variáveis e ainda não suporta
+esse fluxo. Se `MAC_GOOGLE_CLIENT_ID` estiver preenchido no `.env`, use a versão
+web no navegador para testar o login; o desktop exigirá uma integração OAuth
+própria antes de usar essa mesma configuração.
+
 ## 1. Instale as dependências
 
 Com o ambiente virtual ativado, instale as dependências do desktop. Esse arquivo

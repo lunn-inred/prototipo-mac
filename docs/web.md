@@ -51,7 +51,7 @@ pontos de entrada de compatibilidade; para a interface web, prefira
 Com o `.env` preenchido na raiz:
 
 ```bash
-mkdir -p data/thermography
+mkdir -p data/thermography data/credentials
 docker compose up --build -d
 docker compose ps
 docker compose logs -f backend frontend
@@ -99,3 +99,20 @@ Para exibir a identidade do MAC na barra lateral, coloque a imagem PNG em
 ausência não impede a execução do protótipo.
 
 Veja também [configuração](configuration.md), [desktop](desktop.md) e [API](api.md).
+
+## Login Google
+
+O teste inicial do login com Google usa o navegador no mesmo computador da API
+e do Streamlit. Configure o cliente OAuth e o `.env` conforme
+[Login Google em teste local](configuration.md#login-google-em-teste-local).
+O botão **Entrar com Google** só aparece após preencher `MAC_GOOGLE_CLIENT_ID`.
+Antes do login, a navegação contém somente a página **Entrar**; as páginas de
+trabalho não aparecem no menu nem ficam disponíveis por seus endereços. Ao
+reabrir o app, a sessão é verificada na API antes de mostrar a navegação.
+O fluxo cria a pasta **MAC Backups** e guarda a autorização do Drive no backend;
+o envio periódico dos backups ainda não faz parte desta etapa.
+
+O retorno OAuth de `localhost:8000` não serve para o segundo computador. O modo
+desktop/WebView, que usa portas variáveis, também não participa deste primeiro
+teste. Para o uso em rede, será preciso configurar um endereço HTTPS estável,
+um proxy para os dois serviços e atualizar o cliente OAuth.

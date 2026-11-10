@@ -10,6 +10,8 @@ python -m unittest discover -v
 
 A suíte cobre regras de domínio, persistência simulada, importações e contratos
 HTTP. A integração real com LlamaParse só roda quando explicitamente habilitada.
+Os pacotes de teste desativam o OAuth configurado no `.env` para não usar a conta
+Google real; os testes específicos de login ativam uma configuração simulada.
 
 O registro térmico unificado é coberto por
 `backend.tests.test_analysis_registration` e `frontend.tests.test_combined_registration`:

@@ -21,6 +21,13 @@ de Secrets. Credenciais do banco e OCR pertencem ao ambiente da API.
 | `MAC_API_BASE_URL` | Streamlit | URL pública ou interna da API |
 | `MAC_API_TIMEOUT_SECONDS` | Streamlit | Timeout de chamadas longas, padrão 300 s |
 | `MAC_ANALYSES_DIR` | API | Arquivo local de análises; padrão `./data/thermography` |
+| `MAC_GOOGLE_CLIENT_ID` | Ambos | Ativa o login Google quando preenchido |
+| `MAC_GOOGLE_CLIENT_SECRET` | API | Segredo do cliente OAuth; nunca enviar ao navegador |
+| `MAC_GOOGLE_ALLOWED_EMAIL` | API | Única conta Google autorizada nesta fase |
+| `MAC_GOOGLE_REDIRECT_URI` | API | Retorno OAuth cadastrado no Google Cloud |
+| `MAC_GOOGLE_FRONTEND_URL` | API | URL da interface após o login |
+| `MAC_GOOGLE_PUBLIC_API_URL` | Streamlit | URL da API alcançável pelo navegador para iniciar o login |
+| `MAC_GOOGLE_TOKEN_FILE` | API | Arquivo privado do token Drive; padrão `data/credentials/google-drive.json` |
 
 ## Modelo local semipronto
 
@@ -89,3 +96,37 @@ restrinja isso a máquinas confiáveis. Para uso externo, hospede a API.
 As variáveis do processo têm prioridade sobre o `.env`. Na hospedagem Streamlit,
 Secrets é uma alternativa somente para URL, chave e timeout do cliente.
 Veja [hospedagem web](web.md#deploy-no-streamlit-community-cloud).
+
+## Login Google em teste local
+
+No cliente OAuth **Web application** do Google Cloud, cadastre exatamente
+`http://localhost:8000/auth/google/callback` em **Authorized redirect URIs**.
+Para o primeiro teste, execute API e Streamlit no mesmo computador e abra
+`http://localhost:8501`. No `.env` da raiz, preencha:
+
+```env
+MAC_GOOGLE_CLIENT_ID=cole_o_client_id
+MAC_GOOGLE_CLIENT_SECRET=cole_o_client_secret
+MAC_GOOGLE_ALLOWED_EMAIL=conta_do_mac@example.org
+MAC_GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+MAC_GOOGLE_FRONTEND_URL=http://localhost:8501
+MAC_GOOGLE_PUBLIC_API_URL=http://localhost:8000
+```
+
+O ID e o secret não devem ser enviados por chat nem versionados. Ao preencher
+`MAC_GOOGLE_CLIENT_ID`, todas as rotas `/api/v1` passam a exigir uma sessão
+Google válida além de `MAC_API_KEY`; se faltar outra variável, o login falha
+fechado. A primeira autorização pede `openid`, `email`, `profile` e
+`drive.file`, cria **MAC Backups** no Meu Drive da conta autorizada e salva o
+token de renovação e o ID da pasta no arquivo privado em `data/credentials/`.
+O arquivo não entra no Git nem na imagem Docker. A pasta e o token preparam o
+backup, mas **o envio automático dos arquivos ainda não foi implementado**.
+
+No Compose, crie `data/credentials/` no host antes de iniciar os serviços e
+garanta escrita ao usuário do container. O teste com `localhost` funciona apenas no computador servidor. Para dois
+computadores, configure um endereço HTTPS estável, um proxy para Streamlit e
+API, e atualize as três URLs acima e o redirect do cliente OAuth. As sessões
+ficam na memória da API e expiram após 12 horas, reinício da API ou perda da
+sessão do navegador; por enquanto use
+um processo de API. No Google Auth Platform em **External + Testing**, o token
+Drive expira em sete dias e requer novo consentimento.

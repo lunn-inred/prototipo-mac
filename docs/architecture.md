@@ -123,9 +123,11 @@ são disponibilizados no gerenciamento de coletas nem associados no mural.
 ## React e desktop
 
 React poderá entrar em `frontend/react/` e consumir a mesma API. Máscaras e
-coordenadas têm contratos independentes do canvas. Antes de disponibilizar
-chaves no navegador, implemente autenticação de usuários; a chave atual serve
-para comunicação entre processos. Esta reorganização não adiciona login.
+coordenadas têm contratos independentes do canvas. A chave da API continua
+restrita à comunicação entre processos e não deve ser enviada ao navegador.
+Quando o login Google está ativo, a API exige também uma sessão de usuário.
+O Streamlit registra somente a página **Entrar** até validar essa sessão;
+depois disponibiliza as páginas de trabalho.
 
 Docker atende à execução web e testes. O executável usa processos Python locais,
 continua iniciando o backend automaticamente e é compilado por sistema operacional.

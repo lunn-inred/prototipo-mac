@@ -50,3 +50,4 @@ Thumbs.db
 # Imagens e dados privados das análises térmicas locais
 /data/thermography/
 /data/backups/
+/data/credentials/

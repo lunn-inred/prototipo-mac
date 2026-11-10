@@ -40,10 +40,16 @@ from .schemas import (
 )
 
 
-def require_api_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
+def require_api_key(
+    x_api_key: Annotated[str | None, Header()] = None,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
     expected = api_key()
     if expected and (not x_api_key or not secrets.compare_digest(x_api_key, expected)):
         raise HTTPException(status_code=401, detail="Chave da API inválida ou ausente.")
+    from backend.mac_api.modules.google_auth import enabled, valid_session
+    if enabled() and not valid_session(authorization.removeprefix("Bearer ") if authorization else None):
+        raise HTTPException(status_code=401, detail="Entre com a conta Google do MAC.")
 
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
@@ -313,6 +319,8 @@ def create_app() -> FastAPI:
         version="1.0.0",
         description="API dos cadastros, medições e análises do protótipo MAC Performance.",
     )
+    from backend.mac_api.modules.google_auth import router as google_auth_router
+    app.include_router(google_auth_router)
     origins = cors_origins()
     if origins:
         app.add_middleware(

@@ -12,3 +12,4 @@ experiments
 *.log
 data/thermography/
 data/backups/
+data/credentials/
