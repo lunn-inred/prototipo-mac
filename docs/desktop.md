@@ -14,11 +14,26 @@ A janela abre com tamanho inicial de **1920 × 1080**, tanto em desenvolvimento
 quanto no executável. Isso não altera a resolução do monitor; o gerenciador de
 janelas pode limitar o tamanho conforme a área disponível e a escala de exibição.
 
-O primeiro fluxo de login Google usa um redirect fixo para a versão web em
-`localhost:8000`. A WebView/desktop usa portas variáveis e ainda não suporta
-esse fluxo. Se `MAC_GOOGLE_CLIENT_ID` estiver preenchido no `.env`, use a versão
-web no navegador para testar o login; o desktop exigirá uma integração OAuth
-própria antes de usar essa mesma configuração.
+Com login Google ativo, a WebView mostra a página **Entrar** e continua aberta.
+O botão abre o navegador do sistema para a autorização exigida pelo Google;
+após o consentimento, a API local entrega a sessão à WebView e as páginas do MAC
+abrem na janela desktop. A aba do navegador exibe apenas a confirmação de que
+o login terminou e pode ser fechada.
+
+Em desenvolvimento com a API externa na porta 8000, o desktop reutiliza o
+cliente OAuth **Web application** e o retorno já configurado em
+`http://localhost:8000/auth/google/callback`. Para o executável, que inicia a
+API em porta variável, crie no mesmo projeto Google um segundo cliente OAuth
+do tipo **Desktop app** e preencha `MAC_GOOGLE_DESKTOP_CLIENT_ID` e
+`MAC_GOOGLE_DESKTOP_CLIENT_SECRET` no `.env` ao lado do binário. O cliente
+Desktop usa um retorno local dinâmico com PKCE; não é necessário cadastrar
+manualmente uma URI de retorno nesse cliente.
+
+O executável guarda a autorização do cliente Desktop em
+`data/credentials/google-drive-desktop.json` ao lado do binário, com permissão
+de acesso apenas ao usuário. Se houver um ID de pasta conhecido, ele fica salvo
+apenas como referência para uma verificação futura. O envio e a importação de
+análises ainda não estão implementados.
 
 ## 1. Instale as dependências
 

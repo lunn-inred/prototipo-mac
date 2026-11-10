@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import httpx
 import streamlit as st
+import webbrowser
 
 from frontend.streamlit.api_client.config import api_base_url, api_key, setting
 
@@ -65,8 +66,63 @@ def render_login() -> None:
     st.write("Entre com a conta Google do MAC para continuar.")
     if message := st.session_state.pop("mac_google_login_error", None):
         st.error(message)
-    public_api = (setting("MAC_GOOGLE_PUBLIC_API_URL") or "http://localhost:8000").rstrip("/")
-    st.link_button("Entrar com Google", f"{public_api}/auth/google/start")
+    if setting("MAC_DESKTOP_MODE") == "1":
+        _render_desktop_login()
+    else:
+        public_api = (setting("MAC_GOOGLE_PUBLIC_API_URL") or "http://localhost:8000").rstrip("/")
+        st.link_button("Entrar com Google", f"{public_api}/auth/google/start")
+
+
+def _render_desktop_login() -> None:
+    if not st.session_state.get("mac_desktop_poll_token") and st.button("Entrar com Google"):
+        try:
+            response = httpx.post(
+                f"{api_base_url()}/auth/google/desktop/start",
+                headers={"X-API-Key": api_key() or ""}, timeout=10,
+            )
+            response.raise_for_status()
+            data = response.json()
+            st.session_state["mac_desktop_poll_token"] = data["poll_token"]
+            st.session_state["mac_desktop_authorization_url"] = data["authorization_url"]
+            webbrowser.open(data["authorization_url"], new=2)
+        except (httpx.HTTPError, KeyError, ValueError):
+            st.error("Não foi possível iniciar o login no navegador. Confira a configuração OAuth do desktop.")
+    if st.session_state.get("mac_desktop_poll_token"):
+        st.info("Conclua o login no navegador. O MAC abrirá suas páginas nesta janela.")
+        st.link_button("Abrir a página do Google novamente", st.session_state["mac_desktop_authorization_url"])
+        _wait_for_desktop_login()
+
+
+@st.fragment(run_every="2s")
+def _wait_for_desktop_login() -> None:
+    poll_token = st.session_state.get("mac_desktop_poll_token")
+    if not poll_token:
+        return
+    try:
+        response = httpx.post(
+            f"{api_base_url()}/auth/google/desktop/poll",
+            json={"poll_token": poll_token},
+            headers={"X-API-Key": api_key() or ""}, timeout=5,
+        )
+    except httpx.HTTPError:
+        st.warning("Aguardando a API local para concluir o login.")
+        return
+    if response.status_code == 202:
+        return
+    st.session_state.pop("mac_desktop_poll_token", None)
+    st.session_state.pop("mac_desktop_authorization_url", None)
+    if response.status_code == 200:
+        try:
+            st.session_state["mac_google_session"] = response.json()["session_token"]
+        except (KeyError, ValueError):
+            st.session_state["mac_google_login_error"] = "A resposta do login é inválida. Tente novamente."
+        st.rerun()
+    elif response.status_code == 410:
+        st.session_state["mac_google_login_error"] = "O login expirou. Clique em Entrar com Google para tentar novamente."
+        st.rerun()
+    else:
+        st.session_state["mac_google_login_error"] = "O login não foi concluído. Clique em Entrar com Google para tentar novamente."
+        st.rerun()
 
 
 def render_logout() -> None:

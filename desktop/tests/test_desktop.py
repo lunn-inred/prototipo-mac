@@ -111,6 +111,22 @@ class DesktopLauncherTests(unittest.TestCase):
         ):
             self.assertEqual(desktop.executable_root(), Path("/opt/mac"))
 
+    def test_frozen_credentials_are_stored_beside_executable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original_directory = Path.cwd()
+            try:
+                with patch.object(sys, "frozen", True, create=True), \
+                     patch.object(sys, "executable", str(Path(directory) / "MAC Performance")), \
+                     patch.object(desktop, "resource_root", return_value=Path(desktop.__file__).resolve().parents[1]), \
+                     patch.dict(os.environ, {}, clear=True):
+                    desktop.configure_runtime()
+                    self.assertEqual(
+                        os.environ["MAC_GOOGLE_DESKTOP_TOKEN_FILE"],
+                        str(Path(directory) / "data/credentials/google-drive-desktop.json"),
+                    )
+            finally:
+                os.chdir(original_directory)
+
 
 if __name__ == "__main__":
     unittest.main()

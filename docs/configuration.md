@@ -28,6 +28,7 @@ de Secrets. Credenciais do banco e OCR pertencem ao ambiente da API.
 | `MAC_GOOGLE_FRONTEND_URL` | API | URL da interface após o login |
 | `MAC_GOOGLE_PUBLIC_API_URL` | Streamlit | URL da API alcançável pelo navegador para iniciar o login |
 | `MAC_GOOGLE_TOKEN_FILE` | API | Arquivo privado do token Drive; padrão `data/credentials/google-drive.json` |
+| `MAC_GOOGLE_DESKTOP_CLIENT_ID` e `MAC_GOOGLE_DESKTOP_CLIENT_SECRET` | API desktop | Cliente OAuth Desktop app para retorno local em porta variável |
 
 ## Modelo local semipronto
 

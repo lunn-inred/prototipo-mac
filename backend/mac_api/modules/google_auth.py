@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
 import os
 import secrets
 import threading
 import time
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from pydantic import BaseModel
 
 from backend.mac_api.core.settings import api_key, setting
 
@@ -22,6 +25,8 @@ _lock = threading.Lock()
 _pending: dict[str, float] = {}
 _tickets: dict[str, tuple[float, str]] = {}
 _sessions: dict[str, tuple[float, str]] = {}
+_desktop_pending: dict[str, tuple[float, str, str, str, str, str, bool]] = {}
+_desktop_results: dict[str, tuple[float, str | None, str | None]] = {}
 _SESSION_SECONDS = 12 * 60 * 60
 _SHORT_SECONDS = 5 * 60
 _SCOPE = "openid email profile https://www.googleapis.com/auth/drive.file"
@@ -48,20 +53,23 @@ def _config() -> tuple[str, str, str, str, str]:
     return client_id, secret, email.lower(), redirect, frontend.rstrip("/")
 
 
-def _credentials_path() -> Path:
+def _credentials_path(*, desktop: bool = False) -> Path:
+    if desktop:
+        raw = setting("MAC_GOOGLE_DESKTOP_TOKEN_FILE")
+        return Path(raw).expanduser().resolve() if raw else Path(__file__).resolve().parents[3] / "data" / "credentials" / "google-drive-desktop.json"
     raw = setting("MAC_GOOGLE_TOKEN_FILE")
     return Path(raw).expanduser().resolve() if raw else Path(__file__).resolve().parents[3] / "data" / "credentials" / "google-drive.json"
 
 
-def _saved_credentials() -> dict[str, str]:
-    path = _credentials_path()
+def _saved_credentials(*, desktop: bool = False) -> dict[str, str]:
+    path = _credentials_path(desktop=desktop)
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _save_credentials(values: dict[str, str]) -> None:
-    path = _credentials_path()
+def _save_credentials(values: dict[str, str], *, desktop: bool = False) -> None:
+    path = _credentials_path(desktop=desktop)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -76,7 +84,7 @@ def _save_credentials(values: dict[str, str]) -> None:
 
 
 def _prune(now: float) -> None:
-    for collection in (_pending, _tickets, _sessions):
+    for collection in (_pending, _tickets, _sessions, _desktop_pending, _desktop_results):
         for key, value in list(collection.items()):
             expiry = value if isinstance(value, float) else value[0]
             if expiry <= now:
@@ -113,6 +121,76 @@ def start() -> RedirectResponse:
     return response
 
 
+class DesktopPollInput(BaseModel):
+    poll_token: str
+
+
+def _require_internal_key(value: str | None) -> None:
+    expected = api_key()
+    if not expected or not value or not secrets.compare_digest(expected, value):
+        raise HTTPException(401, "Chave da API inválida.")
+
+
+def _desktop_client(request: Request) -> tuple[str, str, str, bool]:
+    client_id = (setting("MAC_GOOGLE_DESKTOP_CLIENT_ID") or "").strip()
+    client_secret = (setting("MAC_GOOGLE_DESKTOP_CLIENT_SECRET") or "").strip()
+    if bool(client_id) != bool(client_secret):
+        raise HTTPException(503, "Configure ID e secret do cliente OAuth Desktop app.")
+    if client_id and client_secret:
+        redirect = str(request.url_for("callback"))
+        parsed = urlparse(redirect)
+        if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise HTTPException(503, "O login desktop exige retorno na API local.")
+        return client_id, client_secret, redirect, True
+    web_id, web_secret, _, redirect, _ = _config()
+    requested_port = request.url.port or (443 if request.url.scheme == "https" else 80)
+    if urlparse(redirect).port != requested_port:
+        raise HTTPException(503, "Configure um cliente OAuth Desktop app para a porta variável do executável.")
+    return web_id, web_secret, redirect, False
+
+
+@router.post("/desktop/start")
+def desktop_start(request: Request, x_api_key: str | None = Header(default=None)) -> dict[str, str]:
+    _require_internal_key(x_api_key)
+    _, _, allowed_email, _, _ = _config()
+    client_id, client_secret, redirect, native = _desktop_client(request)
+    state = secrets.token_urlsafe(32)
+    poll_token = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+    with _lock:
+        _prune(time.time())
+        expiry = time.time() + _SHORT_SECONDS
+        _desktop_pending[state] = (expiry, poll_token, verifier, redirect, client_id, client_secret, native)
+        _desktop_results[poll_token] = (expiry, None, None)
+    saved = _saved_credentials(desktop=native)
+    prompt = "select_account" if saved.get("email") == allowed_email and saved.get("refresh_token") else "consent"
+    query = urlencode({
+        "client_id": client_id, "redirect_uri": redirect, "response_type": "code",
+        "scope": _SCOPE, "state": state, "access_type": "offline", "prompt": prompt,
+        "code_challenge": challenge, "code_challenge_method": "S256",
+    })
+    return {"authorization_url": f"https://accounts.google.com/o/oauth2/v2/auth?{query}", "poll_token": poll_token}
+
+
+@router.post("/desktop/poll")
+def desktop_poll(payload: DesktopPollInput, x_api_key: str | None = Header(default=None)) -> Response:
+    _require_internal_key(x_api_key)
+    with _lock:
+        result = _desktop_results.get(payload.poll_token)
+        if result and result[1] is not None:
+            _desktop_results.pop(payload.poll_token, None)
+    if not result or result[0] <= time.time():
+        raise HTTPException(410, "A tentativa de login expirou. Tente novamente.")
+    if result[2]:
+        with _lock:
+            _desktop_results.pop(payload.poll_token, None)
+        raise HTTPException(400, result[2])
+    if result[1] is None:
+        return Response(status_code=202)
+    return JSONResponse({"session_token": result[1]})
+
+
 def _google_identity(id_token: str, client_id: str) -> dict:
     from google.auth.transport.requests import Request as GoogleRequest
     from google.oauth2 import id_token as google_id_token
@@ -139,12 +217,80 @@ def _folder(access_token: str, existing_id: str | None) -> str:
     return response.json()["id"]
 
 
+def _desktop_callback(code: str, pending: tuple[float, str, str, str, str, str, bool]) -> HTMLResponse:
+    _, poll_token, verifier, redirect, client_id, client_secret, native = pending
+    _, _, allowed_email, _, _ = _config()
+    try:
+        response = httpx.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id, "client_secret": client_secret, "code": code,
+                "grant_type": "authorization_code", "redirect_uri": redirect,
+                "code_verifier": verifier,
+            }, timeout=20,
+        )
+        response.raise_for_status()
+        tokens = response.json()
+        identity = _google_identity(tokens["id_token"], client_id)
+        email = str(identity.get("email", "")).lower()
+        if identity.get("email_verified") is not True or email != allowed_email:
+            raise HTTPException(403, "Esta conta Google não está autorizada no MAC.")
+        saved = _saved_credentials(desktop=native)
+        refresh = tokens.get("refresh_token") or (
+            saved.get("refresh_token") if saved.get("email") == email else None
+        )
+        if not refresh:
+            raise HTTPException(503, "O Google não concedeu acesso offline ao Drive.")
+        if native:
+            # Outro cliente OAuth: manter apenas a referência, sem assumir acesso à pasta.
+            folder_hint = saved.get("folder_id_hint") or _saved_credentials().get("folder_id", "")
+            credentials = {"email": email, "refresh_token": refresh, "folder_id_hint": folder_hint}
+        else:
+            folder_id = _folder(tokens["access_token"], saved.get("folder_id") if saved.get("email") == email else None)
+            credentials = {"email": email, "refresh_token": refresh, "folder_id": folder_id}
+        _save_credentials(credentials, desktop=native)
+    except (HTTPException, httpx.HTTPError, KeyError, ValueError) as error:
+        message = error.detail if isinstance(error, HTTPException) else "Não foi possível concluir o login Google."
+        with _lock:
+            _desktop_results[poll_token] = (time.time() + _SHORT_SECONDS, None, message)
+        return HTMLResponse(
+            "<h1>Login não concluído</h1><p>Volte ao MAC e tente novamente.</p>",
+            status_code=400, headers={"Cache-Control": "no-store"},
+        )
+    session = secrets.token_urlsafe(32)
+    with _lock:
+        _sessions[session] = (time.time() + _SESSION_SECONDS, email)
+        _desktop_results[poll_token] = (time.time() + _SHORT_SECONDS, session, None)
+    return HTMLResponse(
+        "<h1>Login concluído</h1><p>Volte à janela do MAC. Esta aba pode ser fechada.</p>",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/callback")
 def callback(
     request: Request,
-    code: str = Query(),
+    code: str | None = Query(default=None),
     state: str = Query(),
-) -> RedirectResponse:
+    error: str | None = Query(default=None),
+) -> Response:
+    with _lock:
+        desktop_pending = _desktop_pending.pop(state, None)
+    if desktop_pending is not None:
+        if desktop_pending[0] <= time.time():
+            raise HTTPException(400, "Tentativa de login expirada.")
+        if error or not code:
+            with _lock:
+                _desktop_results[desktop_pending[1]] = (
+                    time.time() + _SHORT_SECONDS, None, "O login foi cancelado ou recusado no Google.",
+                )
+            return HTMLResponse(
+                "<h1>Login não concluído</h1><p>Volte ao MAC e tente novamente.</p>",
+                status_code=400, headers={"Cache-Control": "no-store"},
+            )
+        return _desktop_callback(code, desktop_pending)
+    if not code:
+        raise HTTPException(400, "O Google não enviou o código de autorização.")
     client_id, secret, allowed_email, redirect, frontend = _config()
     cookie = request.cookies.get("mac_oauth_state", "")
     with _lock:
