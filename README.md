@@ -39,9 +39,9 @@ navegador ou em uma janela desktop (WebView).
 - `infrastructure/`: imagens Docker; `docs/`: guias detalhados.
 
 As métricas são consultadas nas views do banco. Escritas passam pelas validações
-e transações da API. Adicionar à timeline salva imagens, máscaras e metadados
-localmente em `data/thermography`; registrar no banco continua enviando somente
-as medidas. Detalhes: [armazenamento térmico](docs/thermography.md#armazenamento-local).
+e transações da API. **Registrar Análise**, na última etapa térmica, salva as
+medidas no banco local e imagens, máscaras e temperaturas em `data/thermography`,
+disponibilizando a coleta na timeline. Detalhes: [registro unificado](docs/thermography.md#registro-unificado).
 
 ## Preparação do Ambiente de Desenvolvimento
 

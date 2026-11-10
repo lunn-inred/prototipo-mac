@@ -191,7 +191,7 @@ class ThermalWizardTests(unittest.TestCase):
                         self.assertFalse(any(line.startswith('- ') for line in lines))
                     self.assertFalse(any('Pixels quentes —' in metric.label for metric in app.metric))
                     self.assertNotIn('Resumo da coleta', [h.value for h in app.subheader])
-                    self.assertFalse(any(button.key == 'save_image_thermography' for button in app.button))
+                    self.assertFalse(any(button.key == 'register_thermography_analysis' for button in app.button))
                     from frontend.streamlit.components.thermography.wizard import centered_preview
                     with patch('frontend.streamlit.components.thermography.wizard.centered_preview', wraps=centered_preview) as preview:
                         app.run()
@@ -239,11 +239,16 @@ class ThermalWizardTests(unittest.TestCase):
             self.assertNotIn('Registro preparado', [h.value for h in app.subheader])
             self.assertEqual(app.get('progress')[0].proto.text, 'Etapa 7 de 7 — Resumo da coleta')
             labels = [button.label for button in app.button]
-            self.assertLess(labels.index('Adicionar à timeline'), labels.index('Registrar coleta no banco'))
-            self.assertLess(labels.index('Registrar coleta no banco'), labels.index('Voltar'))
+            self.assertNotIn('Adicionar à timeline', labels)
+            self.assertNotIn('Registrar coleta no banco', labels)
+            self.assertLess(labels.index('Registrar Análise'), labels.index('Voltar'))
             self.assertLess(labels.index('Voltar'), labels.index('Iniciar outra análise'))
             self.assertFalse(any(widget.key and widget.key.startswith('wizard_tmin_') for widget in app.number_input))
-            self.assertFalse(app.button(key='save_image_thermography').disabled)
+            self.assertFalse(app.button(key='register_thermography_analysis').disabled)
+            signature = next(iter(app.session_state['thermography_metrics']))
+            app.session_state['thermal_registered_analysis'] = {'signature': signature}
+            app.run()
+            self.assertTrue(app.button(key='register_thermography_analysis').disabled)
             for _ in range(6):
                 app.button(key='thermal_previous').click().run()
             self.assertEqual(app.number_input(key='thermography_mass').value, 75.0)

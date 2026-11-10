@@ -11,6 +11,14 @@ python -m unittest discover -v
 A suíte cobre regras de domínio, persistência simulada, importações e contratos
 HTTP. A integração real com LlamaParse só roda quando explicitamente habilitada.
 
+O registro térmico unificado é coberto por
+`backend.tests.test_analysis_registration` e `frontend.tests.test_combined_registration`:
+validam contagens persistidas, data, campos obrigatórios, uma única requisição,
+conflitos, rollback SQL e compensação de arquivos. Quando PostgreSQL local está
+habilitado, `test_combined_analysis_registration_and_file_failure_rollback` também
+exercita essas garantias com gravação real no banco descartável `mac_test` e
+imagens em diretório temporário, nunca na cópia persistente `mac_dev`.
+
 Para verificar especificamente o carregamento sob demanda e os caches:
 
 ```bash

@@ -8,9 +8,8 @@ from frontend.streamlit.presentation.thermography_data import (
     load_thermography_athletes,
 )
 
-from frontend.streamlit.components.thermography.timeline import confirm_timeline_date
 from frontend.streamlit.components.thermography.forms import render_forms
-from frontend.streamlit.components.thermography.registration import confirm_database_collection
+from frontend.streamlit.components.thermography.registration import confirm_analysis_registration
 from frontend.streamlit.components.thermography.wizard import render_wizard, navigate
 
 st.set_page_config(page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide")
@@ -247,38 +246,27 @@ if all(view_metrics.values()):
         else:
             st.success("Registro pronto para envio. Observações permanece opcional.")
 
-        timeline_action, database_action = st.columns(2)
-        if timeline_action.button(
-            "Adicionar à timeline",
-            disabled=prepared_player_id is None,
-            help="Salva imagens, máscaras e metadados localmente no servidor da API.",
-            key=f"add_thermography_timeline_{pair_signature}",
-            width="stretch",
-        ):
-            confirm_timeline_date(int(prepared_player_id), views, items, pair_signature,
-                                  athlete_name=athletes_by_id[int(prepared_player_id)]['nome'],
-                                  mass=prepared_mass, pain_score=prepared_pain_score,
-                                  observations=prepared_observations)
-
-        if database_action.button(
-            "Registrar coleta no banco",
+        already_registered = st.session_state.get('thermal_registered_analysis', {}).get('signature') == pair_signature
+        if already_registered:
+            st.info('Esta análise já foi registrada no banco local e na timeline. Inicie outra análise para um novo registro.')
+        if st.button(
+            "Registrar Análise",
             type="primary",
-            disabled=bool(missing_fields),
-            key="save_image_thermography",
+            disabled=bool(missing_fields) or already_registered,
+            key="register_thermography_analysis",
             width='stretch',
         ):
-            confirm_database_collection(
+            confirm_analysis_registration(
                 athlete_id=int(prepared_player_id),
                 mass=prepared_mass,
                 pain_score=prepared_pain_score,
-                front_right=view_metrics["front"]["right"]["hot_pixels"],
-                front_left=view_metrics["front"]["left"]["hot_pixels"],
-                back_right=view_metrics["back"]["right"]["hot_pixels"],
-                back_left=view_metrics["back"]["left"]["hot_pixels"],
+                athlete_name=athletes_by_id[int(prepared_player_id)]['nome'],
+                views=views,
+                items=items,
                 observations=prepared_observations,
                 pair_signature=pair_signature,
             )
-        st.caption("Adicionar à timeline salva imagens localmente. Registrar no banco envia somente as medidas.")
+        st.caption('O registro salva as medidas no banco local e as imagens, máscaras e temperaturas na timeline.')
 
     navigate(6)
 

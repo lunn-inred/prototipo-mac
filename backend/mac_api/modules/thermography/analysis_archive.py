@@ -130,11 +130,19 @@ def save_analysis(*, athlete_id, athlete_name, collected_at, views, mass=None, p
             metadata['views'][view] = info
         with (pending / 'metadados.json').open('w', encoding='utf-8') as file:
             json.dump(metadata, file, ensure_ascii=False, indent=2, allow_nan=False)
+        entry = _summary(pending, metadata)
         os.replace(pending, target)
     except Exception:
         shutil.rmtree(pending)
         raise
-    return _summary(target, metadata)
+    return entry
+
+
+def discard_created_analysis(entry):
+    """Compensa somente o diretório recém-criado pela operação de registro."""
+    path = _directory(entry['athlete_id'], entry['collected_at'], entry['id'])
+    _metadata(path)  # Conferir identificação antes de remover o diretório exato.
+    shutil.rmtree(path)
 
 
 def _metadata(directory):

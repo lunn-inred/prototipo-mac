@@ -65,6 +65,7 @@ Com a API em execução:
 | `POST /api/v1/thermography/legacy/validate-athletes` | Correlaciona nomes revisados | Não |
 | `POST /api/v1/thermography/legacy/import` | Registra o lote legado validado | Sim |
 | `POST /api/v1/thermography/analyses` | Salva imagens e dados da análise localmente | Não |
+| `POST /api/v1/thermography/analyses/register` | Registra medidas no banco local e arquivos da timeline em uma operação | Sim |
 | `GET /api/v1/thermography/analyses?athlete_id=` | Lista análises locais com miniatura | Não |
 | `GET /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Carrega imagens, máscaras e matrizes de uma análise | Não |
 
@@ -149,6 +150,25 @@ com UUID, data e miniatura. Listagem retorna resumos; detalhe retorna também
 nem alteram o banco. Data e UUID identificam arquivos, não coletas SQL.
 O arquivo local permite recuperar as imagens após encerrar a sessão;
 o histórico de medidas do banco continua sem imagens.
+
+### Registro único de análise
+
+O botão **Registrar Análise** usa `POST /api/v1/thermography/analyses/register`.
+O corpo tem o mesmo formato de `analyses`, mas `mass` e `pain_score` são
+obrigatórios; EVA zero é válido. `observations` é opcional. `athlete_name` deve
+ser enviado, mas o nome persistido é o do cadastro SQL. A data informada é usada
+no banco e no arquivo. As contagens não são recebidas como fonte de verdade:
+o backend calcula os pixels sobre máscaras e temperaturas de cada vista.
+
+Resposta `201`: `{ "analysis": <resumo da análise>, "inserted_measurements": 8 }`
+(9 medidas quando há observações), com imagens codificadas pelo transporte padrão.
+Retorna `409` para jogador/data já registrado, `422` para dados inválidos ou
+destino não local e `503` para falha de banco/arquivos. O registro usa uma
+transação SQL e compensação dos arquivos em falhas normais; não é uma transação
+distribuída tolerante a desligamento abrupto. Veja [registro unificado](thermography.md#registro-unificado).
+
+As rotas antigas permanecem disponíveis para compatibilidade. Não execute a
+rota antiga de medidas e a rota unificada para a mesma coleta: isso gera conflito.
 
 ## Indicadores e importações
 

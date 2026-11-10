@@ -30,6 +30,35 @@ class LocalPostgresTests(unittest.TestCase):
             # O teste da migração não deve alterar o estado das outras integrações.
             database.rollback()
 
+    def test_combined_analysis_registration_and_file_failure_rollback(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from uuid import uuid4
+        from backend.tests.test_analysis_archive import example_views
+        from backend.mac_api.core.wire import encode, decode
+        with TemporaryDirectory(prefix='mac-combined-postgres-') as directory, patch.dict(os.environ, MAC_ANALYSES_DIR=directory):
+            athlete = self.client.post('/api/v1/athletes', json={'name': 'Teste integrado '+uuid4().hex[:8]}, headers=self.headers)
+            self.assertEqual(athlete.status_code, 201, athlete.text)
+            athlete_id = athlete.json()['id_atleta']
+            payload = dict(athlete_id=athlete_id, athlete_name='Nome da interface', collected_at='2026-11-10',
+                           mass=75., pain_score=0, observations='Teste', views=encode(example_views()))
+            saved = self.client.post('/api/v1/thermography/analyses/register', json=payload, headers=self.headers)
+            self.assertEqual(saved.status_code, 201, saved.text)
+            self.assertEqual(decode(saved.json())['inserted_measurements'], 9)
+            history = self.client.get(f'/api/v1/thermography?athlete_id={athlete_id}', headers=self.headers).json()
+            self.assertEqual(len(history), 1)
+            entries = decode(self.client.get(f'/api/v1/thermography/analyses?athlete_id={athlete_id}', headers=self.headers).json())
+            self.assertEqual(len(entries), 1)
+            duplicate = self.client.post('/api/v1/thermography/analyses/register', json=payload, headers=self.headers)
+            self.assertEqual(duplicate.status_code, 409)
+            with patch('numpy.save', side_effect=OSError('Falha simulada')):
+                failed = self.client.post('/api/v1/thermography/analyses/register', json={**payload, 'collected_at': '2026-11-11'}, headers=self.headers)
+            self.assertEqual(failed.status_code, 503)
+            history = self.client.get(f'/api/v1/thermography?athlete_id={athlete_id}', headers=self.headers).json()
+            self.assertEqual(len(history), 1)
+            self.assertEqual(len(list(Path(directory).rglob('metadados.json'))), 1)
+
     def test_athlete_jump_and_thermal_transaction_roundtrip(self):
         from uuid import uuid4
         athlete = self.client.post('/api/v1/athletes', json={'name':f'Atleta integração {uuid4().hex[:8]}', 'position':'Meia'}, headers=self.headers)

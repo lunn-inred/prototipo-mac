@@ -29,8 +29,8 @@ somente uma etapa por vez:
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
    e os pixels quentes.
 7. Resumo da coleta: totais de frente/costas e tabela revisável no mesmo componente.
-   Adicionar à timeline fica à esquerda de registrar no banco; Voltar e iniciar
-   outra análise aparecem abaixo, sem repetir as prévias.
+   O botão **Registrar Análise** salva medidas no banco local e arquivos na timeline
+   com uma única confirmação de data. Voltar e iniciar outra análise aparecem abaixo.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
 anatômica, o GrabCut ainda não é executado: os limites são definidos sobre as
@@ -73,7 +73,7 @@ Na segmentação, a segunda prévia mostra a área completa das pernas sem fundo
 A filtragem de pixels quentes aparece
 somente na etapa de cálculo, após a definição da escala e do limiar.
 
-O botão **Adicionar à timeline** salva localmente as
+O botão **Registrar Análise** registra as medidas no PostgreSQL local e salva as
 imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
 pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
 real com o limiar salvo em cada vista da coleta, sem controles de ajuste na timeline.
@@ -298,14 +298,16 @@ carregamentos são armazenados em cache por até 60 segundos para cada par.
 
 A timeline apresenta os percentuais de área quente por perna, sem tabela
 regional. A comparação não modifica os arquivos salvos e não exige migração.
-Não é necessário registrar a coleta no banco para salvar na timeline, nem salvar
-na timeline para enviar somente medidas ao banco.
+Na etapa 7, as duas gravações fazem parte de uma única operação da API. As rotas
+antigas de gravação independente continuam disponíveis por compatibilidade,
+mas não são usadas pelo novo botão. Análises antigas continuam na timeline sem
+criar medidas SQL retroativamente.
 
 O armazenamento pertence à máquina do **backend**, não ao navegador. O frontend
 não grava diretamente em disco. Faça backup dessa pasta; ela está fora do Git
 e do contexto de build Docker por conter dados e imagens dos atletas.
 Arquivos antigos não são migrados da memória: análises ainda abertas precisam
-ser confirmadas novamente em **Adicionar à timeline**.
+ser confirmadas em **Registrar Análise** para persistir ambos os conjuntos de dados.
 
 No Compose, `./data/thermography` do computador é montada diretamente em
 `/app/data/thermography` do backend. Crie a pasta antes de iniciar:
@@ -334,10 +336,33 @@ Contratos de imagens, matrizes e rotação: [API térmica](api.md#contrato-de-te
 
 A consulta das análises locais e a comparação Basal × Atual ficam na página
 **Timeline térmica**, acessível pelo menu lateral. A etapa 7 da Termografia
-continua oferecendo **Adicionar à timeline**, com o mesmo armazenamento local.
+oferece **Registrar Análise**, mantendo o mesmo formato de armazenamento local.
 Na etapa 6, cada perna é apresentada com o percentual de pixels quentes e a
 área total (pixels), por perna e por região anatômica; a esquerda aparece primeiro.
 
 Na interface, a vista posterior é identificada como **Costas**. Chaves da API,
 colunas existentes (`Verso`, `SOMA_VERSO` etc.) e a pasta local `verso/` são
 preservadas para manter compatibilidade com o banco e as análises já salvas.
+
+## Registro unificado
+
+Jogador, massa e EVA Dor são obrigatórios; observações continuam opcionais. A data
+confirmada vale tanto para as medidas quanto para os arquivos da timeline. A API
+usa o nome do cadastro do atleta e recalcula os pixels quentes de cada perna com
+as matrizes térmicas e máscaras recebidas, na mesma precisão do arquivo salvo.
+São gravadas as medidas por perna, as somas de frente/costas, massa, EVA e, quando
+preenchidas, observações. Nenhuma coluna ou tabela adicional é criada.
+
+A operação aceita somente `MAC_DB_TARGET=local`. Se já existir coleta térmica
+para o jogador/data, retorna conflito sem criar outro arquivo. Após sucesso,
+o botão fica desabilitado no rascunho atual; **Iniciar outra análise** o libera
+para um novo registro. Os caches do histórico térmico e mural de jogadores são
+invalidados, e o jogador salvo fica selecionado na timeline.
+
+As medidas são inseridas em uma transação SQL, e os arquivos são preparados
+antes do commit. Uma falha de arquivos causa rollback SQL; uma falha normal de
+commit remove somente a pasta criada nessa tentativa, preservando análises
+anteriores. Não há transação distribuída entre PostgreSQL e filesystem: uma
+interrupção abrupta do processo/máquina ou falha na própria limpeza pode exigir
+conferência manual. Erros não são apresentados como sucesso; em caso de resposta
+incerta, consulte o registro antes de reenviar.

@@ -17,5 +17,13 @@ def list_local_analyses(athlete_id):
     return decode(_request('GET', '/api/v1/thermography/analyses', params={'athlete_id': int(athlete_id)}))
 
 
+def register_analysis(athlete_id, athlete_name, collected_at, views, *, mass, pain_score, observations=''):
+    return decode(_request('POST', '/api/v1/thermography/analyses/register', json={
+        'athlete_id': int(athlete_id), 'athlete_name': athlete_name,
+        'collected_at': collected_at.isoformat(), 'views': encode(views),
+        'mass': float(mass), 'pain_score': int(pain_score), 'observations': observations,
+    }))
+
+
 def load_local_analysis(entry):
     return decode(_request('GET', f'/api/v1/thermography/analyses/{entry["athlete_id"]}/{entry["collected_at"].isoformat()}/{entry["id"]}'))

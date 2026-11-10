@@ -53,10 +53,12 @@ As métricas de leitura vêm das views; cadastro de atletas continua na tabela
 validar existência, duplicatas e integridade. Nenhuma alteração de schema é
 necessária para esta reorganização.
 
-O rascunho permanece na sessão até a confirmação. Adicionar à timeline grava
+O rascunho permanece na sessão até a confirmação. **Registrar Análise** grava
 imagens, máscaras e matrizes no arquivo local do backend, permitindo reabrir a
 comparação em outra sessão. A API lista metadados/miniaturas e carrega matrizes
-sob demanda. O registro das medidas no banco continua uma operação separada.
+sob demanda. A mesma operação registra as medidas no banco local, com transação
+SQL e compensação de arquivos em falhas normais. As rotas independentes antigas
+continuam disponíveis apenas para compatibilidade.
 
 Contratos: [API HTTP](api.md). Validação: [testes](testing.md).
 

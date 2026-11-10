@@ -5,6 +5,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from backend.mac_api.core.wire import encode, decode
 from . import analysis_archive
+from .analysis_registration import register_analysis
+from psycopg2 import Error as DatabaseError
 
 router = APIRouter()
 
@@ -17,6 +19,21 @@ class LocalAnalysisInput(BaseModel):
     pain_score: int | None = Field(default=None, ge=0, le=10)
     observations: str = Field(default='', max_length=10000)
     views: dict[str, Any]
+
+
+class RegisteredAnalysisInput(LocalAnalysisInput):
+    mass: float = Field(gt=0, allow_inf_nan=False)
+    pain_score: int = Field(ge=0, le=10)
+
+
+@router.post('/thermography/analyses/register', status_code=201, tags=['Termografia'])
+def register(payload: RegisteredAnalysisInput):
+    try:
+        return encode(register_analysis(**decode(payload.model_dump())))
+    except (KeyError, TypeError) as error:
+        raise ValueError('Dados da análise inválidos.') from error
+    except (OSError, DatabaseError, RuntimeError) as error:
+        raise HTTPException(status_code=503, detail='Não foi possível concluir o registro da análise. Confira o banco local e as permissões de MAC_ANALYSES_DIR antes de tentar novamente.') from error
 
 
 @router.post('/thermography/analyses', status_code=201, tags=['Análises locais'])

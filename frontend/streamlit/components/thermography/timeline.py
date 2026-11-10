@@ -191,7 +191,7 @@ def render_timeline(athletes: list[dict[str, Any]]) -> None:
         st.session_state.pop('thermography_timeline_t0', None)
         st.session_state.pop('thermography_timeline_ti', None)
         st.caption(
-            "Analise um par de imagens e use “Adicionar à timeline”. "
+            "Analise um par de imagens e use “Registrar Análise”. "
             "As imagens e máscaras serão salvas no diretório local da API."
         )
         return
@@ -231,13 +231,7 @@ def render_timeline(athletes: list[dict[str, Any]]) -> None:
         _render_comparison(t0, ti)
 
 
-def add_to_timeline(
-    athlete_id: int,
-    collected_at: date | None,
-    views: dict[str, dict[str, Any]],
-    items: dict[str, dict[str, Any]],
-    *, athlete_name=None, mass=None, pain_score=None, observations="",
-) -> None:
+def views_for_storage(views, items):
     stored_views = {}
     for view_key, view in views.items():
         item = items[f"{view_key}:{view['signature']}"]
@@ -252,15 +246,24 @@ def add_to_timeline(
             "temperatures": analysis["temperatures"], "segmentation_masks": analysis["masks"],
             "part_settings": item.get("part_settings_v4", {}),
         }
-    entry = save_local_analysis(athlete_id, athlete_name or f"Atleta {athlete_id}",
-                               collected_at or current_sao_paulo_date(), stored_views,
-                               mass=mass, pain_score=pain_score, observations=observations)
+    return stored_views
+
+
+def remember_timeline_entry(entry):
+    athlete_id = entry['athlete_id']
     _load_saved_entry.clear()
     st.session_state['thermography_timeline_player'] = int(athlete_id)
     st.session_state["thermography_timeline_ti"] = entry["id"]
-    # Ao retornar após um novo registro, iniciar pela data mais recente disponível,
-    # mesmo quando a análise recém-enviada tiver uma data histórica.
+    # Ao retornar à timeline, iniciar pela data mais recente disponível.
     st.session_state.pop(f'thermography_timeline_date_{athlete_id}', None)
+
+
+def add_to_timeline(athlete_id, collected_at, views, items, *, athlete_name=None,
+                    mass=None, pain_score=None, observations="") -> None:
+    entry = save_local_analysis(athlete_id, athlete_name or f"Atleta {athlete_id}",
+                               collected_at or current_sao_paulo_date(), views_for_storage(views, items),
+                               mass=mass, pain_score=pain_score, observations=observations)
+    remember_timeline_entry(entry)
     st.session_state["thermography_timeline_message"] = "Análise salva localmente e adicionada à timeline."
 
 
