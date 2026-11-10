@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import httpx
+import os
 import streamlit as st
 import webbrowser
+from pathlib import Path
 
 from frontend.streamlit.api_client.config import api_base_url, api_key, setting
 
@@ -15,6 +17,32 @@ def enabled() -> bool:
 
 def session_token() -> str | None:
     return st.session_state.get("mac_google_session") if enabled() else None
+
+
+def _desktop_session_path() -> Path:
+    configured = setting("MAC_GOOGLE_DESKTOP_SESSION_FILE")
+    return (Path(configured).expanduser().resolve() if configured else
+            Path(__file__).resolve().parents[2] / "data" / "credentials" / "desktop-session.txt")
+
+
+def _save_desktop_session(token: str) -> None:
+    path = _desktop_session_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as target:
+            target.write(token)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _clear_desktop_session() -> None:
+    if setting("MAC_DESKTOP_MODE") == "1":
+        _desktop_session_path().unlink(missing_ok=True)
 
 
 def authenticated() -> bool:
@@ -35,6 +63,10 @@ def authenticated() -> bool:
         return True
     if response.status_code == 401:
         st.session_state.pop("mac_google_session", None)
+        try:
+            _clear_desktop_session()
+        except OSError:
+            pass
         st.session_state["mac_google_login_error"] = "Sua sessão expirou. Entre novamente."
     else:
         st.session_state["mac_google_login_error"] = "Não foi possível verificar a sessão. Tente novamente."
@@ -44,6 +76,13 @@ def authenticated() -> bool:
 def restore_session() -> None:
     if not enabled():
         return
+    if setting("MAC_DESKTOP_MODE") == "1" and not session_token():
+        try:
+            stored = _desktop_session_path().read_text(encoding="utf-8").strip()
+            if stored:
+                st.session_state["mac_google_session"] = stored
+        except (OSError, UnicodeError):
+            pass
     ticket = st.query_params.get("mac_login_ticket")
     if ticket:
         st.query_params.clear()
@@ -113,7 +152,12 @@ def _wait_for_desktop_login() -> None:
     st.session_state.pop("mac_desktop_authorization_url", None)
     if response.status_code == 200:
         try:
-            st.session_state["mac_google_session"] = response.json()["session_token"]
+            token = response.json()["session_token"]
+            st.session_state["mac_google_session"] = token
+            try:
+                _save_desktop_session(token)
+            except OSError:
+                st.session_state["mac_google_login_error"] = "Não foi possível lembrar o login neste computador."
         except (KeyError, ValueError):
             st.session_state["mac_google_login_error"] = "A resposta do login é inválida. Tente novamente."
         st.rerun()
@@ -140,4 +184,8 @@ def render_logout() -> None:
             except httpx.HTTPError:
                 pass
             st.session_state.pop("mac_google_session", None)
+            try:
+                _clear_desktop_session()
+            except OSError:
+                st.session_state["mac_google_login_error"] = "Não foi possível remover a sessão salva neste computador."
             st.rerun()

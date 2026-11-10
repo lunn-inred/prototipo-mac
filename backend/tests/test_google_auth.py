@@ -23,6 +23,7 @@ class GoogleAuthTests(unittest.TestCase):
             "MAC_GOOGLE_REDIRECT_URI": "http://localhost:8000/auth/google/callback",
             "MAC_GOOGLE_FRONTEND_URL": "http://localhost:8501",
             "MAC_GOOGLE_TOKEN_FILE": f"{self.directory.name}/google.json",
+            "MAC_GOOGLE_DESKTOP_REMEMBER_FILE": f"{self.directory.name}/desktop-remember.json",
             "MAC_API_KEY": "api-test-key",
         })
         self.config.start()
@@ -169,8 +170,22 @@ class GoogleAuthTests(unittest.TestCase):
         self.assertNotIn('mac_login_ticket', callback.text)
         completed = client.post('/auth/google/desktop/poll', json={'poll_token': data['poll_token']}, headers=headers)
         self.assertEqual(completed.status_code, 200)
-        self.assertTrue(google_auth.valid_session(completed.json()['session_token']))
+        token = completed.json()['session_token']
+        self.assertTrue(google_auth.valid_session(token))
+        google_auth._sessions.clear()  # Simula reinício da API sem perder o arquivo privado.
+        self.assertEqual(client.get('/auth/google/session', headers={**headers, 'Authorization': f'Bearer {token}'}).status_code, 200)
+        self.assertNotIn(token, google_auth._remember_path().read_text(encoding='utf-8'))
+        client.post('/auth/google/logout', headers={'Authorization': f'Bearer {token}'})
+        google_auth._sessions.clear()
+        self.assertFalse(google_auth.valid_session(token))
+        self.assertFalse(google_auth._remember_path().exists())
         self.assertEqual(client.post('/auth/google/desktop/poll', json={'poll_token': data['poll_token']}, headers=headers).status_code, 410)
+
+    def test_remembered_desktop_session_expires(self):
+        with patch.object(google_auth.time, 'time', return_value=1000):
+            google_auth._remember_session('temporary-token', 'mac@example.org', 1001)
+        with patch.object(google_auth.time, 'time', return_value=1002):
+            self.assertFalse(google_auth.valid_session('temporary-token'))
 
     def test_native_desktop_client_uses_dynamic_loopback_port(self):
         client = TestClient(create_app(), base_url="http://127.0.0.1:9123", follow_redirects=False)

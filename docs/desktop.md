@@ -20,6 +20,19 @@ após o consentimento, a API local entrega a sessão à WebView e as páginas do
 abrem na janela desktop. A aba do navegador exibe apenas a confirmação de que
 o login terminou e pode ser fechada.
 
+Após o primeiro login, o aplicativo desktop lembra a sessão neste computador
+por até 12 horas. Ao reabrir, a API confirma se ela ainda é válida antes de
+mostrar as páginas internas. **Sair da conta Google** remove a sessão lembrada;
+após a expiração, é preciso entrar novamente. Isso vale para o desktop; a
+sessão da interface aberta diretamente no navegador segue o comportamento do
+navegador.
+
+O desktop guarda o identificador da sessão em
+`data/credentials/desktop-session.txt` e a API guarda somente seu hash em
+`data/credentials/desktop-remember.json`. Esses arquivos ficam na pasta privada
+de credenciais do projeto (ou ao lado do executável no pacote) e não devem ser
+versionados ou copiados para outro computador.
+
 Em desenvolvimento com a API externa na porta 8000, o desktop reutiliza o
 cliente OAuth **Web application** e o retorno já configurado em
 `http://localhost:8000/auth/google/callback`. Para o executável, que inicia a

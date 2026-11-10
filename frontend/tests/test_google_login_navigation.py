@@ -3,6 +3,7 @@
 import os
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import streamlit as st
@@ -110,14 +111,36 @@ class GoogleLoginNavigationTests(unittest.TestCase):
             'mac_desktop_poll_token': 'test-poll',
             'mac_desktop_authorization_url': 'https://accounts.google.com',
         }
-        with patch.object(google_login.st, 'session_state', state), \
-             patch.object(google_login.httpx, 'post', return_value=CompletedResponse()), \
-             patch.object(google_login.st, 'rerun') as rerun:
-            google_login._wait_for_desktop_login.__wrapped__()
+        with TemporaryDirectory() as directory:
+            session_file = Path(directory) / 'session.txt'
+            with patch.dict(os.environ, MAC_GOOGLE_DESKTOP_SESSION_FILE=str(session_file)), \
+                 patch.object(google_login.st, 'session_state', state), \
+                 patch.object(google_login.httpx, 'post', return_value=CompletedResponse()), \
+                 patch.object(google_login.st, 'rerun') as rerun:
+                google_login._wait_for_desktop_login.__wrapped__()
+            self.assertEqual(session_file.read_text(encoding='utf-8'), 'desktop-session')
 
         self.assertEqual(state['mac_google_session'], 'desktop-session')
         self.assertNotIn('mac_desktop_poll_token', state)
         rerun.assert_called_once_with()
+
+    def test_desktop_restores_saved_session_and_removes_expired_one(self):
+        class ExpiredResponse:
+            status_code = 401
+
+        with TemporaryDirectory() as directory:
+            session_file = Path(directory) / 'session.txt'
+            session_file.write_text('saved-session', encoding='utf-8')
+            state = {}
+            with patch.dict(os.environ, MAC_GOOGLE_CLIENT_ID='test-client', MAC_DESKTOP_MODE='1',
+                            MAC_GOOGLE_DESKTOP_SESSION_FILE=str(session_file)), \
+                 patch.object(google_login.st, 'session_state', state), \
+                 patch.object(google_login.st, 'query_params', {}), \
+                 patch.object(google_login.httpx, 'get', return_value=ExpiredResponse()):
+                google_login.restore_session()
+                self.assertEqual(state['mac_google_session'], 'saved-session')
+                self.assertFalse(google_login.authenticated())
+            self.assertFalse(session_file.exists())
 
     def test_desktop_login_failure_returns_to_retry_button(self):
         class FailedResponse:

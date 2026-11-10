@@ -124,6 +124,14 @@ class DesktopLauncherTests(unittest.TestCase):
                         os.environ["MAC_GOOGLE_DESKTOP_TOKEN_FILE"],
                         str(Path(directory) / "data/credentials/google-drive-desktop.json"),
                     )
+                    self.assertEqual(
+                        os.environ["MAC_GOOGLE_DESKTOP_REMEMBER_FILE"],
+                        str(Path(directory) / "data/credentials/desktop-remember.json"),
+                    )
+                    self.assertEqual(
+                        os.environ["MAC_GOOGLE_DESKTOP_SESSION_FILE"],
+                        str(Path(directory) / "data/credentials/desktop-session.txt"),
+                    )
             finally:
                 os.chdir(original_directory)
 

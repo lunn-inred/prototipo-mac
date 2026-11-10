@@ -70,6 +70,10 @@ def _saved_credentials(*, desktop: bool = False) -> dict[str, str]:
 
 def _save_credentials(values: dict[str, str], *, desktop: bool = False) -> None:
     path = _credentials_path(desktop=desktop)
+    _write_private_json(path, values)
+
+
+def _write_private_json(path: Path, values: dict) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -81,6 +85,33 @@ def _save_credentials(values: dict[str, str], *, desktop: bool = False) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _remember_path() -> Path:
+    raw = setting("MAC_GOOGLE_DESKTOP_REMEMBER_FILE")
+    return Path(raw).expanduser().resolve() if raw else Path(__file__).resolve().parents[3] / "data" / "credentials" / "desktop-remember.json"
+
+
+def _remembered_session() -> dict:
+    try:
+        value = json.loads(_remember_path().read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _remember_session(token: str, email: str, expiry: float) -> None:
+    _write_private_json(_remember_path(), {
+        "token_hash": hashlib.sha256(token.encode("utf-8")).hexdigest(),
+        "email": email, "expires_at": expiry,
+    })
+
+
+def _forget_session(token: str) -> None:
+    remembered = _remembered_session()
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    if remembered.get("token_hash") and secrets.compare_digest(remembered["token_hash"], digest):
+        _remember_path().unlink(missing_ok=True)
 
 
 def _prune(now: float) -> None:
@@ -96,7 +127,22 @@ def valid_session(token: str | None) -> bool:
         return False
     with _lock:
         session = _sessions.get(token)
-        return bool(session and session[0] > time.time())
+        if session and session[0] > time.time():
+            return True
+        remembered = _remembered_session()
+        digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        expiry = remembered.get("expires_at", 0)
+        email = remembered.get("email", "")
+        expected_email = (setting("MAC_GOOGLE_ALLOWED_EMAIL") or "").strip().lower()
+        if (
+            isinstance(expiry, (int, float)) and expiry > time.time()
+            and email == expected_email and bool(expected_email)
+            and isinstance(remembered.get("token_hash"), str)
+            and secrets.compare_digest(remembered["token_hash"], digest)
+        ):
+            _sessions[token] = (expiry, email)
+            return True
+        return False
 
 
 @router.get("/start")
@@ -258,8 +304,14 @@ def _desktop_callback(code: str, pending: tuple[float, str, str, str, str, str, 
             status_code=400, headers={"Cache-Control": "no-store"},
         )
     session = secrets.token_urlsafe(32)
+    expiry = time.time() + _SESSION_SECONDS
+    try:
+        _remember_session(session, email, expiry)
+    except OSError:
+        # A sessão atual continua utilizável; o próximo início exigirá login.
+        pass
     with _lock:
-        _sessions[session] = (time.time() + _SESSION_SECONDS, email)
+        _sessions[session] = (expiry, email)
         _desktop_results[poll_token] = (time.time() + _SHORT_SECONDS, session, None)
     return HTMLResponse(
         "<h1>Login concluído</h1><p>Volte à janela do MAC. Esta aba pode ser fechada.</p>",
@@ -363,4 +415,6 @@ def logout(authorization: str | None = Header(default=None)) -> dict[str, str]:
     token = authorization.removeprefix("Bearer ") if authorization else ""
     with _lock:
         _sessions.pop(token, None)
+        if token:
+            _forget_session(token)
     return {"status": "ok"}

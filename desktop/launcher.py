@@ -71,6 +71,10 @@ def configure_runtime() -> Path:
             os.environ["MAC_GOOGLE_TOKEN_FILE"] = str(credentials / "google-drive.json")
         if not os.environ.get("MAC_GOOGLE_DESKTOP_TOKEN_FILE"):
             os.environ["MAC_GOOGLE_DESKTOP_TOKEN_FILE"] = str(credentials / "google-drive-desktop.json")
+        if not os.environ.get("MAC_GOOGLE_DESKTOP_REMEMBER_FILE"):
+            os.environ["MAC_GOOGLE_DESKTOP_REMEMBER_FILE"] = str(credentials / "desktop-remember.json")
+        if not os.environ.get("MAC_GOOGLE_DESKTOP_SESSION_FILE"):
+            os.environ["MAC_GOOGLE_DESKTOP_SESSION_FILE"] = str(credentials / "desktop-session.txt")
 
     bundled_tesseract = root / "tesseract" / (
         "tesseract.exe" if sys.platform == "win32" else "tesseract"
