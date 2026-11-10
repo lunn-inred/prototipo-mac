@@ -306,6 +306,8 @@ def legacy_import(payload: LegacyImport) -> dict[str, int]:
 
 
 def create_app() -> FastAPI:
+    from backend.mac_api.core.database import validate_database_target
+    validate_database_target()
     app = FastAPI(
         title="MAC Performance API",
         version="1.0.0",

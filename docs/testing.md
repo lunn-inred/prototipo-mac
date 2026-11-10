@@ -36,13 +36,16 @@ docker compose -p mac-tests --profile test up -d --wait postgres-test
 
 ```bash
 MAC_TEST_DB_ENABLED=1 \
-SUPABASE_DB_HOST=127.0.0.1 SUPABASE_DB_PORT=55432 \
-SUPABASE_DB_NAME=mac_test SUPABASE_DB_USER=mac_test \
-SUPABASE_DB_PASSWORD=mac_test_local SUPABASE_DB_SSLMODE=disable \
+MAC_ENVIRONMENT=test MAC_DB_TARGET=local \
+MAC_LOCAL_DB_HOST=127.0.0.1 MAC_LOCAL_DB_PORT=55432 \
+MAC_LOCAL_DB_NAME=mac_test MAC_LOCAL_DB_USER=mac_test \
+MAC_LOCAL_DB_PASSWORD=mac_test_local \
 python -m unittest backend.tests.test_local_postgres backend.tests.test_web_ui -v
 ```
 
 Esses testes recusam hosts externos e bancos diferentes de `mac_test`.
+Nunca aponte os testes destrutivos para o `mac_dev` persistente. A cópia de
+desenvolvimento é descrita em [Banco local](local-database.md).
 Para testar também os processos Docker com esse banco:
 
 ```bash

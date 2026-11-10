@@ -1,8 +1,17 @@
 services:
+  db-dev:
+    profiles: ["development"]
   backend:
     volumes: !override []
     ports: !override ["127.0.0.1:18000:8000"]
     environment:
+      MAC_ENVIRONMENT: test
+      MAC_DB_TARGET: local
+      MAC_LOCAL_DB_HOST: postgres-test
+      MAC_LOCAL_DB_PORT: "5432"
+      MAC_LOCAL_DB_NAME: mac_test
+      MAC_LOCAL_DB_USER: mac_test
+      MAC_LOCAL_DB_PASSWORD: mac_test_local
       SUPABASE_DB_HOST: postgres-test
       SUPABASE_DB_PORT: "5432"
       SUPABASE_DB_NAME: mac_test
@@ -10,7 +19,7 @@ services:
       SUPABASE_DB_PASSWORD: mac_test_local
       SUPABASE_DB_SSLMODE: disable
       MAC_ANALYSES_DIR: /tmp/mac_test_thermography
-    depends_on:
+    depends_on: !override
       postgres-test:
         condition: service_healthy
   frontend:

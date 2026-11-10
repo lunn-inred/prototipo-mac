@@ -11,7 +11,10 @@ de Secrets. Credenciais do banco e OCR pertencem ao ambiente da API.
 
 | Variável | Processo | Finalidade |
 |---|---|---|
-| `SUPABASE_DB_*` | API | Conexão PostgreSQL com SSL |
+| `MAC_ENVIRONMENT` | API | `development` (padrão), `test` ou `production` |
+| `MAC_DB_TARGET` | API | `local` (padrão); `supabase` somente em produção explícita |
+| `MAC_LOCAL_DB_*` | API/Compose | PostgreSQL local persistente; padrão `127.0.0.1:55433/mac_dev` |
+| `SUPABASE_DB_*` | Exportação/API de produção | Origem remota read-only para cópia; ignorada pela aplicação em modo local |
 | `LLAMA_CLOUD_API_KEY` | API | Extração principal de documentos legados |
 | `MAC_API_KEY` | Ambos | Exige/envia o cabeçalho `X-API-Key`; se vazio, autenticação fica desativada para desenvolvimento |
 | `MAC_API_CORS_ORIGINS` | API | Origens permitidas, separadas por vírgula |
@@ -28,11 +31,21 @@ projeto. Você pode copiá-lo do modelo:
 cp .env.example .env
 ```
 
-Ou criar `.env` e copiar todo o modelo semipronto abaixo. Preencha somente os
-campos vazios do Supabase. A chave do Llama Cloud é opcional:
+Ou criar `.env` e copiar o modelo abaixo. O banco local já está preenchido;
+campos remotos são necessários somente para exportar uma nova cópia da nuvem.
+A chave do Llama Cloud é opcional. Não sobrescreva um `.env` já configurado:
 
 ```env
-# PostgreSQL/Supabase
+# Desenvolvimento: não acessa o Supabase
+MAC_ENVIRONMENT=development
+MAC_DB_TARGET=local
+MAC_LOCAL_DB_HOST=127.0.0.1
+MAC_LOCAL_DB_PORT=55433
+MAC_LOCAL_DB_NAME=mac_dev
+MAC_LOCAL_DB_USER=mac_dev
+MAC_LOCAL_DB_PASSWORD=mac_dev_local
+
+# Origem remota apenas para exportação explícita
 SUPABASE_DB_HOST=
 SUPABASE_DB_PORT=5432
 SUPABASE_DB_NAME=postgres
@@ -56,9 +69,14 @@ MAC_ANALYSES_DIR=./data/thermography
 
 O inicializador repassa automaticamente a URL e a chave da API local para o
 Streamlit. Não é necessário criar ou repetir configurações em outro arquivo.
-Os campos `SUPABASE_DB_HOST`, `SUPABASE_DB_USER` e `SUPABASE_DB_PASSWORD` são
-obrigatórios para acessar os dados; os valores reais não devem ser enviados ao
-Git.
+Inicie o PostgreSQL com `docker compose up -d --wait db-dev`. Na primeira
+instalação, restaure a cópia seguindo [Banco local](local-database.md). O Compose
+ajusta o host da API para `db-dev` e a porta para `5432` automaticamente. As
+credenciais reais da origem não devem ser enviadas ao Git.
+
+A configuração antiga contendo apenas `SUPABASE_DB_*` não ativa acesso remoto:
+os padrões locais também se aplicam a ela. Para produção remota intencional,
+configure **ambos** `MAC_ENVIRONMENT=production` e `MAC_DB_TARGET=supabase`.
 
 
 ## Segurança

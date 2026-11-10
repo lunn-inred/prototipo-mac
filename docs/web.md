@@ -21,6 +21,9 @@ para a execução local ou desktop.
 
 ## Execução separada da API e do Streamlit
 
+O banco padrão é o PostgreSQL local. Inicie-o com
+`docker compose up -d --wait db-dev` e confira a [restauração inicial](local-database.md).
+
 Inicie cada processo em um terminal, a partir da raiz do projeto:
 
 ```bash
@@ -58,6 +61,12 @@ Abra `http://localhost:8501`; API e Swagger ficam em `http://127.0.0.1:8000/docs
 O frontend usa `http://backend:8000` na rede interna. Somente o backend recebe
 as credenciais do banco. Tesseract e seus idiomas são instalados na imagem do
 backend. Os containers executam com usuário sem privilégios.
+
+O Compose também inicia `db-dev` (PostgreSQL 17), com volume persistente e porta
+`127.0.0.1:55433`. O backend usa `db-dev:5432`. O início dos serviços não importa
+nenhum dump automaticamente. `docker compose down` preserva a cópia do banco;
+não use `down -v` se quiser manter seus dados. Para produção remota, é necessário
+configurar explicitamente `MAC_ENVIRONMENT=production` e `MAC_DB_TARGET=supabase`.
 
 ```bash
 docker compose down

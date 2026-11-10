@@ -35,10 +35,15 @@ No Windows e no macOS essas bibliotecas Linux não são necessárias.
 ## 2. Configure o `.env`
 
 Use o mesmo `.env` da raiz, compartilhado com a API. Copie `.env.example` e
-preencha as credenciais do banco. O [guia de configuração](configuration.md)
+configure o banco local. O [guia de configuração](configuration.md)
 contém o modelo semipronto para copiar e colar. Não crie outro `.env` para o desktop.
 
 ## 3. Execute em desenvolvimento
+
+Primeiro, inicie o PostgreSQL persistente: `docker compose up -d --wait db-dev`.
+Ele deve estar restaurado conforme o [guia de banco local](local-database.md).
+O executável inicia a API, mas não inicia o Docker nem restaura o banco por conta
+própria. No modo local, o PostgreSQL precisa estar disponível também para o binário.
 
 No primeiro terminal, inicie a API:
 

@@ -18,6 +18,7 @@
 │   │   └── .streamlit/
 │   └── tests/
 ├── backend/
+│   ├── tools/                  # exportação read-only, restauração e verificação local
 │   ├── mac_api/
 │   │   ├── main.py e schemas.py
 │   │   ├── core/               # configuração, conexão e transporte
@@ -36,7 +37,10 @@
 └── README.md
 ```
 
-Fluxo web: navegador → Streamlit → HTTP → FastAPI → serviços/repositórios → Supabase.
+Fluxo web: navegador → Streamlit → HTTP → FastAPI → serviços/repositórios → PostgreSQL.
+Em desenvolvimento o destino padrão é o banco local `mac_dev`; Supabase só é
+destino da aplicação em produção explicitamente configurada. A exportação remota
+é uma ferramenta read-only separada. Veja [Banco local](local-database.md).
 No executável, a mesma API é iniciada localmente e consumida pela WebView.
 
 O frontend controla widgets, desenho, formulários e estado temporário. O backend

@@ -85,8 +85,9 @@ seleção de jogadores cadastrados, usa a posição do cadastro e bloqueia valid
 e envio enquanto houver linhas sem associação única. A importação GPS nunca cria
 jogadores automaticamente.
 
-As operações de escrita reutilizam as credenciais `SUPABASE_DB_*` já configuradas
-para as consultas do painel. A separação continua existindo nas conexões: o
+As operações de escrita utilizam o destino configurado da API (`MAC_LOCAL_DB_*`
+em desenvolvimento; `SUPABASE_DB_*` apenas em produção explícita), assim como
+as consultas do painel. A separação continua existindo nas conexões: o
 painel abre transações somente leitura, enquanto a confirmação da importação abre
 uma transação de escrita. O usuário configurado precisa de `USAGE` no schema
 `public`, `SELECT` e `INSERT` em `atleta`, `partida`, `grupo_medida`, `medida` e
