@@ -6,6 +6,7 @@ import streamlit as st
 from frontend.streamlit.api_client.contracts import (athlete_display_name, athlete_selection_label)
 from frontend.streamlit.api_client.contracts import (EXTRACTION_VERSION, csv_bytes, flatten)
 from frontend.streamlit.presentation.gps_data import load_gps_records
+from frontend.streamlit.components.import_reset import upload_key, render_clear_import, show_clear_message
 from frontend.streamlit.api_client.contracts import (GPS_VIEW_COLUMNS, GPS_EDITOR_COLUMNS, GpsImportPreview, GpsImportResult, extracted_rows_to_gps_view, gps_view_preview_rows, payload_signature)
 from frontend.streamlit.api_client.service_gateway import (
     extract_uploaded_pdfs,
@@ -67,6 +68,7 @@ def render_gps_import() -> None:
     """Renderiza o fluxo de extração e revisão sem persistir no banco."""
     with st.container(border=True):
         st.subheader("Adicionar relatórios GPS")
+        show_clear_message('gps')
         st.caption(
             "Envie um ou vários PDFs. As duas últimas páginas de cada arquivo "
             "serão analisadas sem gravar dados no banco nesta etapa."
@@ -95,7 +97,7 @@ def render_gps_import() -> None:
             type=["pdf"],
             accept_multiple_files=True,
             help="Você pode selecionar vários PDFs de uma vez.",
-            key="gps_pdf_uploads",
+            key=upload_key('gps', 'gps_pdf_uploads'),
         )
 
         if st.button(
@@ -123,6 +125,8 @@ def render_gps_import() -> None:
 
         documents = st.session_state.get("gps_extraction_documents")
         if not documents:
+            if documents is not None:
+                render_clear_import('gps')
             return
 
         if any(
@@ -135,6 +139,7 @@ def render_gps_import() -> None:
                 "e clique em Extrair dados novamente antes de validar ou enviar. "
                 "Os dados anteriores permanecem preservados até a nova extração."
             )
+            render_clear_import('gps')
             return
 
         original_rows = flatten(documents)
@@ -150,6 +155,7 @@ def render_gps_import() -> None:
                 "Nenhuma linha foi reconhecida. Verifique se as tabelas estão "
                 "nas duas últimas páginas e se o PDF possui boa resolução."
             )
+            render_clear_import('gps')
             return
 
         st.markdown("#### Conferência dos dados")
@@ -266,10 +272,14 @@ def render_gps_import() -> None:
                 "Os dados foram alterados. Valide novamente antes de confirmar o envio."
             )
 
-        if st.button(
+        clear_column, validate_column = st.columns(2)
+        with clear_column:
+            render_clear_import('gps')
+        if validate_column.button(
             "Validar para envio",
             key=f"gps_validate_{revision}",
             disabled=has_unselected_athletes or not athletes,
+            width="stretch",
         ):
             with st.spinner("Conferindo cadastros e duplicatas no banco..."):
                 previews = preview_gps_payload(import_payload)

@@ -468,21 +468,25 @@ if order_by == "Risco":
 else:
     display_athletes.sort(key=lambda athlete: alphabetical_key(player_name(athlete)))
 
-if not display_athletes:
-    st.info("Nenhum jogador corresponde aos filtros selecionados.")
-    st.stop()
-
-for row_start in range(0, len(display_athletes), 3):
-    columns = st.columns(3, gap="small")
-    for column, athlete in zip(columns, display_athletes[row_start:row_start + 3]):
-        athlete_records = measurements_by_athlete.get(
-            int(athlete["id_atleta"]), {}
-        )
-        with column:
-            st.markdown(
-                player_card(athlete, athlete_records, start_date, end_date),
-                unsafe_allow_html=True,
+for title, inactive in (("Ativos", False), ("Inativos", True)):
+    st.subheader(title)
+    group = [athlete for athlete in display_athletes
+             if (athlete.get("status") == "inativo") == inactive]
+    if not group:
+        state = "inativo" if inactive else "ativo"
+        st.info(f"Nenhum jogador {state} corresponde aos filtros selecionados.")
+        continue
+    for row_start in range(0, len(group), 3):
+        columns = st.columns(3, gap="small")
+        for column, athlete in zip(columns, group[row_start:row_start + 3]):
+            athlete_records = measurements_by_athlete.get(
+                int(athlete["id_atleta"]), {}
             )
+            with column:
+                st.markdown(
+                    player_card(athlete, athlete_records, start_date, end_date),
+                    unsafe_allow_html=True,
+                )
 
 if not any(
     records.get("eva") for records in measurements_by_athlete.values()

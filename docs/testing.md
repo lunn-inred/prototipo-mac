@@ -11,6 +11,19 @@ python -m unittest discover -v
 A suíte cobre regras de domínio, persistência simulada, importações e contratos
 HTTP. A integração real com LlamaParse só roda quando explicitamente habilitada.
 
+Para verificar especificamente o carregamento sob demanda e os caches:
+
+```bash
+python -m unittest frontend.tests.test_loading_performance -v
+```
+
+Esses testes usam AppTest, a API via TestClient e repositórios simulados, bloqueando
+conexões PostgreSQL reais. Verificam que painéis fechados não buscam históricos
+nem executam estatísticas, que Editar/Excluir compartilham o cache de coletas,
+que gravações bem-sucedidas invalidam referências e que credenciais diferentes
+não compartilham o mesmo cache. Também verificam o reaproveitamento do cliente
+HTTP. As contagens de chamadas não representam medições de latência do Supabase.
+
 ## Testes locais com PostgreSQL
 
 A fixture `backend/tests/fixtures/schema.sql` reproduz o modelo necessário aos

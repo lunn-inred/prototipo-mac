@@ -12,6 +12,7 @@ import streamlit as st
 
 from frontend.streamlit.api_client.contracts import (athlete_selection_label)
 from frontend.streamlit.presentation.jump_data import load_jump_records
+from frontend.streamlit.components.import_reset import upload_key, render_clear_import, show_clear_message
 from frontend.streamlit.api_client.service_gateway import (
     create_jump,
     delete_jump,
@@ -77,6 +78,7 @@ def _collection_label(record: dict[str, Any]) -> str:
 
 
 def _render_import(athletes: list[dict[str, Any]]) -> None:
+    show_clear_message('jump')
     st.caption(
         "Envie uma ou mais planilhas XLSX. A extração e a conferência não alteram "
         "o banco; a gravação exige uma confirmação separada."
@@ -87,7 +89,7 @@ def _render_import(athletes: list[dict[str, Any]]) -> None:
     }
     uploads = st.file_uploader(
         "Planilhas de salto", type=["xlsx"], accept_multiple_files=True,
-        key="jump_xlsx_uploads",
+        key=upload_key('jump', 'jump_xlsx_uploads'),
     )
     if st.button("Extrair planilhas", type="primary", disabled=not uploads):
         try:
@@ -106,6 +108,8 @@ def _render_import(athletes: list[dict[str, Any]]) -> None:
 
     documents = st.session_state.get("jump_import_documents")
     if not documents:
+        if documents is not None:
+            render_clear_import('jump')
         return
     rows = [row for document in documents for row in document.get("linhas", [])]
     ignored = [
@@ -123,6 +127,7 @@ def _render_import(athletes: list[dict[str, Any]]) -> None:
         st.caption("Abas sem data ignoradas: " + " | ".join(ignored))
     if not rows:
         st.warning("Nenhuma coleta válida foi encontrada nas planilhas.")
+        render_clear_import('jump')
         return
 
     source_errors = {
@@ -189,9 +194,13 @@ def _render_import(athletes: list[dict[str, Any]]) -> None:
         validation = None
         st.session_state.pop("jump_import_validation", None)
         st.info("Os dados foram alterados. Valide novamente antes do envio.")
-    if st.button(
+    clear_column, validate_column = st.columns(2)
+    with clear_column:
+        render_clear_import('jump')
+    if validate_column.button(
         "Validar para envio",
         disabled=not athletes or missing_athletes > 0,
+        width="stretch",
     ):
         try:
             previews = preview_jump_payload(payload)
@@ -233,7 +242,6 @@ def render_jump_management() -> None:
         st.success(message)
     try:
         athletes = load_athletes()
-        collections = load_jump_collections()
     except Exception as error:
         st.error(f"Não foi possível carregar o gerenciamento de saltos: {error}")
         return
@@ -247,8 +255,16 @@ def render_jump_management() -> None:
     with st.container(border=True):
         st.subheader("Gerenciar coletas de salto")
         create_tab, edit_tab, delete_tab, import_tab = st.tabs(
-            ["Cadastrar", "Editar", "Excluir", "Importar planilha"]
+            ["Cadastrar", "Editar", "Excluir", "Importar planilha"],
+            key="jump_management_tab", on_change="rerun",
         )
+        collections = []
+        if edit_tab.open or delete_tab.open:
+            try:
+                collections = load_jump_collections()
+            except Exception as error:
+                st.error(f"Não foi possível carregar as coletas de salto: {error}")
+                return
         with create_tab:
             with st.form("jump_create_form", clear_on_submit=True):
                 header = st.columns(2)

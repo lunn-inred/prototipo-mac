@@ -77,7 +77,7 @@ class ThermalWizardTests(unittest.TestCase):
             return result
         root = Path(__file__).resolve().parents[2]
         with patch.object(data_repository, 'list_athletes', return_value=[dict(id_atleta=1, nome='Teste', apelido=None)]), \
-             patch('frontend.streamlit.api_client.service_gateway.httpx.request', side_effect=http), \
+             patch('frontend.streamlit.api_client.service_gateway._http_request', side_effect=http), \
              patch('streamlit.file_uploader', side_effect=upload), \
              patch('frontend.streamlit.components.thermography.wizard.dialog_canvas_limits', return_value=(1200, 650)), \
              patch('frontend.streamlit.components.thermography.editor.dialog_canvas_limits', return_value=(720, 650)), \

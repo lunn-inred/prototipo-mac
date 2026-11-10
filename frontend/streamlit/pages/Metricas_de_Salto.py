@@ -150,7 +150,8 @@ def add_athlete_period_deviation(
 st.title("Monitoramento Salto")
 render_jump_management()
 
-with st.expander("Analisar dados de salto", expanded=False):
+@st.fragment
+def render_jump_analysis() -> None:
 
     try:
         all_records = load_jump_records()
@@ -516,3 +517,12 @@ with st.expander("Analisar dados de salto", expanded=False):
             "Análise": st.column_config.TextColumn(width="large"),
         },
     )
+
+
+analysis_panel = st.expander(
+    "Analisar dados de salto", expanded=False,
+    key="jump_analysis_open", on_change="rerun",
+)
+with analysis_panel:
+    if analysis_panel.open:
+        render_jump_analysis()

@@ -2,9 +2,12 @@
 from __future__ import annotations
 import base64
 import io
+import atexit
+from functools import lru_cache
 from datetime import date, datetime
 from typing import Any
 import httpx
+import streamlit as st
 from PIL import Image
 from frontend.streamlit.api_client.config import api_base_url, api_key, setting
 from frontend.streamlit.api_client.contracts import (
@@ -18,13 +21,24 @@ class ApiClientError(ValueError):
 def remote_api_enabled() -> bool:
     return True
 
+@lru_cache(maxsize=1)
+def _http_client() -> httpx.Client:
+    """Reutiliza conexões, sem armazenar a chave da API nos headers do cliente."""
+    client = httpx.Client()
+    atexit.register(client.close)
+    return client
+
+def _http_request(method: str, url: str, **kwargs: Any) -> httpx.Response:
+    return _http_client().request(method, url, **kwargs)
+
 def _request(method: str, path: str, **kwargs: Any) -> Any:
     headers = dict(kwargs.pop('headers', {}))
-    if api_key():
-        headers['X-API-Key'] = str(api_key())
+    access_key = api_key()
+    if access_key:
+        headers['X-API-Key'] = str(access_key)
     timeout = float(setting('MAC_API_TIMEOUT_SECONDS', '300') or 300)
     try:
-        response = httpx.request(method, f'{api_base_url()}{path}', headers=headers, timeout=timeout, **kwargs)
+        response = _http_request(method, f'{api_base_url()}{path}', headers=headers, timeout=timeout, **kwargs)
         response.raise_for_status()
     except httpx.HTTPStatusError as error:
         try:
@@ -38,6 +52,17 @@ def _request(method: str, path: str, **kwargs: Any) -> Any:
     except httpx.HTTPError as error:
         raise ApiClientError('Não foi possível comunicar com a API.') from error
     return None if response.status_code == 204 else response.json()
+
+@st.cache_data(ttl=60, max_entries=64, show_spinner=False)
+def _reference_get(base_url: str, access_key: str | None, path: str) -> Any:
+    # URL e credencial participam da chave para não compartilhar dados entre APIs/usuários.
+    return _request('GET', path)
+
+def _write_request(method: str, path: str, **kwargs: Any) -> Any:
+    result = _request(method, path, **kwargs)
+    # Apenas após sucesso; uma falha não descarta os dados de leitura já válidos.
+    _reference_get.clear()
+    return result
 
 def _json_value(value: Any) -> Any:
     if isinstance(value, (date, datetime)):
@@ -64,7 +89,7 @@ def load_player_dashboard() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]
     return (_parse_date_fields(data['athletes'], 'data_nascimento'), _parse_date_fields(data['measurements'], 'data'))
 
 def load_athletes() -> list[dict[str, Any]]:
-    records = _request('GET', '/api/v1/athletes')
+    records = _reference_get(api_base_url(), api_key(), '/api/v1/athletes')
     return _parse_date_fields(records, 'data_nascimento')
 
 def load_jump_records() -> list[dict[str, Any]]:
@@ -72,17 +97,17 @@ def load_jump_records() -> list[dict[str, Any]]:
     return _parse_date_fields(records, 'data_coleta')
 
 def load_jump_collections() -> list[dict[str, Any]]:
-    records = _request('GET', '/api/v1/jumps/collections')
+    records = _reference_get(api_base_url(), api_key(), '/api/v1/jumps/collections')
     return _parse_date_fields(records, 'data_coleta')
 
 def create_jump(values: dict[str, Any]) -> int:
-    return int(_request('POST', '/api/v1/jumps/collections', json=_json_value(values))['inserted_measurements'])
+    return int(_write_request('POST', '/api/v1/jumps/collections', json=_json_value(values))['inserted_measurements'])
 
 def update_jump(original_athlete_id: int, original_collected_at: date, values: dict[str, Any]) -> int:
-    return int(_request('PUT', f'/api/v1/jumps/collections/{original_athlete_id}/{original_collected_at.isoformat()}', json=_json_value(values))['inserted_measurements'])
+    return int(_write_request('PUT', f'/api/v1/jumps/collections/{original_athlete_id}/{original_collected_at.isoformat()}', json=_json_value(values))['inserted_measurements'])
 
 def delete_jump(athlete_id: int, collected_at: date) -> int:
-    return int(_request('DELETE', f'/api/v1/jumps/collections/{athlete_id}/{collected_at.isoformat()}')['deleted_measurements'])
+    return int(_write_request('DELETE', f'/api/v1/jumps/collections/{athlete_id}/{collected_at.isoformat()}')['deleted_measurements'])
 
 def extract_jump_workbooks(files: list[tuple[str, bytes]], athletes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     multipart = [('files', (name, content, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) for (name, content) in files]
@@ -96,7 +121,7 @@ def preview_jump_payload(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return _parse_date_fields(response, 'data_coleta')
 
 def import_jump_payload(rows: list[dict[str, Any]]) -> dict[str, int]:
-    return _request('POST', '/api/v1/jumps/import', json={'rows': _json_value(rows)})
+    return _write_request('POST', '/api/v1/jumps/import', json={'rows': _json_value(rows)})
 
 def load_gps_records() -> list[dict[str, Any]]:
     records = _request('GET', '/api/v1/gps')
@@ -108,16 +133,16 @@ def load_thermography_history(athlete_id: int | None=None) -> list[dict[str, Any
     
 
 def create_athlete(**values: Any) -> int:
-    return int(_request('POST', '/api/v1/athletes', json=_json_value(values))['id_atleta'])
+    return int(_write_request('POST', '/api/v1/athletes', json=_json_value(values))['id_atleta'])
 
 def update_athlete(athlete_id: int, **values: Any) -> None:
-    _request('PUT', f'/api/v1/athletes/{athlete_id}', json=_json_value(values))
+    _write_request('PUT', f'/api/v1/athletes/{athlete_id}', json=_json_value(values))
 
 def deactivate_athlete(athlete_id: int) -> None:
-    _request('PATCH', f'/api/v1/athletes/{athlete_id}/deactivate')
+    _write_request('PATCH', f'/api/v1/athletes/{athlete_id}/deactivate')
 
 def reactivate_athlete(athlete_id: int) -> None:
-    _request('PATCH', f'/api/v1/athletes/{athlete_id}/reactivate')
+    _write_request('PATCH', f'/api/v1/athletes/{athlete_id}/reactivate')
 
 
 def extract_uploaded_pdfs(files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:

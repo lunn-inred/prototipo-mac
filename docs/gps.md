@@ -94,7 +94,12 @@ uma transação de escrita. O usuário configurado precisa de `USAGE` no schema
 
 A página `frontend/streamlit/pages/Monitoramento_GPS.py` utiliza dados reais da view
 `public.vw_medidas_gps`, carregados por `gps_data.py` e mantidos em cache por
-cinco minutos. O seletor dos gráficos disponibiliza todas as medidas numéricas
+cinco minutos. O histórico e os cálculos só são carregados ao abrir **Analisar
+dados de GPS**; os filtros de análise não reexecutam o importador. O cadastro de
+jogadores usado no editor tem cache de 60 segundos. Detalhes em
+[carregamento e cache](architecture.md#carregamento-e-cache).
+
+O seletor dos gráficos disponibiliza todas as medidas numéricas
 presentes na view:
 
 - `accel_de_cel_efforts`;
@@ -128,3 +133,8 @@ métricas não estão disponíveis na view no formato exigido pelo protótipo.
 
 Os filtros, indicadores e gráficos dos registros do banco ficam na seção
 **Analisar dados de GPS**, recolhida por padrão.
+
+Após uma extração, **Limpar dados extraídos** abre uma confirmação. Confirmar
+descarta os arquivos selecionados, tabelas, edições, validação e resultado do
+componente, permitindo uma nova importação. Cancelar preserva tudo. A limpeza
+não exclui nem desfaz registros do banco, mesmo se o lote já tiver sido enviado.

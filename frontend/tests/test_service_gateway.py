@@ -10,7 +10,7 @@ import frontend.streamlit.api_client.service_gateway as service_gateway
 class ServiceGatewayTests(unittest.TestCase):
     @patch("frontend.streamlit.api_client.service_gateway.api_key", return_value="chave")
     @patch("frontend.streamlit.api_client.service_gateway.api_base_url", return_value="https://api.example")
-    @patch("frontend.streamlit.api_client.service_gateway.httpx.request")
+    @patch("frontend.streamlit.api_client.service_gateway._http_request")
     def test_request_adds_authentication_and_surfaces_api_detail(self, request, _url, _key):
         response = httpx.Response(
             409,
