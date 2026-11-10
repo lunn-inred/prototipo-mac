@@ -182,10 +182,31 @@ def restore(directory: Path, *, confirmed: bool) -> None:
     verify(directory)
 
 
+def copy_cloud_to_empty_local(*, confirmed: bool) -> Path:
+    """Exporta a origem read-only e restaura apenas em mac_dev vazio."""
+    if not confirmed:
+        raise RuntimeError('Informe --confirm para copiar a nuvem para mac_dev vazio.')
+    config = local_config()
+    with psycopg2.connect(**config) as connection:
+        connection.set_session(readonly=True)
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace")
+            relations = cursor.fetchone()[0]
+            cursor.execute("SELECT count(*) FROM pg_proc WHERE pronamespace='public'::regnamespace")
+            functions = cursor.fetchone()[0]
+            if relations or functions:
+                raise RuntimeError('mac_dev já contém objetos. Nenhuma tabela foi apagada ou sobrescrita.')
+    directory = export_cloud()
+    restore(directory, confirmed=True)
+    return directory
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('export', help='Snapshot read-only do schema public da nuvem.')
+    copy_command = commands.add_parser('copy', help='Exporta a nuvem read-only e restaura em mac_dev vazio.')
+    copy_command.add_argument('--confirm', action='store_true')
     for name in ('restore', 'verify'):
         command = commands.add_parser(name)
         command.add_argument('snapshot', type=Path)
@@ -195,6 +216,8 @@ def main() -> None:
     try:
         if args.command == 'export':
             export_cloud()
+        elif args.command == 'copy':
+            copy_cloud_to_empty_local(confirmed=args.confirm)
         elif args.command == 'restore':
             restore(args.snapshot.resolve(), confirmed=args.confirm)
         else:

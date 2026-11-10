@@ -110,3 +110,31 @@ class LocalDatabaseSafetyTests(unittest.TestCase):
             self.assertNotIn('--clean', command)
             self.assertNotIn('mac_dev_local', command)
             verify.assert_called_once_with(path)
+
+    def test_copy_requires_confirmation_and_empty_local_database(self):
+        with patch.object(tool, 'export_cloud') as export:
+            with self.assertRaisesRegex(RuntimeError, '--confirm'):
+                tool.copy_cloud_to_empty_local(confirmed=False)
+            export.assert_not_called()
+
+        connection = MagicMock()
+        cursor = connection.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor.fetchone.side_effect = [(1,), (0,)]
+        with patch.object(tool.psycopg2, 'connect', return_value=connection), \
+             patch.object(tool, 'export_cloud') as export, \
+             self.assertRaisesRegex(RuntimeError, 'Nenhuma tabela'):
+            tool.copy_cloud_to_empty_local(confirmed=True)
+        export.assert_not_called()
+
+    def test_copy_exports_then_restores_the_new_snapshot(self):
+        connection = MagicMock()
+        cursor = connection.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor.fetchone.side_effect = [(0,), (0,)]
+        snapshot = Path('/snapshot')
+        with patch.object(tool.psycopg2, 'connect', return_value=connection), \
+             patch.object(tool, 'export_cloud', return_value=snapshot) as export, \
+             patch.object(tool, 'restore') as restore:
+            self.assertEqual(tool.copy_cloud_to_empty_local(confirmed=True), snapshot)
+        connection.__enter__.return_value.set_session.assert_called_once_with(readonly=True)
+        export.assert_called_once_with()
+        restore.assert_called_once_with(snapshot, confirmed=True)

@@ -110,7 +110,20 @@ arquivos para repositórios ou pastas públicas. Imagens não fazem parte do dum
 
 ## Restaurar explicitamente, somente uma vez
 
-Inicie `db-dev` e substitua o caminho abaixo pelo diretório impresso na exportação:
+Para fazer exportação, restauração e verificação em uma execução, use o comando
+Python abaixo **somente quando `mac_dev` estiver vazio**:
+
+```bash
+python -m backend.tools.local_database copy --confirm
+```
+
+Ele confere primeiro se o destino está vazio, cria um snapshot privado da nuvem
+em modo somente leitura e restaura esse snapshot no banco local. O diretório
+impresso pode ser usado depois com `verify`. Se `mac_dev` já contiver objetos,
+o comando recusa a cópia; ele não atualiza nem sobrescreve dados locais.
+
+Também é possível executar as etapas separadamente. Inicie `db-dev` e substitua
+o caminho abaixo pelo diretório impresso na exportação:
 
 ```bash
 python -m backend.tools.local_database restore data/backups/cloud-SEU-SNAPSHOT --confirm
