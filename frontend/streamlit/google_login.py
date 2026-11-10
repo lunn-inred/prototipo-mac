@@ -9,6 +9,7 @@ import webbrowser
 from pathlib import Path
 
 from frontend.streamlit.api_client.config import api_base_url, api_key, setting
+from frontend.streamlit.components.ui import LOGO_PATH
 
 
 def enabled() -> bool:
@@ -100,35 +101,43 @@ def restore_session() -> None:
 
 def render_login() -> None:
     """Página exclusiva exibida enquanto não há sessão Google."""
-    st.title("MAC Performance")
-    st.subheader("Entrar")
-    st.write("Entre com a conta Google do MAC para continuar.")
-    if message := st.session_state.pop("mac_google_login_error", None):
-        st.error(message)
-    if setting("MAC_DESKTOP_MODE") == "1":
-        _render_desktop_login()
-    else:
-        public_api = (setting("MAC_GOOGLE_PUBLIC_API_URL") or "http://localhost:8000").rstrip("/")
-        st.link_button("Entrar com Google", f"{public_api}/auth/google/start")
+    with st.container(key="google_login_card", border=True, width=440):
+        if LOGO_PATH.is_file():
+            st.image(str(LOGO_PATH), width=112)
+        st.title("MAC Performance")
+        st.subheader("Entrar")
+        st.write("Entre com a conta Google do MAC para continuar.")
+        if message := st.session_state.pop("mac_google_login_error", None):
+            st.error(message)
+        if setting("MAC_DESKTOP_MODE") == "1":
+            _render_desktop_login()
+        else:
+            public_api = (setting("MAC_GOOGLE_PUBLIC_API_URL") or "http://localhost:8000").rstrip("/")
+            st.link_button("Entrar com Google", f"{public_api}/auth/google/start", type="primary", use_container_width=True)
 
 
 def _render_desktop_login() -> None:
-    if not st.session_state.get("mac_desktop_poll_token") and st.button("Entrar com Google"):
+    if st.button("Entrar com Google", type="primary", use_container_width=True):
         try:
-            response = httpx.post(
-                f"{api_base_url()}/auth/google/desktop/start",
-                headers={"X-API-Key": api_key() or ""}, timeout=10,
+            authorization_url = (
+                st.session_state.get("mac_desktop_authorization_url")
+                if st.session_state.get("mac_desktop_poll_token") else None
             )
-            response.raise_for_status()
-            data = response.json()
-            st.session_state["mac_desktop_poll_token"] = data["poll_token"]
-            st.session_state["mac_desktop_authorization_url"] = data["authorization_url"]
-            webbrowser.open(data["authorization_url"], new=2)
+            if not authorization_url:
+                response = httpx.post(
+                    f"{api_base_url()}/auth/google/desktop/start",
+                    headers={"X-API-Key": api_key() or ""}, timeout=10,
+                )
+                response.raise_for_status()
+                data = response.json()
+                authorization_url = data["authorization_url"]
+                st.session_state["mac_desktop_poll_token"] = data["poll_token"]
+                st.session_state["mac_desktop_authorization_url"] = authorization_url
+            webbrowser.open(authorization_url, new=2)
         except (httpx.HTTPError, KeyError, ValueError):
             st.error("Não foi possível iniciar o login no navegador. Confira a configuração OAuth do desktop.")
     if st.session_state.get("mac_desktop_poll_token"):
         st.info("Conclua o login no navegador. O MAC abrirá suas páginas nesta janela.")
-        st.link_button("Abrir a página do Google novamente", st.session_state["mac_desktop_authorization_url"])
         _wait_for_desktop_login()
 
 
@@ -175,7 +184,12 @@ def render_logout() -> None:
         return
 
     with st.sidebar:
-        if st.button("Sair da conta Google"):
+        _, center, _ = st.columns([1, 4, 1])
+        with center:
+            logout_clicked = st.button(
+                "Sair da Conta", key="google_logout", type="primary", use_container_width=True,
+            )
+        if logout_clicked:
             try:
                 httpx.post(
                     f"{api_base_url()}/auth/google/logout",

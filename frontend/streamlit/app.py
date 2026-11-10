@@ -7,11 +7,12 @@ from frontend.streamlit.google_login import (
 )
 
 
-apply_global_style()
 restore_session()
+login_required = enabled() and not authenticated()
+apply_global_style(show_sidebar_logo=not login_required)
 PAGE_ROOT = Path(__file__).resolve().parent / 'pages'
 
-if enabled() and not authenticated():
+if login_required:
     navigation = st.navigation(
         [st.Page(render_login, title="Entrar", icon="🔐", default=True)],
         position="hidden",

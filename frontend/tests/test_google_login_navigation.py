@@ -30,6 +30,8 @@ class GoogleLoginNavigationTests(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertEqual([button.label for button in app.get("link_button")], ["Entrar com Google"])
+        self.assertEqual(len(app.get("image")), 1)
+        self.assertTrue(any("google_login_card" in block.proto.id for block in app.get("flex_container")))
         self.assertEqual(len(declarations), 1)
         pages, options = declarations[0]
         self.assertEqual(len(pages), 1)
@@ -57,6 +59,17 @@ class GoogleLoginNavigationTests(unittest.TestCase):
             [page.title for page in pages],
             ["Jogadores", "Monitoramento GPS", "Monitoramento Salto", "Termografia", "Timeline térmica"],
         )
+
+    def test_logout_button_is_in_authenticated_sidebar(self):
+        with patch.dict(os.environ, MAC_GOOGLE_CLIENT_ID="test-client"), \
+             patch("frontend.streamlit.google_login.authenticated", return_value=True):
+            app = AppTest.from_file(str(APP), default_timeout=20)
+            app.session_state["mac_google_session"] = "test-session"
+            app.run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual([button.label for button in app.sidebar.button], ["Sair da Conta"])
+        self.assertEqual(app.sidebar.button[0].key, "google_logout")
 
     def test_expired_session_returns_to_login_page(self):
         class ExpiredResponse:
@@ -88,17 +101,24 @@ class GoogleLoginNavigationTests(unittest.TestCase):
         class PendingResponse:
             status_code = 202
 
+        def post_for_login(url, **_kwargs):
+            return StartResponse() if url.endswith('/desktop/start') else PendingResponse()
+
         with patch.dict(os.environ, MAC_GOOGLE_CLIENT_ID='test-client', MAC_DESKTOP_MODE='1'), \
-             patch('frontend.streamlit.google_login.httpx.post', side_effect=[StartResponse(), PendingResponse()]), \
+             patch('frontend.streamlit.google_login.httpx.post', side_effect=post_for_login) as post, \
              patch('frontend.streamlit.google_login.webbrowser.open', return_value=True) as open_browser:
             app = AppTest.from_file(str(APP), default_timeout=20).run()
             self.assertFalse(app.get('link_button'))
             app.button[0].click().run()
+            self.assertEqual([button.label for button in app.button], ['Entrar com Google'])
+            app.button[0].click().run()
 
         self.assertFalse(app.exception)
-        open_browser.assert_called_once()
+        self.assertEqual(open_browser.call_count, 2)
+        self.assertEqual(sum(call.args[0].endswith('/desktop/start') for call in post.call_args_list), 1)
         self.assertEqual(app.session_state['mac_desktop_poll_token'], 'test-poll')
         self.assertTrue(any('Conclua o login' in item.value for item in app.info))
+        self.assertFalse(app.get('link_button'))
 
     def test_desktop_completion_puts_session_in_webview(self):
         class CompletedResponse:
@@ -109,7 +129,6 @@ class GoogleLoginNavigationTests(unittest.TestCase):
 
         state = {
             'mac_desktop_poll_token': 'test-poll',
-            'mac_desktop_authorization_url': 'https://accounts.google.com',
         }
         with TemporaryDirectory() as directory:
             session_file = Path(directory) / 'session.txt'
@@ -148,7 +167,6 @@ class GoogleLoginNavigationTests(unittest.TestCase):
 
         state = {
             'mac_desktop_poll_token': 'test-poll',
-            'mac_desktop_authorization_url': 'https://accounts.google.com',
         }
         with patch.object(google_login.st, 'session_state', state), \
              patch.object(google_login.httpx, 'post', return_value=FailedResponse()), \
