@@ -66,6 +66,7 @@ Com a API em execução:
 | `POST /api/v1/thermography/legacy/import` | Registra o lote legado validado | Sim |
 | `POST /api/v1/thermography/analyses` | Salva imagens e dados da análise localmente | Não |
 | `POST /api/v1/thermography/analyses/register` | Registra medidas no banco local e arquivos da timeline em uma operação | Sim |
+| `PUT /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Substitui uma análise salva, podendo mudar atleta/data | Sim |
 | `GET /api/v1/thermography/analyses?athlete_id=` | Lista análises locais com miniatura | Não |
 | `GET /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Carrega imagens, máscaras e matrizes de uma análise | Não |
 
@@ -169,6 +170,33 @@ distribuída tolerante a desligamento abrupto. Veja [registro unificado](thermog
 
 As rotas antigas permanecem disponíveis para compatibilidade. Não execute a
 rota antiga de medidas e a rota unificada para a mesma coleta: isso gera conflito.
+
+### Edição e sobrescrita de análise
+
+O `PUT` recebe o mesmo corpo do registro unificado e `expected_revision`, com o
+`created_at` retornado pelo detalhe/listagem da análise aberta. A URL identifica
+a origem; `athlete_id` e `collected_at` no corpo definem o destino, que pode mudar.
+A resposta `200` tem o mesmo envelope do registro. O UUID é preservado e
+`created_at` é atualizado para detectar edições concorrentes e renovar caches.
+Não há histórico permanente de versões. Uma análise antiga somente em arquivos
+também pode ser editada; ao salvar, suas medidas passam a existir no banco local.
+
+Se outro registro existir para o atleta/data de destino, a API responde `409`:
+
+```json
+{"detail":{"code":"analysis_date_conflict","message":"Uma análise do atleta já foi realizada nessa data. Deseja sobrescrevê-la?"}}
+```
+
+Somente após a confirmação do usuário, repita a requisição com `overwrite: true`.
+O `POST .../register` também aceita essa confirmação. Um `PUT` com revisão
+desatualizada retorna `409` com código `analysis_changed`; nesse caso é necessário
+reabrir a análise, não forçar a sobrescrita.
+
+A substituição remove apenas medidas do grupo termografia dos pares atleta/data
+envolvidos; GPS e saltos são preservados. Arquivos antigos ficam temporariamente
+em pastas ocultas `.replacing_*`, com recuperação em falhas normais, e são
+removidos após o commit. Banco e disco não têm transação distribuída: uma queda
+abrupta exige conferir banco e essas pastas antes de reenviar. Faça backup dos dois.
 
 ## Indicadores e importações
 

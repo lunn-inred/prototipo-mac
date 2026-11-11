@@ -9,8 +9,7 @@ de frente e costas. O título **Termografia - Nova análise térmica** reúne o
 nome da página e do assistente, sem um subtítulo duplicado. Quando habilitado,
 o componente **Envio de Formulário** aparece ao final para importar fichas manuscritas.
 A consulta e a comparação de análises ficam na página separada **Timeline térmica**.
-Ao adicionar a análise à timeline ou
-registrá-la no banco, uma janela solicita a data da coleta e apresenta a data
+Ao registrar a análise, uma janela solicita a data da coleta e apresenta a data
 atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
 data padrão é aplicada pelo serviço.
 
@@ -151,8 +150,38 @@ Ao confirmar o registro, uma única transação grava em `public.medida_valor` a
 medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
 `PERNA_ESQUERDA_FRENTE`, `PERNA_DIREITA_VERSO`,
 `PERNA_ESQUERDA_VERSO`, `SOMA_FRENTE`, `SOMA_VERSO` e, quando preenchida,
-`OBSERVACOES`. Todas recebem o mesmo jogador e timestamp. Uma coleta já
-existente para o mesmo jogador e data é rejeitada para evitar duplicidade.
+`OBSERVACOES`. Todas recebem o mesmo jogador e timestamp. Se já houver uma coleta
+para o mesmo jogador/data, a interface solicita confirmação antes de substituí-la.
+
+## Abrir e editar análises anteriores
+
+O botão **Ver análises anteriores**, abaixo de **Voltar**, abre um pop-up com
+os cartões dos atletas e busca por nome. Ao selecionar um atleta, aparecem suas
+análises salvas com data e miniatura. A seleção de uma análise fecha o pop-up e
+abre o assistente na primeira etapa com os dados preenchidos. Isso substitui o
+rascunho em andamento, mas não modifica o registro salvo até a confirmação final.
+
+As imagens, rotações, caixas, divisões anatômicas, máscaras corrigidas,
+temperaturas e limiares são restaurados. Avançar pelas etapas sem modificações
+não executa novamente o GrabCut sobre as máscaras salvas nem reestima as
+temperaturas. Alterar uma caixa permite refazer sua segmentação; modificar a
+escala térmica, barra de cores ou rotação exige reestimar o campo de temperaturas.
+O botão de restaurar a máscara automática permite descartar uma correção anterior.
+
+Atleta e data podem ser alterados. Na última etapa, **Salvar alterações** substitui
+a análise original, sem manter uma versão anterior. Se houver outra análise no
+destino, o pop-up mostra **Uma análise do atleta já foi realizada nessa data.
+Deseja sobrescrevê-la?**, com **Sim, sobrescrever** e **Não, voltar**. Cancelar
+preserva o rascunho e ambos os registros; confirmar substitui também o registro
+conflitante. A timeline é atualizada após o sucesso.
+
+A API atualiza arquivos e medidas de termografia no banco local. Se a análise
+antiga só existia no arquivo local, suas medidas são criadas ao salvar. Não são
+criadas colunas ou tabelas novas. Uma edição salva por outra sessão é detectada
+e exige reabrir o registro antes de continuar. Saltos e GPS não são excluídos.
+Há rollback SQL e recuperação dos arquivos em falhas normais, mas não atomicidade
+entre disco e banco em caso de desligamento abrupto: preserve pastas
+`.replacing_*` para conferência/recuperação e mantenha backup dos dois conjuntos.
 
 As fichas legadas em PDF, PNG ou JPEG são enviadas ao LlamaParse Cloud, usando
 o modo `agentic`, e apresentadas em uma grade editável. Configure
@@ -214,7 +243,8 @@ divisões em percentuais e coordenadas em pixels e métricas por perna/região.
 Não há referência a coletas do banco. Basal/Atual são seleções de comparação,
 não propriedades permanentes da análise.
 
-Cada confirmação cria um UUID diferente, inclusive na mesma data. A gravação
+Uma nova análise recebe um UUID; a edição preserva esse identificador, inclusive
+ao mudar atleta/data, e atualiza o instante de gravação. A gravação
 é preparada em diretório temporário e publicada por renomeação somente após
 concluir todos os arquivos. Ao selecionar um jogador, a timeline lê suas análises
 salvas; mudar o basal ou a data atual não modifica os arquivos. Para visualizar Basal/Atual, as

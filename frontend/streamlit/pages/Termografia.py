@@ -9,7 +9,7 @@ from frontend.streamlit.presentation.thermography_data import (
 )
 
 from frontend.streamlit.components.thermography.forms import render_forms
-from frontend.streamlit.components.thermography.registration import confirm_analysis_registration
+from frontend.streamlit.components.thermography.registration import confirm_analysis_registration, cancel_overwrite
 from frontend.streamlit.components.thermography.wizard import render_wizard, navigate
 
 st.set_page_config(page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide")
@@ -79,7 +79,9 @@ st.html('''
 
 
 
-st.title("Termografia - Nova análise térmica")
+st.title('Termografia - Editar análise térmica' if st.session_state.get('thermal_edit_source') else 'Termografia - Nova análise térmica')
+if source := st.session_state.get('thermal_edit_source'):
+    st.caption(f'Editando análise de {source["collected_at"]:%d/%m/%Y}. As alterações só serão gravadas ao salvar.')
 
 flash_message = st.session_state.pop("thermography_flash", None)
 if flash_message:
@@ -246,16 +248,19 @@ if all(view_metrics.values()):
         else:
             st.success("Registro pronto para envio. Observações permanece opcional.")
 
-        already_registered = st.session_state.get('thermal_registered_analysis', {}).get('signature') == pair_signature
+        editing = bool(st.session_state.get('thermal_edit_source'))
+        already_registered = not editing and st.session_state.get('thermal_registered_analysis', {}).get('signature') == pair_signature
         if already_registered:
             st.info('Esta análise já foi registrada no banco local e na timeline. Inicie outra análise para um novo registro.')
         if st.button(
-            "Registrar Análise",
+            'Salvar alterações' if editing else 'Registrar Análise',
             type="primary",
             disabled=bool(missing_fields) or already_registered,
             key="register_thermography_analysis",
             width='stretch',
         ):
+            cancel_overwrite()
+            st.session_state.pop('thermal_registration_complete', None)
             confirm_analysis_registration(
                 athlete_id=int(prepared_player_id),
                 mass=prepared_mass,

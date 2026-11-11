@@ -46,6 +46,31 @@ class PlayersWallTests(unittest.TestCase):
         self.assertEqual([header.value for header in self.app.subheader], ['Ativos', 'Inativos'])
         self.assertEqual(self.names(), ['ATIVO A', 'LEGADO C', 'INATIVO B'])
 
+    def test_default_order_uses_display_name_in_each_status_group(self):
+        self.athletes[:] = [
+            dict(id_atleta=1, nome='A nome completo', apelido='Caio', status='ativo'),
+            dict(id_atleta=2, nome='B nome completo', apelido='Zeca', status='inativo'),
+            dict(id_atleta=3, nome='Z nome completo', apelido='Álvaro', status='ativo'),
+            dict(id_atleta=4, nome='bruno', status='ativo'),
+            dict(id_atleta=5, nome='C nome completo', apelido='Álvaro inativo', status='inativo'),
+        ]
+        st.cache_data.clear()
+        self.app.run()
+        self.assertEqual(len(self.app.exception), 0, list(self.app.exception))
+        order = next(widget for widget in self.app.selectbox if widget.label == 'Ordenar por')
+        self.assertEqual(order.value, 'Nome')
+        self.assertEqual(self.names(), ['Álvaro', 'bruno', 'Caio', 'Álvaro inativo', 'Zeca'])
+
+    def test_card_html_does_not_start_indented_markdown_code_blocks(self):
+        cards = [item.value for item in self.app.markdown if 'class="player-card"' in item.value]
+        self.assertEqual(len(cards), 3)
+        for card in cards:
+            # Uma linha em branco seguida por HTML recuado vira código Markdown,
+            # mesmo quando unsafe_allow_html está habilitado.
+            self.assertNotRegex(card, r'\n[ \t]*\n[ \t]{4,}\S')
+            self.assertIn('class="player-card-header"', card)
+            self.assertIn('class="player-metrics"', card)
+
     def test_filters_apply_to_both_sections_and_empty_group_stays_visible(self):
         next(widget for widget in self.app.selectbox if widget.label == 'Posição').set_value('Goleiro').run()
         self.assertEqual(len(self.app.exception), 0, list(self.app.exception))

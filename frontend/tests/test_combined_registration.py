@@ -24,6 +24,34 @@ def prepared_values():
 
 
 class FrontendCombinedRegistrationTests(unittest.TestCase):
+    def test_duplicate_prompts_and_only_overwrites_after_explicit_yes(self):
+        from frontend.streamlit.api_client.service_gateway import ApiClientError
+        script = '''
+import streamlit as st
+from frontend.tests.test_combined_registration import prepared_values
+from frontend.streamlit.components.thermography.registration import confirm_analysis_registration
+if not st.session_state.get('thermal_registered_analysis'):
+    confirm_analysis_registration(**prepared_values())
+'''
+        conflict = ApiClientError('Conflito', status_code=409, detail={'code':'analysis_date_conflict'})
+        result = {'analysis': {'athlete_id':7, 'id':'saved-id'}, 'inserted_measurements':8}
+        with patch.object(registration, 'register_analysis', side_effect=conflict) as create, \
+             patch.object(registration, 'save_analysis_changes', return_value=result) as replace:
+            app = AppTest.from_string(script).run()
+            app.button(key='confirm_analysis_pair-test').click().run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertTrue(any(w.value == 'Uma análise do atleta já foi realizada nessa data. Deseja sobrescrevê-la?' for w in app.warning))
+            replace.assert_not_called()
+            app.button(key='thermal_overwrite_no').click().run()
+            self.assertNotIn('thermal_registered_analysis', app.session_state)
+            replace.assert_not_called()
+            app.button(key='confirm_analysis_pair-test').click().run()
+            app.button(key='thermal_overwrite_yes').click().run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            replace.assert_called_once()
+            self.assertTrue(replace.call_args.kwargs['overwrite'])
+            self.assertEqual(create.call_count, 2)
+
     def test_confirmation_keeps_dialog_on_failure_then_registers_selected_date(self):
         script = '''
 import streamlit as st

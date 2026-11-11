@@ -101,7 +101,7 @@ def _validate_view(source):
     return image, temperatures.astype(np.float32), masks, metadata
 
 
-def save_analysis(*, athlete_id, athlete_name, collected_at, views, mass=None, pain_score=None, observations=''):
+def save_analysis(*, athlete_id, athlete_name, collected_at, views, mass=None, pain_score=None, observations='', analysis_id=None):
     if not str(athlete_name).strip() or set(views) != {'front', 'back'}:
         raise ValueError('Informe o jogador e as duas vistas da análise.')
     if mass is not None and (not math.isfinite(float(mass)) or float(mass) <= 0):
@@ -109,8 +109,10 @@ def save_analysis(*, athlete_id, athlete_name, collected_at, views, mass=None, p
     if pain_score is not None and (type(pain_score) is not int or not 0 <= pain_score <= 10):
         raise ValueError('EVA Dor inválida.')
     validated = {view: _validate_view(views[view]) for view in ('front', 'back')}
-    analysis_id = str(uuid4())
+    analysis_id = str(UUID(str(analysis_id))) if analysis_id else str(uuid4())
     target = _directory(athlete_id, collected_at, analysis_id)
+    if target.exists():
+        raise ValueError('A análise de destino já existe.')
     target.parent.mkdir(parents=True, exist_ok=True)
     pending = _safe_path(target.parent / f'.pending_{analysis_id}')
     pending.mkdir()
@@ -136,6 +138,37 @@ def save_analysis(*, athlete_id, athlete_name, collected_at, views, mass=None, p
         shutil.rmtree(pending)
         raise
     return entry
+
+
+def stage_replacements(entries):
+    """Oculta temporariamente apenas os diretórios explicitamente substituídos."""
+    staged = []
+    try:
+        for entry in entries:
+            original = _directory(entry['athlete_id'], entry['collected_at'], entry['id'])
+            _metadata(original)
+            temporary = _safe_path(original.parent / f'.replacing_{uuid4()}')
+            os.replace(original, temporary)
+            staged.append((original, temporary))
+    except Exception:
+        restore_replacements(staged)
+        raise
+    return staged
+
+
+def restore_replacements(staged):
+    for original, temporary in reversed(staged):
+        if original.exists():
+            raise OSError('Destino ocupado durante recuperação; preserve os arquivos temporários.')
+        os.replace(temporary, original)
+
+
+def finish_replacements(staged):
+    for _original, temporary in staged:
+        try:
+            shutil.rmtree(temporary)
+        except OSError:
+            logging.getLogger(__name__).warning('Registro concluído; pasta temporária de substituição requer limpeza: %s', temporary.name)
 
 
 def discard_created_analysis(entry):

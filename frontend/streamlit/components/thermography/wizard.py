@@ -21,6 +21,7 @@ from frontend.streamlit.components.thermography.editor import (
 )
 from frontend.streamlit.presentation.thermography_data import athlete_label
 from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
+from frontend.streamlit.components.thermography.draft_state import clear_analysis_draft
 
 STEPS = ('Dados da coleta', 'Imagens e rotação', 'Caixas das pernas e barra de cores',
          'Divisão anatômica', 'Segmentação', 'Cálculo da termografia', 'Resumo da coleta')
@@ -186,12 +187,7 @@ def restart_analysis():
     st.warning('Os dados e imagens da análise atual serão descartados da sessão. '
                'Registros no banco e coletas já adicionadas à timeline não serão alterados.')
     if st.button('Confirmar nova análise', width='stretch'):
-        for key in list(st.session_state):
-            if key.startswith(('thermal_', 'wizard_', 'thermography_front_upload',
-                               'thermography_back_upload', 'thermography_record_editor_')) or key in {
-                                   'thermography_items', 'thermography_metrics', 'thermography_player',
-                                   'thermography_mass', 'thermography_pain_score', 'thermography_observations'}:
-                del st.session_state[key]
+        clear_analysis_draft()
         st.rerun()
 
     if st.button('Concluir', type='primary', width='stretch', key='close_restart_analysis'):
@@ -209,9 +205,14 @@ def navigate(step, valid=True):
         st.rerun()
     if step == len(STEPS)-1 and right.button('Iniciar outra análise', width='stretch'):
         restart_analysis()
+    from .history import render_history_button
+    history_column, _ = st.columns(2, gap='large')
+    with history_column:
+        render_history_button(st.session_state.get('thermal_available_players', {}))
 
 
 def render_wizard(athletes_by_id):
+    st.session_state['thermal_available_players'] = athletes_by_id
     step = st.session_state.setdefault('thermal_step', 0)
     draft = st.session_state.setdefault('thermal_draft', {})
     st.progress((step+1)/len(STEPS), text=f'Etapa {step+1} de {len(STEPS)} — {STEPS[step]}')
@@ -245,7 +246,7 @@ def render_wizard(athletes_by_id):
         for column, view in zip(st.columns(2, gap='large'), VIEW_LABELS):
             with column:
                 uploaded = st.file_uploader(f'Imagem de {VIEW_LABELS[view].lower()}',
-                                            type=['png', 'jpg', 'jpeg'], key=f'thermography_{view}_upload')
+                                            type=['png', 'jpg', 'jpeg'], key=f'thermography_{view}_upload_{st.session_state.get("thermal_upload_generation", 0)}')
                 if uploaded is not None:
                     content = uploaded.getvalue()
                     if uploads.get(view, {}).get('content') != content:

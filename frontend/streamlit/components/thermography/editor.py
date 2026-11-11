@@ -356,6 +356,8 @@ def edit_thermal_mask(
         st.rerun(scope="fragment")
     if reset_column.button("Restaurar máscara automática", width='stretch'):
         item.setdefault("mask_seeds", {}).pop(side, None)
+        item.get('saved_analysis', {}).get('masks', {}).pop(side, None)
+        item['saved_analysis_revision'] = item.get('saved_analysis_revision', 0) + 1
         recalculate(side)
         item.pop("analysis_config", None)
         st.session_state[f"thermal_mask_message_{item_key}"] = (
@@ -374,6 +376,7 @@ def cached_temperature_scale(content: bytes) -> dict[str, float]:
 def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature, threshold, item):
     from frontend.streamlit.api_client.thermal_client import segmented_image
     config = (minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
+              item.get('saved_analysis_revision', 0),
               repr(item.get('manual_boxes')), repr(item.get('manual_colorbar_box')),
               tuple((side, hashlib.sha256(seed.tobytes()).hexdigest())
                     for side, seed in sorted(item.get('mask_seeds', {}).items())))
@@ -381,7 +384,8 @@ def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature
         return item['analysis']
     analysis = segmented_image(image, view_key, minimum_temperature, maximum_temperature,
                                threshold, item.get('manual_boxes'), item.get('manual_colorbar_box'),
-                               item.get('mask_seeds'), image_rotation=item.get('image_rotation', 0))
+                               item.get('mask_seeds'), image_rotation=item.get('image_rotation', 0),
+                               saved_analysis=item.get('saved_analysis'))
     item['analysis_config'] = config
     item['analysis'] = analysis
     return analysis

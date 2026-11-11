@@ -52,6 +52,7 @@ class SegmentationInput(BaseModel):
     manual_boxes: dict[Literal['right', 'left'], BoundingBox] | None = None
     colorbar_box: BoundingBox | None = None
     seeds: dict[Literal['right', 'left'], ArrayPayload] | None = None
+    saved_analysis: dict[str, Any] | None = None
 
 
 class LegMetric(BaseModel):

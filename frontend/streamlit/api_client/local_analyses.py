@@ -17,6 +17,18 @@ def list_local_analyses(athlete_id):
     return decode(_request('GET', '/api/v1/thermography/analyses', params={'athlete_id': int(athlete_id)}))
 
 
+def save_analysis_changes(athlete_id, athlete_name, collected_at, views, *, mass, pain_score,
+                          observations='', source=None, overwrite=False):
+    payload = dict(athlete_id=int(athlete_id), athlete_name=athlete_name, collected_at=collected_at.isoformat(),
+                   views=encode(views), mass=float(mass), pain_score=int(pain_score),
+                   observations=observations, overwrite=overwrite)
+    if source:
+        payload['expected_revision'] = source['created_at']
+        path = f'/api/v1/thermography/analyses/{source["athlete_id"]}/{source["collected_at"].isoformat()}/{source["id"]}'
+        return decode(_request('PUT', path, json=payload))
+    return decode(_request('POST', '/api/v1/thermography/analyses/register', json=payload))
+
+
 def register_analysis(athlete_id, athlete_name, collected_at, views, *, mass, pain_score, observations=''):
     return decode(_request('POST', '/api/v1/thermography/analyses/register', json={
         'athlete_id': int(athlete_id), 'athlete_name': athlete_name,

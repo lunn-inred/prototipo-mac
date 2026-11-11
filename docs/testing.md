@@ -54,6 +54,11 @@ python -m unittest backend.tests.test_local_postgres backend.tests.test_web_ui -
 ```
 
 Esses testes recusam hosts externos e bancos diferentes de `mac_test`.
+O teste de edição térmica cobre substituição, mudança de atleta/data,
+confirmação de conflito, revisão desatualizada, preservação de saltos e
+rollback de banco/arquivos em falha de gravação. As imagens usam diretórios
+temporários. Os testes AppTest de histórico e registro verificam seleção,
+restauração das máscaras/temperaturas, cancelamento e confirmação de sobrescrita.
 Nunca aponte os testes destrutivos para o `mac_dev` persistente. A cópia de
 desenvolvimento é descrita em [Banco local](local-database.md).
 Para testar também os processos Docker com esse banco:

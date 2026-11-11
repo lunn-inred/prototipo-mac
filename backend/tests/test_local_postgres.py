@@ -59,6 +59,66 @@ class LocalPostgresTests(unittest.TestCase):
             self.assertEqual(len(history), 1)
             self.assertEqual(len(list(Path(directory).rglob('metadados.json'))), 1)
 
+    def test_analysis_edit_move_overwrite_and_recovery(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from uuid import uuid4
+        from backend.tests.test_analysis_archive import example_views
+        from backend.mac_api.core.wire import encode, decode
+        with TemporaryDirectory(prefix='mac-edit-postgres-') as directory, patch.dict(os.environ, MAC_ANALYSES_DIR=directory):
+            ids = []
+            for _ in range(2):
+                response = self.client.post('/api/v1/athletes', json={'name': 'Edição '+uuid4().hex[:8]}, headers=self.headers)
+                self.assertEqual(response.status_code, 201, response.text)
+                ids.append(response.json()['id_atleta'])
+            jump = self.client.post('/api/v1/jumps/collections', headers=self.headers,
+                json={'athlete_id': ids[0], 'collected_at': '2026-11-10', 'cmj1': 39, 'maior_cmj': 39})
+            self.assertEqual(jump.status_code, 201, jump.text)
+            payload = dict(athlete_id=ids[0], athlete_name='Interface', collected_at='2026-11-10',
+                           mass=75., pain_score=0, observations='Teste', views=encode(example_views()))
+            original_response = self.client.post('/api/v1/thermography/analyses/register', json=payload, headers=self.headers)
+            self.assertEqual(original_response.status_code, 201, original_response.text)
+            original = decode(original_response.json())['analysis']
+            def endpoint(entry):
+                return f"/api/v1/thermography/analyses/{entry['athlete_id']}/{entry['collected_at']}/{entry['id']}"
+            changed = self.client.put(endpoint(original), json={**payload, 'mass': 76,
+                'expected_revision': original['created_at']}, headers=self.headers)
+            self.assertEqual(changed.status_code, 200, changed.text)
+            updated = decode(changed.json())['analysis']
+            self.assertEqual(updated['id'], original['id'])
+            stale = self.client.put(endpoint(original), json={**payload,
+                'expected_revision': original['created_at']}, headers=self.headers)
+            self.assertEqual(stale.status_code, 409, stale.text)
+            self.assertEqual(stale.json()['detail']['code'], 'analysis_changed')
+            destination = {**payload, 'athlete_id': ids[1], 'collected_at': '2026-11-11', 'mass': 80}
+            target = self.client.post('/api/v1/thermography/analyses/register', json=destination, headers=self.headers)
+            self.assertEqual(target.status_code, 201, target.text)
+            moving = {**destination, 'mass': 77, 'expected_revision': updated['created_at']}
+            conflict = self.client.put(endpoint(updated), json=moving, headers=self.headers)
+            self.assertEqual(conflict.status_code, 409, conflict.text)
+            self.assertEqual(conflict.json()['detail']['code'], 'analysis_date_conflict')
+            self.assertEqual(len(list(Path(directory).rglob('metadados.json'))), 2)
+            moved_response = self.client.put(endpoint(updated), json={**moving, 'overwrite': True}, headers=self.headers)
+            self.assertEqual(moved_response.status_code, 200, moved_response.text)
+            moved = decode(moved_response.json())['analysis']
+            self.assertEqual(moved['id'], original['id'])
+            self.assertEqual(moved['mass'], 77)
+            self.assertEqual(self.client.get(f'/api/v1/thermography?athlete_id={ids[0]}', headers=self.headers).json(), [])
+            records = self.client.get(f'/api/v1/thermography?athlete_id={ids[1]}', headers=self.headers).json()
+            self.assertEqual(len(records), 1)
+            self.assertEqual(len(list(Path(directory).rglob('metadados.json'))), 1)
+            self.assertEqual(self.client.get(endpoint(updated), headers=self.headers).status_code, 404)
+            with patch('numpy.save', side_effect=OSError('Falha simulada')):
+                failed = self.client.put(endpoint(moved), json={**destination, 'collected_at': '2026-11-12',
+                    'expected_revision': moved['created_at']}, headers=self.headers)
+            self.assertEqual(failed.status_code, 503, failed.text)
+            self.assertEqual(self.client.get(endpoint(moved), headers=self.headers).status_code, 200)
+            self.assertEqual(self.client.get(f'/api/v1/thermography?athlete_id={ids[1]}', headers=self.headers).json(), records)
+            self.assertFalse(list(Path(directory).rglob('.replacing_*')))
+            jumps = self.client.get('/api/v1/jumps/collections', headers=self.headers).json()
+            self.assertEqual(next(row for row in jumps if row['id_atleta'] == ids[0])['maior_cmj'], 39)
+
     def test_athlete_jump_and_thermal_transaction_roundtrip(self):
         from uuid import uuid4
         athlete = self.client.post('/api/v1/athletes', json={'name':f'Atleta integração {uuid4().hex[:8]}', 'position':'Meia'}, headers=self.headers)

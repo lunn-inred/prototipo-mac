@@ -121,7 +121,7 @@ class ThermalWizardTests(unittest.TestCase):
                 if step == 1:
                     labels = [button.label for button in app.button]
                     self.assertEqual(labels.count('Girar 90° para a direita'), 2)
-                    self.assertEqual(labels[-2:], ['Voltar', 'Continuar'])
+                    self.assertEqual(labels[-3:], ['Voltar', 'Continuar', 'Ver análises anteriores'])
                     self.assertIn('Imagem de costas', upload_labels)
                     self.assertNotIn('Imagem de verso', upload_labels)
                     key = next(button.key for button in app.button if button.key and button.key.startswith('thermal_rotation_front_'))
@@ -134,7 +134,7 @@ class ThermalWizardTests(unittest.TestCase):
                     labels = [button.label for button in app.button]
                     self.assertEqual(labels.count('Redefinir retângulos'), 2)
                     self.assertNotIn('Corrigir Áreas', labels)
-                    self.assertEqual(labels[-2:], ['Voltar', 'Continuar'])
+                    self.assertEqual(labels[-3:], ['Voltar', 'Continuar', 'Ver análises anteriores'])
                     self.assertIn('#### Costas', [text.value for text in app.markdown])
                 if step == 3:
                     self.assertEqual([button.label for button in app.button].count('Redefinir regiões'), 2)

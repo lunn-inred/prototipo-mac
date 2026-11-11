@@ -55,7 +55,7 @@ class CombinedRegistrationTests(unittest.TestCase):
             self.assertEqual(measurements[f'SOMA_{suffix}'], sum(saved['metadata']['views'][view]['metrics'][side]['hot_pixels'] for side in ('left', 'right')))
 
     def test_file_failure_rolls_back_database_and_keeps_existing_analyses(self):
-        old = archive.save_analysis(**self.values)
+        old = archive.save_analysis(**{**self.values, 'collected_at': date(2026, 11, 9)})
         with patch.object(registration, '_insert_collection', return_value=9), \
              patch('numpy.save', side_effect=OSError('Falha simulada')):
             with self.assertRaises(OSError):
@@ -66,7 +66,7 @@ class CombinedRegistrationTests(unittest.TestCase):
         self.assertFalse(list(Path(self.directory.name).rglob('.pending_*')))
 
     def test_commit_failure_removes_only_the_new_analysis(self):
-        old = archive.save_analysis(**self.values)
+        old = archive.save_analysis(**{**self.values, 'collected_at': date(2026, 11, 9)})
         with patch.object(registration, '_insert_collection', return_value=9), self.assertRaises(RuntimeError):
             registration.register_analysis(**self.values, connection_factory=lambda: self.factory(fail_commit=True))
         self.assertTrue(self.rolled_back)
@@ -78,6 +78,14 @@ class CombinedRegistrationTests(unittest.TestCase):
                 registration.register_analysis(**self.values, connection_factory=self.factory)
         self.assertTrue(self.rolled_back)
         self.assertEqual(archive.list_analyses(123), [])
+
+    def test_archive_only_duplicate_requires_confirmation_without_inserting_measures(self):
+        old = archive.save_analysis(**self.values)
+        with patch.object(registration, '_insert_collection') as insert:
+            with self.assertRaises(registration.AnalysisConflictError):
+                registration.register_analysis(**self.values, connection_factory=self.factory)
+        insert.assert_not_called()
+        self.assertEqual([entry['id'] for entry in archive.list_analyses(123)], [old['id']])
 
     def test_invalid_images_do_not_open_database(self):
         values = {**self.values, 'views': {'front': example_views()['front']}}

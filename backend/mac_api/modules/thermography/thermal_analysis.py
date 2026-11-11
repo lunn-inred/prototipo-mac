@@ -41,7 +41,7 @@ def image_regions(image, view, image_rotation=0):
 
 
 def segmented_image(image, view, minimum_temperature, maximum_temperature, threshold,
-                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0):
+                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0, saved_analysis=None):
     """Complete analysis, including manual corrections, without storing images."""
     if view not in ('front', 'back'):
         raise ValueError("A vista deve ser 'front' ou 'back'.")
@@ -64,9 +64,41 @@ def segmented_image(image, view, minimum_temperature, maximum_temperature, thres
             raise ValueError('A região deve ter área positiva e estar dentro da imagem.')
         if box['left'] + box['width'] > width or box['top'] + box['height'] > height:
             raise ValueError('A região ultrapassa os limites da imagem.')
-    temperatures = temperature_matrix(image, minimum_temperature, maximum_temperature, colorbar,
-                                      image_rotation=image_rotation)
-    masks = {side: segment_leg_mask(image, box, (seeds or {}).get(side)) for side, box in boxes.items()}
+    saved = saved_analysis or {}
+    same_scale = (minimum_temperature == saved.get('minimum_temperature') and
+                  maximum_temperature == saved.get('maximum_temperature') and
+                  colorbar_box == saved.get('colorbar_box') and image_rotation == saved.get('image_rotation', 0))
+    if same_scale and 'temperatures' in saved:
+        temperatures = np.asarray(saved['temperatures'])
+        if temperatures.shape != (height, width) or temperatures.dtype.kind not in 'fi' or not np.isfinite(temperatures).all():
+            raise ValueError('Matriz térmica salva incompatível com a imagem.')
+    else:
+        temperatures = temperature_matrix(image, minimum_temperature, maximum_temperature, colorbar,
+                                          image_rotation=image_rotation)
+    masks = {}
+    for side, box in boxes.items():
+        saved_mask = saved.get('masks', {}).get(side)
+        if saved_mask is not None and box == saved.get('boxes', {}).get(side):
+            mask = np.asarray(saved_mask)
+            if mask.shape != (height, width) or not np.isin(mask, (0, 1)).all():
+                raise ValueError('Máscara salva incompatível com a imagem.')
+            mask = mask.astype(bool).copy()
+            inside = np.zeros((height, width), bool)
+            x, y, w, h = (int(box[k]) for k in ('left', 'top', 'width', 'height'))
+            inside[y:y+h, x:x+w] = True
+            if (mask & ~inside).any():
+                raise ValueError('A máscara salva ultrapassa a região da perna.')
+            seed = (seeds or {}).get(side)
+            if seed is not None:
+                seed = np.asarray(seed)
+                if seed.shape != mask.shape or not np.isin(seed, (-1, 0, 1)).all():
+                    raise ValueError('Traços de correção inválidos.')
+                if ((seed > 0) & ~inside).any():
+                    raise ValueError('A inclusão ultrapassa a região da perna.')
+                mask[seed > 0], mask[seed < 0] = True, False
+            masks[side] = mask
+        else:
+            masks[side] = segment_leg_mask(image, box, (seeds or {}).get(side))
     metrics = {}
     for side, box in boxes.items():
         hot, area = count_hot_pixels(temperatures, box, threshold, masks[side])

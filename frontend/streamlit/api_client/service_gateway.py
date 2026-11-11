@@ -16,7 +16,10 @@ from frontend.streamlit.api_client.contracts import (
 )
 
 class ApiClientError(ValueError):
-    pass
+    def __init__(self, message, *, status_code=None, detail=None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.detail = detail
 
 def remote_api_enabled() -> bool:
     return True
@@ -52,7 +55,8 @@ def _request(method: str, path: str, **kwargs: Any) -> Any:
         if not detail:
             detail = (f'A API recusou a operação (HTTP {error.response.status_code}). '
                       'Consulte o terminal do backend para identificar a causa.')
-        raise ApiClientError(detail) from error
+        message = detail.get('message', str(detail)) if isinstance(detail, dict) else detail
+        raise ApiClientError(message, status_code=error.response.status_code, detail=detail) from error
     except httpx.HTTPError as error:
         raise ApiClientError('Não foi possível comunicar com a API.') from error
     return None if response.status_code == 204 else response.json()

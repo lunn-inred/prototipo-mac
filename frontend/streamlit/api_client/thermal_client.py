@@ -24,9 +24,9 @@ for _name in (
 
 
 def segmented_image(image, view, minimum_temperature, maximum_temperature, threshold,
-                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0):
+                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0, saved_analysis=None):
     payload = encode(dict(image=image, view=view, minimum_temperature=minimum_temperature,
                           maximum_temperature=maximum_temperature, threshold=threshold,
                           manual_boxes=manual_boxes, colorbar_box=colorbar_box, seeds=seeds,
-                          image_rotation=image_rotation))
+                          image_rotation=image_rotation, saved_analysis=saved_analysis))
     return decode(_request('POST', '/api/v1/thermography/segment', json=payload))
