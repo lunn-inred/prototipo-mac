@@ -1,6 +1,5 @@
-"""Seleção paginada de análises e recuperação do rascunho de edição."""
+"""Seleção rolável de análises e recuperação do rascunho de edição."""
 import io
-import math
 import streamlit as st
 
 from frontend.streamlit.api_client.local_analyses import list_local_analyses, load_local_analysis
@@ -43,7 +42,6 @@ def load_into_wizard(entry):
 
 def _choose_player(player_id):
     st.session_state['analysis_browser_player'] = player_id
-    st.session_state['analysis_browser_page'] = 0
     st.session_state.pop('analysis_browser_error', None)
 
 
@@ -56,45 +54,33 @@ def _select_analysis(entry):
         st.session_state['analysis_browser_loaded'] = True
 
 
-def _page(page):
-    st.session_state['analysis_browser_page'] = page
-
-
-def _pagination(total, size):
-    pages = max(1, math.ceil(total / size))
-    page = min(st.session_state.get('analysis_browser_page', 0), pages - 1)
-    st.caption(f'Página {page+1} de {pages}')
-    previous, following = st.columns(2)
-    previous.button('Anterior', disabled=page == 0, width='stretch', on_click=_page, args=(page-1,), key='analysis_browser_previous')
-    following.button('Próxima', disabled=page == pages-1, width='stretch', on_click=_page, args=(page+1,), key='analysis_browser_next')
-    return page * size
-
-
 @st.dialog('Ver análises anteriores', width='large')
 def show_history(athletes):
     if st.session_state.pop('analysis_browser_loaded', False):
         st.rerun()
     render_player_card_style()
+    # Os editores de imagem não têm scroll; somente esta lista é rolável.
+    st.html('''<style>
+        .st-key-analysis_browser_results {
+            max-height: max(100px, calc(100dvh - 340px));
+            overflow-y: auto;
+        }
+    </style>''')
     player_id = st.session_state.get('analysis_browser_player')
     if player_id not in athletes:
         query = st.text_input('Buscar atleta', key='analysis_browser_query').strip().casefold()
-        if query != st.session_state.get('analysis_browser_last_query'):
-            st.session_state['analysis_browser_page'] = 0
-            st.session_state['analysis_browser_last_query'] = query
         players = sorted((athlete for athlete in athletes.values()
                           if query in (player_name(athlete)+' '+str(athlete.get('nome', ''))).casefold()), key=player_name)
-        offset = _pagination(len(players), 6)
-        visible = players[offset:offset+6]
-        if not visible:
+        if not players:
             st.info('Nenhum atleta encontrado.')
-        for start in range(0, len(visible), 3):
-            for column, athlete in zip(st.columns(3), visible[start:start+3]):
-                with column:
-                    # HTML composto contém recuos/quebras que o Markdown pode
-                    # interpretar como código; não passar por st.markdown.
-                    st.html(compact_player_card(athlete))
-                    st.button('Selecionar atleta', width='stretch', key=f'analysis_player_{athlete["id_atleta"]}',
-                              on_click=_choose_player, args=(int(athlete['id_atleta']),))
+        with st.container(height=450, border=False, key='analysis_browser_results'):
+            for start in range(0, len(players), 3):
+                for column, athlete in zip(st.columns(3), players[start:start+3]):
+                    with column:
+                        # Não interpretar recuos do HTML como código Markdown.
+                        st.html(compact_player_card(athlete))
+                        st.button('Selecionar atleta', width='stretch', key=f'analysis_player_{athlete["id_atleta"]}',
+                                  on_click=_choose_player, args=(int(athlete['id_atleta']),))
     else:
         st.markdown(f'#### Análises de {player_name(athletes[player_id])}')
         st.button('Voltar aos atletas', width='stretch', on_click=_choose_player, args=(None,), key='analysis_browser_back')
@@ -102,22 +88,21 @@ def show_history(athletes):
             analyses = sorted(list_local_analyses(player_id), key=lambda item: (item['collected_at'], item['created_at']), reverse=True)
         except ValueError as error:
             st.error(str(error)); return
-        offset = _pagination(len(analyses), 3)
         if not analyses:
             st.info('Não há análises salvas para este atleta.')
-        for column, entry in zip(st.columns(3), analyses[offset:offset+3]):
-            with column:
-                with st.container(border=True):
-                    st.markdown(f'**{entry["collected_at"]:%d/%m/%Y}**')
-                    st.image(entry['thumbnail'], width='content')
-                    st.caption(f'Massa: {entry["mass"] if entry["mass"] is not None else "—"} kg · EVA: {entry["pain_score"] if entry["pain_score"] is not None else "—"}')
-                    st.button('Selecionar análise', width='stretch', key=f'analysis_select_{entry["id"]}',
-                              on_click=_select_analysis, args=(entry,))
+        with st.container(height=450, border=False, key='analysis_browser_results'):
+            for start in range(0, len(analyses), 3):
+                for column, entry in zip(st.columns(3), analyses[start:start+3]):
+                    with column:
+                        with st.container(border=True):
+                            st.markdown(f'**{entry["collected_at"]:%d/%m/%Y}**')
+                            st.image(entry['thumbnail'], width='content')
+                            st.caption(f'Massa: {entry["mass"] if entry["mass"] is not None else "—"} kg · EVA: {entry["pain_score"] if entry["pain_score"] is not None else "—"}')
+                            st.button('Selecionar análise', width='stretch', key=f'analysis_select_{entry["id"]}',
+                                      on_click=_select_analysis, args=(entry,))
     if error := st.session_state.get('analysis_browser_error'):
         st.error(error)
     st.caption('Ao abrir uma análise, o rascunho atual é substituído. Os registros só mudam ao salvar.')
-    if st.button('Concluir', type='primary', width='stretch', key='analysis_browser_close'):
-        st.rerun()
 
 
 @st.fragment

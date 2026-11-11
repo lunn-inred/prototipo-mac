@@ -78,6 +78,26 @@ if not st.session_state.get('thermal_edit_source'):
         self.assertEqual(state['thermal_draft']['notes'], 'Não perder')
         self.assertNotIn('thermal_edit_source', state)
 
+    def test_all_players_and_analyses_are_available_without_pagination_or_close_button(self):
+        script = '''
+from frontend.streamlit.components.thermography.history import show_history
+show_history({i: {'id_atleta': i, 'nome': f'Atleta {i}'} for i in range(1, 9)})
+'''
+        entries = [{**self.saved, 'id': f'analysis-{i}'} for i in range(7)]
+        with patch.object(history, 'list_local_analyses', return_value=entries):
+            app = AppTest.from_string(script).run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertEqual([button.label for button in app.button], ['Selecionar atleta'] * 8)
+            self.assertTrue(any('analysis_browser_results' in block.proto.id for block in app.get('flex_container')))
+            app.button(key='analysis_player_8').click().run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertEqual([button.label for button in app.button], ['Voltar aos atletas'] + ['Selecionar análise'] * 7)
+            app.button(key='analysis_browser_back').click().run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertEqual(len(app.button), 8)
+            app.text_input(key='analysis_browser_query').set_value('Atleta 8').run()
+            self.assertEqual([button.key for button in app.button], ['analysis_player_8'])
+
     def test_reopened_wizard_keeps_saved_masks_without_automatic_resegmentation(self):
         state = {}
         with patch.object(history.st, 'session_state', state):
