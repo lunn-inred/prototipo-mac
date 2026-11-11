@@ -3,7 +3,7 @@ import io
 import streamlit as st
 
 from frontend.streamlit.api_client.local_analyses import list_local_analyses, load_local_analysis
-from frontend.streamlit.components.player_cards import render_player_card_style, compact_player_card
+from frontend.streamlit.components.player_cards import render_player_card_style, selectable_player_card
 from frontend.streamlit.presentation.player_data import player_name
 from .draft_state import clear_analysis_draft
 
@@ -77,10 +77,7 @@ def show_history(athletes):
             for start in range(0, len(players), 3):
                 for column, athlete in zip(st.columns(3), players[start:start+3]):
                     with column:
-                        # Não interpretar recuos do HTML como código Markdown.
-                        st.html(compact_player_card(athlete))
-                        st.button('Selecionar atleta', width='stretch', key=f'analysis_player_{athlete["id_atleta"]}',
-                                  on_click=_choose_player, args=(int(athlete['id_atleta']),))
+                        selectable_player_card(athlete, on_click=_choose_player)
     else:
         st.markdown(f'#### Análises de {player_name(athletes[player_id])}')
         st.button('Voltar aos atletas', width='stretch', on_click=_choose_player, args=(None,), key='analysis_browser_back')

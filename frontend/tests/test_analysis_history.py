@@ -59,10 +59,10 @@ if not st.session_state.get('thermal_edit_source'):
              patch.object(history, 'load_local_analysis', return_value=self.loaded) as load, \
              patch('psycopg2.connect', side_effect=AssertionError('Sem banco')):
             app = AppTest.from_string(script).run()
-            cards = [item.proto.body for item in app.get('html') if 'class="player-card compact"' in item.proto.body]
-            self.assertEqual(len(cards), 1)
-            self.assertIn('class="player-name">Teste</div>', cards[0])
-            self.assertFalse(any('class="player-card compact"' in item.value for item in app.markdown))
+            card = app.button(key='analysis_player_1')
+            self.assertEqual(card.label, '**Teste**\n\nMeia\n\nCadastro: ativo')
+            self.assertEqual(card.proto.icon, '👤')
+            self.assertFalse(any(button.label == 'Selecionar atleta' for button in app.button))
             self.assertEqual(len(app.code), 0)
             app.button(key='analysis_player_1').click().run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
@@ -87,7 +87,8 @@ show_history({i: {'id_atleta': i, 'nome': f'Atleta {i}'} for i in range(1, 9)})
         with patch.object(history, 'list_local_analyses', return_value=entries):
             app = AppTest.from_string(script).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
-            self.assertEqual([button.label for button in app.button], ['Selecionar atleta'] * 8)
+            self.assertEqual([button.key for button in app.button], [f'analysis_player_{i}' for i in range(1, 9)])
+            self.assertFalse(any(button.label == 'Selecionar atleta' for button in app.button))
             self.assertTrue(any('analysis_browser_results' in block.proto.id for block in app.get('flex_container')))
             app.button(key='analysis_player_8').click().run()
             self.assertEqual(len(app.exception), 0, list(app.exception))

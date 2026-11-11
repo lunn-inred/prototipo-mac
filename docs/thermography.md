@@ -156,8 +156,9 @@ para o mesmo jogador/data, a interface solicita confirmação antes de substitu�
 ## Abrir e editar análises anteriores
 
 O botão **Ver análises anteriores**, abaixo de **Voltar**, abre um pop-up com
-os cartões dos atletas e busca por nome. Ao selecionar um atleta, aparecem suas
-análises salvas com data e miniatura. As listas usam rolagem interna, sem paginação;
+os cartões dos atletas e busca por nome. O cartão inteiro é clicável e pode ser
+acionado também pelo teclado, sem um botão de seleção separado. Ao selecionar um
+atleta, aparecem suas análises salvas com data e miniatura. As listas usam rolagem interna, sem paginação;
 o pop-up pode ser fechado pelo X. A seleção de uma análise fecha o pop-up e
 abre o assistente na primeira etapa com os dados preenchidos. Isso substitui o
 rascunho em andamento, mas não modifica o registro salvo até a confirmação final.
