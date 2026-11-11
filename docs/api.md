@@ -80,10 +80,12 @@ Os formatos de imagens/matrizes e as operações permitidas estão em
 O frontend organiza a coleta em sete etapas com rascunho na sessão
 (`components/thermography/wizard.py`). O campo opcional `image_rotation`
 de `/thermography/segment` aceita 0, 90, 180 ou 270 graus anti-horários:
-`image` já deve estar rotacionada. O backend localiza as regiões na orientação
-original e transforma as caixas, preservando a lateralidade e a ordem da paleta.
-`operations/image_regions` recebe imagem, vista e rotação e retorna as caixas
-antes da segmentação. Correções manuais usam coordenadas da imagem rotacionada.
+`image` já deve estar rotacionada, com as pernas verticais e pés para baixo.
+O watershed segmenta nessa orientação; direita/esquerda são atribuídas pela posição
+na imagem e pela vista (invertidas nas costas). A barra térmica continua sendo
+localizada na orientação original e transformada, preservando a ordem da paleta.
+`operations/image_regions` retorna caixas derivadas das máscaras, `masks` e
+`segmentation_warning` opcional. Correções usam coordenadas da imagem enviada.
 
 `POST /api/v1/thermography/segment` recebe uma análise completa de uma vista:
 
@@ -100,8 +102,12 @@ com orientação EXIF corrigida e rotação aplicada. Seeds usam `int8`: `1` inc
 permanece desconhecido. O cliente converte coordenadas do canvas antes do envio.
 
 O resultado contém caixas automáticas/utilizadas, máscaras, temperaturas,
-métricas de área/pixels/percentual e previews. Sem caixas detectadas, a API
-fornece regiões iniciais para correção. A escala, o limiar e as regiões são
+métricas de área/pixels/percentual e previews. A segmentação automática não lê
+as caixas R1/R2 impressas. Se falhar, `image_regions` fornece regiões editáveis
+e um aviso; `/segment` rejeita a análise até a delimitação manual das duas pernas.
+`manual_boxes` continua disponível para delimitação/correção explícita, usando
+watershed dentro da região indicada. `seeds` inclui/exclui pixels exatamente;
+inclusões conflitantes e sobreposição de máscaras são rejeitadas. A escala, o limiar e as regiões são
 validados no backend. O Swagger apresenta os modelos de entrada e saída.
 
 Matrizes usam bytes em ordem C, comprimidos com zlib e codificados em base64:
@@ -134,7 +140,8 @@ interação. Recebe `{ "args": [...], "kwargs": {...} }` e retorna
 
 Para novos consumidores, prefira a rota tipada `/segment` para análise completa.
 `leg_part_metrics` aceita `region_box` opcional para manter os limites das partes
-relativos à caixa escolhida antes do GrabCut. A contagem continua restrita à máscara.
+relativos à caixa derivada da máscara automática ou escolhida manualmente.
+Exclusões pelo pincel não encolhem essa referência. A contagem continua restrita à máscara.
 As operações granulares preservam a interação do protótipo existente.
 
 As rotas de processamento são stateless. Para persistir uma análise, utilize

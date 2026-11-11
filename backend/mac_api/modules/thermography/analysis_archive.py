@@ -14,9 +14,9 @@ import numpy as np
 from PIL import Image
 from backend.mac_api.core.settings import setting
 from .thermal_analysis import count_hot_pixels, leg_part_metrics
+from .watershed import ALGORITHM_VERSION as ANALYSIS_VERSION
 
 FORMAT_VERSION = 1
-ANALYSIS_VERSION = 'thermal-rgb-grabcut-v1'
 
 
 def analyses_directory():

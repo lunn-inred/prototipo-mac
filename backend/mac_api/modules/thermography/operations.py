@@ -74,6 +74,7 @@ class SegmentationOutput(BaseModel):
     colorbar_confidence: float
     temperatures: ArrayPayload
     threshold: float
+    segmentation_warning: str | None = None
 
 
 @router.post('/thermography/segment', response_model=SegmentationOutput, tags=['Processamento térmico'])

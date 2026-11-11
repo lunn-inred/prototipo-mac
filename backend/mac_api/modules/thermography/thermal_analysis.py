@@ -1,4 +1,4 @@
-"""Análise aproximada de termografias HIKMICRO pseudocoloridas."""
+"""Segmentação watershed e análise aproximada de termografias pseudocoloridas."""
 
 from __future__ import annotations
 
@@ -13,18 +13,34 @@ from PIL import Image, ImageDraw
 from backend.mac_api.core.image_fonts import image_font
 from .comparison_alignment import align_leg_to_baseline, fit_baseline_field
 from scipy.spatial import cKDTree
+from .watershed import segment_pair, segment_region, mask_box, correct_mask, validate_seeds
 
 
 def image_regions(image, view, image_rotation=0):
+    if min(image.size) < 16:
+        raise ValueError('A imagem é pequena demais para segmentar as pernas.')
+    if view not in ('front', 'back'):
+        raise ValueError("A vista deve ser 'front' ou 'back'.")
     if image_rotation not in (0, 90, 180, 270):
         raise ValueError('Rotação deve ser 0, 90, 180 ou 270 graus.')
     original = image.rotate(-image_rotation, expand=True)
-    detected = detect_leg_boxes(original)
+    warning = None
+    masks = None
+    try:
+        pair = segment_pair(image)
+        sides = ('right', 'left') if view == 'front' else ('left', 'right')
+        masks = dict(zip(sides, pair))
+        boxes = {side: mask_box(mask) for side, mask in masks.items()}
+    except ValueError as error:
+        warning = str(error)
+        # Editable recovery regions, never silently accepted as valid masks.
+        w, h = image.size
+        defaults = [dict(left=int(w*x), top=int(h*.20),
+                         width=max(1, int(w*.40)), height=max(1, int(h*.72)))
+                    for x in (.06, .54)]
+        sides = ('right', 'left') if view == 'front' else ('left', 'right')
+        boxes = dict(zip(sides, defaults))
     width, height = original.size
-    defaults = [dict(left=int(width*.12), top=int(height*top),
-                     width=max(1, int(width*.62)), height=max(1, int(height*.30)))
-                for top in (.28, .60)]
-    detected = [*detected, *defaults[len(detected):]][:2]
     def rotate_box(box):
         x, y, w, h = (box[key] for key in ('left', 'top', 'width', 'height'))
         if image_rotation == 90:
@@ -35,8 +51,7 @@ def image_regions(image, view, image_rotation=0):
             x, y, w, h = height-y-h, x, h, w
         return dict(left=x, top=y, width=w, height=h)
     colorbar, confidence = detect_colorbar_box(original)
-    sides = ('right', 'left') if view == 'front' else ('left', 'right')
-    return dict(boxes=dict(zip(sides, map(rotate_box, detected))),
+    return dict(boxes=boxes, masks=masks, segmentation_warning=warning,
                 colorbar_box=rotate_box(colorbar), confidence=confidence)
 
 
@@ -66,7 +81,32 @@ def segmented_image(image, view, minimum_temperature, maximum_temperature, thres
             raise ValueError('A região ultrapassa os limites da imagem.')
     temperatures = temperature_matrix(image, minimum_temperature, maximum_temperature, colorbar,
                                       image_rotation=image_rotation)
-    masks = {side: segment_leg_mask(image, box, (seeds or {}).get(side)) for side, box in boxes.items()}
+    if seeds is not None and set(seeds) - {'right', 'left'}:
+        raise ValueError('As correções devem identificar somente as pernas direita e esquerda.')
+    automatic_masks = regions['masks']
+    masks = {}
+    for side, box in boxes.items():
+        seed = (seeds or {}).get(side)
+        if side in (manual_boxes or {}):
+            masks[side] = segment_leg_mask(image, box, seed)
+        elif automatic_masks is not None:
+            masks[side] = correct_mask(automatic_masks[side], seed)
+            # Keep the original anatomical reference; expand only for explicit
+            # additions outside it, never shrink after brush exclusions.
+            extent = mask_box(masks[side] | automatic_masks[side])
+            boxes[side] = extent
+        else:
+            raise ValueError(regions['segmentation_warning'])
+    # Explicit inclusion transfers ownership; contradictory strokes are rejected.
+    corrections = {side: validate_seeds((seeds or {}).get(side), (height, width)) for side in masks}
+    if all(corrections[side] is not None for side in masks):
+        if np.any((corrections['right'] > 0) & (corrections['left'] > 0)):
+            raise ValueError('O mesmo pixel não pode ser incluído nas duas pernas.')
+    for side, other in (('right', 'left'), ('left', 'right')):
+        if corrections[side] is not None:
+            masks[other][corrections[side] > 0] = False
+    if np.any(masks['right'] & masks['left']):
+        raise ValueError('As regiões segmentadas das pernas se sobrepõem. Ajuste as regiões ou exclua os pixels em comum.')
     metrics = {}
     for side, box in boxes.items():
         hot, area = count_hot_pixels(temperatures, box, threshold, masks[side])
@@ -80,6 +120,7 @@ def segmented_image(image, view, minimum_temperature, maximum_temperature, thres
             'hot_overlay': hot_pixels_overlay(image, temperatures, masks, threshold),
             'automatic_boxes': automatic, 'colorbar_box': colorbar,
             'automatic_colorbar_box': auto_colorbar, 'colorbar_confidence': confidence,
+            'segmentation_warning': regions['segmentation_warning'],
             'temperatures': temperatures, 'threshold': threshold}
 
 
@@ -370,34 +411,8 @@ def temperature_matrix(
 
 
 def detect_leg_boxes(image: Image.Image) -> list[dict[str, int]]:
-    """Detecta as duas caixas brancas R1/R2 do layout HIKMICRO atual."""
-    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-    _, binary = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
-    binary = cv2.morphologyEx(
-        binary, cv2.MORPH_CLOSE, np.ones((3, 3), dtype=np.uint8)
-    )
-    contours, _ = cv2.findContours(
-        binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
-    height, width = gray.shape
-    boxes: list[dict[str, int]] = []
-    for contour in contours:
-        left, top, box_width, box_height = cv2.boundingRect(contour)
-        area = box_width * box_height
-        aspect_ratio = box_width / box_height if box_height else 0
-        if (
-            area > width * height * 0.05
-            and aspect_ratio > 2.0
-            and box_width > width * 0.3
-            and box_height > height * 0.15
-        ):
-            boxes.append({
-                "left": int(left), "top": int(top),
-                "width": int(box_width), "height": int(box_height),
-            })
-    boxes.sort(key=lambda box: box["top"])
-    return boxes
+    """Derive boxes from watershed masks in an upright image, left to right."""
+    return [mask_box(mask) for mask in segment_pair(image)]
 
 
 def annotate_boxes(
@@ -733,61 +748,13 @@ def segment_leg_mask(
     seed_mask: np.ndarray | None = None,
     iterations: int = 5,
 ) -> np.ndarray:
-    """Segmenta a perna dentro da caixa com GrabCut e ajustes manuais opcionais.
+    """Segmenta uma região manual por watershed e correções opcionais.
 
     ``seed_mask`` usa ``1`` para inclusão, ``-1`` para exclusão e ``0`` para
     pixels ainda desconhecidos.
     """
-    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-    height, width = rgb.shape[:2]
-    left = max(0, min(width - 1, int(box["left"])))
-    top = max(0, min(height - 1, int(box["top"])))
-    right = max(left + 1, min(width, left + int(box["width"])))
-    bottom = max(top + 1, min(height, top + int(box["height"])))
-    inset = 3
-    left, top = min(right - 1, left + inset), min(bottom - 1, top + inset)
-    right, bottom = max(left + 1, right - inset), max(top + 1, bottom - inset)
-
-    grabcut = np.full((height, width), cv2.GC_BGD, dtype=np.uint8)
-    grabcut[top:bottom, left:right] = cv2.GC_PR_FGD
-    margin = max(2, min(8, (bottom - top) // 12))
-    grabcut[top:top + margin, left:right] = cv2.GC_PR_BGD
-    grabcut[bottom - margin:bottom, left:right] = cv2.GC_PR_BGD
-
-    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
-    patch = lab[top:bottom, left:right]
-    edges = np.concatenate(
-        (patch[:margin].reshape(-1, 3), patch[-margin:].reshape(-1, 3)), axis=0
-    )
-    background = np.median(edges, axis=0)
-    distance = np.linalg.norm(patch - background, axis=2)
-    local = grabcut[top:bottom, left:right]
-    local[distance < 9.0] = cv2.GC_BGD
-    foreground = distance > max(18.0, float(np.percentile(distance, 68)))
-    border = max(5, margin)
-    foreground[:border] = foreground[-border:] = False
-    foreground[:, :border] = foreground[:, -border:] = False
-    local[foreground] = cv2.GC_FGD
-
-    if seed_mask is not None:
-        if seed_mask.shape != (height, width):
-            raise ValueError("A máscara de correção possui dimensões inválidas.")
-        grabcut[seed_mask < 0] = cv2.GC_BGD
-        grabcut[seed_mask > 0] = cv2.GC_FGD
-
-    background_model = np.zeros((1, 65), np.float64)
-    foreground_model = np.zeros((1, 65), np.float64)
-    cv2.grabCut(
-        bgr, grabcut, None, background_model, foreground_model,
-        iterations, cv2.GC_INIT_WITH_MASK,
-    )
-    result = np.isin(grabcut, (cv2.GC_FGD, cv2.GC_PR_FGD)).astype(np.uint8)
-    result[:top] = result[bottom:] = 0
-    result[:, :left] = result[:, right:] = 0
-    result = cv2.morphologyEx(result, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
-    return result.astype(bool)
+    # iterations is retained for compatibility with existing granular clients.
+    return segment_region(image, box, seed_mask)
 
 
 def segmentation_overlay(

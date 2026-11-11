@@ -22,7 +22,7 @@ from frontend.streamlit.components.thermography.editor import (
 from frontend.streamlit.presentation.thermography_data import athlete_label
 from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
 
-STEPS = ('Dados da coleta', 'Imagens e rotação', 'Caixas das pernas e barra de cores',
+STEPS = ('Dados da coleta', 'Imagens e rotação', 'Regiões das pernas e barra de cores',
          'Divisão anatômica', 'Segmentação', 'Cálculo da termografia', 'Resumo da coleta')
 
 
@@ -306,6 +306,10 @@ def render_wizard(athletes_by_id):
                 try:
                     regions = image_regions(image, view, item['image_rotation'])
                     automatic, colorbar = regions['boxes'], regions['colorbar_box']
+                    if regions.get('segmentation_warning'):
+                        st.warning(regions['segmentation_warning'])
+                        if set(item.get('manual_boxes', {})) != {'right', 'left'}:
+                            valid = False
                     boxes = {**automatic, **item.get('manual_boxes', {})}
                     preview = annotate_boxes(image, {'Perna direita': boxes['right'], 'Perna esquerda': boxes['left'], 'Barra térmica': item.get('manual_colorbar_box', colorbar)})
                 except ValueError as error:
@@ -313,6 +317,7 @@ def render_wizard(athletes_by_id):
                     valid = False
                     continue
                 if step == 2:
+                    st.caption('Confira as regiões encontradas e a barra de cores. As pernas devem estar com os pés para baixo.')
                     centered_preview(preview, caption='Área das pernas', max_width=700, max_height=400)
                     box_actions[view] = (key, image, automatic, colorbar)
                 else:
@@ -370,7 +375,7 @@ def render_wizard(athletes_by_id):
         for button_column, view in zip(st.columns(2, gap='large'), VIEW_LABELS):
             if view in box_actions:
                 key, image, automatic, colorbar = box_actions[view]
-                if button_column.button('Redefinir retângulos', key=f'wizard_boxes_{key}', width='stretch'):
+                if button_column.button('Ajustar regiões', key=f'wizard_boxes_{key}', width='stretch'):
                     edit_thermal_boxes(key, image, automatic, colorbar)
     if step == 5:
         if valid:

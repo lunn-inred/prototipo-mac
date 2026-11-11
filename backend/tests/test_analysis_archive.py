@@ -47,7 +47,8 @@ class ArchiveTests(unittest.TestCase):
         folder = Path(self.directory.name)/'atleta_123'/'2026-10-14'/f'analise_{saved["id"]}'
         self.assertTrue((folder/'frente/original.png').is_file())
         self.assertTrue((folder/'verso/mascara_esquerda.png').is_file())
-        metadata = json.loads((folder/'metadados.json').read_text())
+        metadata = json.loads((folder/'metadados.json').read_text(encoding='utf-8'))
+        self.assertEqual(metadata['algorithm_version'], 'thermal-rgb-watershed-v1')
         self.assertEqual(metadata['athlete_name'], 'João / teste')
         self.assertEqual(metadata['views']['front']['part_settings']['right']['boundaries_pixels'], [3,6,9])
         self.assertNotIn('database_reference', metadata)
@@ -110,4 +111,19 @@ class ArchiveTests(unittest.TestCase):
         with patch.dict(os.environ, MAC_ANALYSES_DIR='./data/thermography'), \
              patch.object(archive.sys, 'frozen', True, create=True), \
              patch.object(archive.sys, 'executable', '/tmp/mac-archive-binary/MAC Performance'):
-            self.assertEqual(archive.analyses_directory(), Path('/tmp/mac-archive-binary/data/thermography'))
+            self.assertEqual(archive.analyses_directory(), Path('/tmp/mac-archive-binary/data/thermography').resolve())
+
+    def test_old_grabcut_analysis_loads_without_resegmenting(self):
+        saved = self.save()
+        folder = Path(self.directory.name)/'atleta_123'/'2026-10-14'/f'analise_{saved["id"]}'
+        metadata_path = folder/'metadados.json'
+        metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+        metadata['algorithm_version'] = 'thermal-rgb-grabcut-v1'
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False), encoding='utf-8')
+        with patch('backend.mac_api.modules.thermography.thermal_analysis.segment_pair',
+                   side_effect=AssertionError('Não resegmentar análises existentes')):
+            response = self.client.get(f'/api/v1/thermography/analyses/123/2026-10-14/{saved["id"]}', headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        loaded = decode(response.json())
+        np.testing.assert_array_equal(loaded['views']['front']['segmentation_masks']['right'],
+                                      example_views()['front']['segmentation_masks']['right'])

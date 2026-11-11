@@ -19,11 +19,11 @@ somente uma etapa por vez:
 
 1. Jogador, massa, EVA Dor e observações opcionais.
 2. Upload de frente/costas, prévia e botão para girar 90° para a direita.
-3. Caixas das pernas e barra de cores, com **Redefinir retângulos** em uma linha
+3. Regiões das pernas e barra de cores, com **Ajustar regiões** em uma linha
    alinhada às colunas de **Voltar** e **Continuar**.
 4. Divisão de cada perna em coxa, joelho, canela e pé, com uma prévia anatômica por vista
    e o botão **Redefinir regiões**.
-5. Segmentação automática por GrabCut e correção manual pelo botão **Ajustar área perna**.
+5. Revisão da segmentação automática por watershed e correção manual pelo botão **Ajustar área perna**.
 6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala e métricas.
    Cada vista apresenta a imagem
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
@@ -33,8 +33,9 @@ somente uma etapa por vez:
    com uma única confirmação de data. Voltar e iniciar outra análise aparecem abaixo.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
-anatômica, o GrabCut ainda não é executado: os limites são definidos sobre as
-caixas das pernas e mantêm suas coordenadas depois da segmentação. Os canvases
+anatômica, os limites são definidos sobre as caixas derivadas das máscaras
+watershed (ou delimitadas manualmente) e mantêm suas coordenadas depois de
+exclusões pelo pincel. Os canvases
 dos pop-ups são centralizados.
 
 Os diálogos de edição ocupam até 96% da largura da janela, limitados a 1600 px,
@@ -96,9 +97,12 @@ contagens e a visualização multicolorida para reutilização; a timeline solic
 `only_new=True`, sem modificar os registros salvos.
 
 Na nova análise, o usuário informa jogador, massa, data da coleta, EVA Dor e,
-opcionalmente, observações. O sistema tenta identificar automaticamente as duas
-caixas R1/R2; quando elas não existem ou estão incorretas, cria regiões iniciais
-que podem ser redesenhadas pelo usuário. A lateralidade é invertida entre frente
+opcionalmente, observações. O sistema segmenta as pernas na imagem inteira por
+watershed, sem ler as caixas R1/R2 impressas. As pernas devem estar verticais,
+com os pés para baixo; use a rotação na etapa de imagens. As caixas exibidas são
+derivadas das máscaras. Se a detecção falhar, o aviso solicita rotação ou
+delimitação das duas pernas em **Ajustar regiões** antes de continuar.
+A lateralidade é invertida entre frente
 e costas e o OCR é aplicado às regiões superior e inferior
 do canto direito para preencher automaticamente Tmax e Tmin. Os campos continuam
 editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece uma
@@ -114,12 +118,22 @@ convertida em °C. A porcentagem aceita de 0 a 100 e a temperatura fica limitada
 a Tmin/Tmax. Se a escala mudar no modo °C, preserva-se o valor absoluto quando
 possível, limitando-o aos novos extremos. O preenchimento aceita duas casas decimais.
 
-Dentro de cada região, o GrabCut separa os pixels da perna do fundo. A prévia
-exibe a máscara sobre a imagem e oferece dois ajustes manuais: **Redefinir retângulos**, para redesenhar o retângulo de cada perna, e **Ajustar área perna**,
+O watershed usa marcadores automáticos da paleta térmica, incluindo os dois
+extremos de vermelho do HSV. Linhas finas claras são suprimidas apenas numa cópia
+de processamento; os valores RGB originais continuam sendo usados nos cálculos.
+O espaço entre as pernas fornece a separação inicial; não há preenchimento global
+de contornos que transforme as caixas impressas em área válida. O método ainda
+depende de contraste/paleta e enquadramento: confira o início das coxas, os pés,
+roupas e textos sobrepostos. A segmentação não recupera temperaturas ocultadas
+por anotações da câmera.
+
+A prévia exibe a máscara sobre a imagem e oferece dois ajustes manuais:
+**Ajustar regiões**, para delimitar explicitamente uma perna e executar watershed
+dentro dessa área, e **Ajustar área perna**,
 com pincel verde para incluir área e vermelho para excluir área. Os controles
 Perna, Pincel e Tamanho do pincel ficam lado a lado no diálogo. Cada ajuste
 recalcula as métricas. A barra térmica vertical também é localizada
-automaticamente e destacada na prévia. Dentro de **Redefinir retângulos**, a opção
+automaticamente e destacada na prévia. Dentro de **Ajustar regiões**, a opção
 **Barra de cores** permite redesenhar sua caixa; a paleta extraída dessa região é a fonte usada
 para converter as cores da imagem em temperaturas aproximadas. Para cada perna
 e para os totais de frente/costas, a tela
@@ -128,6 +142,10 @@ apresenta a quantidade de pixels quentes, a área total segmentada e o percentua
 denominador. Ao lado da máscara, uma segunda prévia usa fundo preto e mantém
 visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
 limiar térmico selecionado.
+
+Novas análises usam a versão `thermal-rgb-watershed-v1`. O formato de arquivos
+permanece o mesmo; análises GrabCut existentes conservam máscaras, temperaturas,
+divisões e comparação originais, sem resegmentação automática ao abrir a timeline.
 
 Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
 **Divisão anatômica**, arraste os três limites no pop-up **Redefinir regiões**.

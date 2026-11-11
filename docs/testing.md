@@ -4,6 +4,28 @@
 
 ## Suíte automatizada
 
+Regressões da segmentação watershed (sem banco, OCR ou dados privados):
+
+```bash
+python -X utf8 -m unittest backend.tests.test_watershed backend.tests.test_thermal_rotation backend.tests.test_processing_contracts backend.tests.test_analysis_archive frontend.tests.test_thermal_wizard -v
+```
+
+Validam a faixa circular de vermelho, linhas R1/R2 sem inclusão do fundo,
+lateralidade frente/costas, rotação já aplicada, pincéis, recuperação por regiões
+manuais, contagens via HTTP, referências anatômicas e leitura de arquivos GrabCut
+sem resegmentação. A suíte usa UTF-8 explícito para rodar também no Windows.
+`scripts/validate_watershed.py` permite repetir manualmente o pipeline em lotes
+locais, com `--session PASTA ROTACAO GLOB --output PASTA_SEPARADA` (repetível).
+Esse replay usa escala ilustrativa para conferir os contratos e não mede precisão
+anatômica ou temperatura clínica. Não roda sobre imagens reais como parte dos testes.
+
+Na validação local da integração, 229 das 230 termografias dos quatro lotes
+geraram máscaras; uma imagem com enquadramento fechado exigiu delimitação manual.
+A correção da faixa vermelha reduziu o indicador de buracos internos nos lotes
+FLIR de 1,270% para 0,068% e de 1,487% para 0,107%. Esse indicador mede apenas
+pixels ausentes dentro dos contornos, não precisão anatômica. As imagens e as
+galerias de validação ficam fora do versionamento em `data/watershed-validation/`.
+
 ```bash
 python -m unittest discover -v
 ```

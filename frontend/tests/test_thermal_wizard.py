@@ -62,12 +62,13 @@ class ThermalWizardTests(unittest.TestCase):
             kwargs.pop('timeout', None)
             processing_requests.append(urlsplit(url).path)
             return client.request(method, urlsplit(url).path, **kwargs)
-        image = Image.new('RGB', (320, 200), (15, 15, 15))
+        image = Image.new('RGB', (240, 320), (170, 0, 210))
         draw = ImageDraw.Draw(image)
-        draw.ellipse((45, 62, 215, 102), fill=(230, 55, 25))
-        draw.ellipse((45, 125, 215, 162), fill=(240, 70, 25))
-        for y in range(20, 180):
-            draw.line((280, y, 294, y), fill=(255-y, y, 40))
+        draw.rectangle((65, 30, 170, 90), fill=(40, 185, 80))
+        draw.polygon([(68, 75), (115, 75), (102, 170), (75, 290), (45, 290)], fill=(230, 55, 25))
+        draw.polygon([(125, 75), (169, 75), (195, 290), (165, 290), (137, 170)], fill=(240, 70, 25))
+        for y in range(30, 280):
+            draw.line((226, y, 234, y), fill=(255-y//2, y//2, 30))
         buffer = io.BytesIO(); image.save(buffer, format='PNG')
         upload_labels = []
         def upload(label, **kwargs):
@@ -132,7 +133,7 @@ class ThermalWizardTests(unittest.TestCase):
                     self.assertEqual(app.session_state['thermal_uploads']['front']['rotation'], 0)
                 if step == 2:
                     labels = [button.label for button in app.button]
-                    self.assertEqual(labels.count('Redefinir retângulos'), 2)
+                    self.assertEqual(labels.count('Ajustar regiões'), 2)
                     self.assertNotIn('Corrigir Áreas', labels)
                     self.assertEqual(labels[-2:], ['Voltar', 'Continuar'])
                     self.assertIn('#### Costas', [text.value for text in app.markdown])

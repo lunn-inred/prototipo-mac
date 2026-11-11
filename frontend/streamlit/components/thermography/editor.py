@@ -111,21 +111,8 @@ def _scaled_box(
 
 
 def _automatic_boxes(image: Image.Image, view_key: str) -> dict[str, dict[str, int]]:
-    detected = detect_leg_boxes(image)
-    if len(detected) < 2:
-        width, height = image.size
-        defaults = [
-            {"left": int(width * .12), "top": int(height * .28),
-             "width": int(width * .62), "height": int(height * .30)},
-            {"left": int(width * .12), "top": int(height * .60),
-             "width": int(width * .62), "height": int(height * .30)},
-        ]
-        detected = [*detected, *defaults[len(detected):]]
-    first, second = detected[:2]
-    return (
-        {"right": first, "left": second}
-        if view_key == "front" else {"left": first, "right": second}
-    )
+    from frontend.streamlit.api_client.thermal_client import image_regions
+    return image_regions(image, view_key)['boxes']
 
 
 def _canvas_seeds(
@@ -207,7 +194,7 @@ def _parts_preview(image: Image.Image, analysis: dict[str, Any],
     return preview
 
 
-@st.dialog("Redefinir retângulos", width="large")
+@st.dialog("Ajustar regiões", width="large")
 def edit_thermal_boxes(
     item_key: str,
     image: Image.Image,
@@ -373,7 +360,7 @@ def cached_temperature_scale(content: bytes) -> dict[str, float]:
 
 def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature, threshold, item):
     from frontend.streamlit.api_client.thermal_client import segmented_image
-    config = (minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
+    config = ('watershed-v1', minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
               repr(item.get('manual_boxes')), repr(item.get('manual_colorbar_box')),
               tuple((side, hashlib.sha256(seed.tobytes()).hexdigest())
                     for side, seed in sorted(item.get('mask_seeds', {}).items())))
@@ -622,7 +609,7 @@ def render_view(
     )
     edit_columns = st.columns(2)
     if edit_columns[0].button(
-        "Redefinir retângulos", key=f"thermal_edit_boxes_{item_key}",
+        "Ajustar regiões", key=f"thermal_edit_boxes_{item_key}",
         width="stretch",
     ):
         edit_thermal_boxes(

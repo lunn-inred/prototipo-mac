@@ -15,11 +15,17 @@ class ThermalRotationTests(unittest.TestCase):
         legs = [dict(left=10, top=10, width=40, height=20),
                 dict(left=10, top=45, width=40, height=20)]
         baseline = temperature_matrix(image, 20, 40, bar)
-        with patch('backend.mac_api.modules.thermography.thermal_analysis.detect_leg_boxes', return_value=legs), \
-             patch('backend.mac_api.modules.thermography.thermal_analysis.detect_colorbar_box', return_value=(bar, 1.0)):
+        masks = []
+        for box in legs:
+            mask = np.zeros((80, 100), bool)
+            mask[box['top']:box['top']+box['height'], box['left']:box['left']+box['width']] = True
+            masks.append(mask)
+        with patch('backend.mac_api.modules.thermography.thermal_analysis.detect_colorbar_box', return_value=(bar, 1.0)):
             for degrees in (0, 90, 180, 270):
                 rotated = image.rotate(degrees, expand=True)
-                regions = image_regions(rotated, 'front', degrees)
+                rotated_masks = [np.asarray(Image.fromarray(mask).rotate(degrees, expand=True)) for mask in masks]
+                with patch('backend.mac_api.modules.thermography.thermal_analysis.segment_pair', return_value=rotated_masks):
+                    regions = image_regions(rotated, 'front', degrees)
                 actual = temperature_matrix(rotated, 20, 40, regions['colorbar_box'], image_rotation=degrees)
                 expected = np.asarray(Image.fromarray(baseline).rotate(degrees, expand=True))
                 np.testing.assert_allclose(actual, expected)
