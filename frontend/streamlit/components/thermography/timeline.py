@@ -25,6 +25,7 @@ from frontend.streamlit.api_client.service_gateway import (
 )
 from frontend.streamlit.components.thermography.editor import LEGS, VIEW_LABELS
 from frontend.streamlit.api_client.local_analyses import save_local_analysis, list_local_analyses, load_local_analysis
+from .analysis_cards import render_analysis_card_style, selectable_analysis_card
 
 @st.cache_data(ttl=60, show_spinner=False)
 def _load_saved_entry(entry):
@@ -65,6 +66,7 @@ def _select_baseline(entry_id: str, athlete_id: int) -> None:
 
 @st.dialog("Mudar Basal", width="large")
 def choose_baseline(athlete_id: int) -> None:
+    render_analysis_card_style()
     st.caption("Selecione uma análise deste jogador para usar como basal.")
     entries = st.session_state.get('thermography_timeline', [])
     columns = st.columns(3)
@@ -72,16 +74,11 @@ def choose_baseline(athlete_id: int) -> None:
         if int(entry['athlete_id']) != athlete_id:
             continue
         with columns[index % 3]:
-            with st.container(border=True):
-                thumbnail = entry['thumbnail'].copy()
-                thumbnail.thumbnail((250, 180))
-                st.image(thumbnail, width='content')
-                st.write(entry['collected_at'].strftime('%d/%m/%Y'))
-                st.caption(f"Análise {entry['id'][:8]}")
-                if st.button('Selecionar', key=f"timeline_basal_{entry['id']}",
-                             width='stretch', on_click=_select_baseline,
-                             args=(str(entry['id']), athlete_id)):
-                    st.rerun()
+            if selectable_analysis_card(
+                entry, key=f"timeline_basal_{entry['id']}", on_click=_select_baseline,
+                args=(str(entry['id']), athlete_id), details=f"Análise {entry['id'][:8]}",
+            ):
+                st.rerun()
 
 
 def _timeline_view_at_threshold(source, threshold):

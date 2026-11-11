@@ -6,6 +6,7 @@ from frontend.streamlit.api_client.local_analyses import list_local_analyses, lo
 from frontend.streamlit.components.player_cards import render_player_card_style, selectable_player_card
 from frontend.streamlit.presentation.player_data import player_name
 from .draft_state import clear_analysis_draft
+from .analysis_cards import render_analysis_card_style, selectable_analysis_card
 
 
 def load_into_wizard(entry):
@@ -79,6 +80,7 @@ def show_history(athletes):
                     with column:
                         selectable_player_card(athlete, on_click=_choose_player)
     else:
+        render_analysis_card_style()
         st.markdown(f'#### Análises de {player_name(athletes[player_id])}')
         st.button('Voltar aos atletas', width='stretch', on_click=_choose_player, args=(None,), key='analysis_browser_back')
         try:
@@ -91,12 +93,11 @@ def show_history(athletes):
             for start in range(0, len(analyses), 3):
                 for column, entry in zip(st.columns(3), analyses[start:start+3]):
                     with column:
-                        with st.container(border=True):
-                            st.markdown(f'**{entry["collected_at"]:%d/%m/%Y}**')
-                            st.image(entry['thumbnail'], width='content')
-                            st.caption(f'Massa: {entry["mass"] if entry["mass"] is not None else "—"} kg · EVA: {entry["pain_score"] if entry["pain_score"] is not None else "—"}')
-                            st.button('Selecionar análise', width='stretch', key=f'analysis_select_{entry["id"]}',
-                                      on_click=_select_analysis, args=(entry,))
+                        selectable_analysis_card(
+                            entry, key=f'analysis_select_{entry["id"]}',
+                            on_click=_select_analysis, args=(entry,),
+                            details=f'Massa: {entry["mass"] if entry["mass"] is not None else "—"} kg · EVA: {entry["pain_score"] if entry["pain_score"] is not None else "—"}',
+                        )
     if error := st.session_state.get('analysis_browser_error'):
         st.error(error)
     st.caption('Ao abrir uma análise, o rascunho atual é substituído. Os registros só mudam ao salvar.')
