@@ -159,7 +159,9 @@ O botão **Ver análises anteriores**, abaixo de **Voltar**, abre um pop-up com
 os cartões dos atletas e busca por nome. O cartão inteiro é clicável e pode ser
 acionado também pelo teclado, sem um botão de seleção separado. Ao selecionar um
 atleta, aparecem suas análises salvas com data e miniatura. As listas usam rolagem interna, sem paginação;
-o pop-up pode ser fechado pelo X. Os cartões de análise também são inteiramente
+o pop-up pode ser fechado pelo X. Cada nova abertura volta à seleção de atletas
+com a busca limpa, sem descartar o rascunho. Dentro da lista de análises, **Voltar
+aos atletas** fica abaixo dos cartões. Os cartões de análise também são inteiramente
 clicáveis, incluindo a miniatura e a data, tanto aqui quanto em **Mudar Basal** na
 timeline, sem botões de seleção separados. A seleção de uma análise fecha o pop-up e
 abre o assistente na primeira etapa com os dados preenchidos. Isso substitui o

@@ -97,12 +97,56 @@ show_history({i: {'id_atleta': i, 'nome': f'Atleta {i}'} for i in range(1, 9)})
             self.assertTrue(any('analysis_browser_results' in block.proto.id for block in app.get('flex_container')))
             app.button(key='analysis_player_8').click().run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
-            self.assertEqual([button.key for button in app.button], ['analysis_browser_back'] + [f'analysis_select_analysis-{i}' for i in range(7)])
+            self.assertEqual([button.key for button in app.button], [f'analysis_select_analysis-{i}' for i in range(7)] + ['analysis_browser_back'])
             app.button(key='analysis_browser_back').click().run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertEqual(len(app.button), 8)
             app.text_input(key='analysis_browser_query').set_value('Atleta 8').run()
             self.assertEqual([button.key for button in app.button], ['analysis_player_8'])
+
+    def test_new_opening_resets_browser_navigation_but_keeps_current_draft(self):
+        script = '''
+from frontend.streamlit.components.thermography.history import render_history_button
+render_history_button({1: {'id_atleta': 1, 'nome': 'Teste'}})
+'''
+        app = AppTest.from_string(script)
+        app.session_state['analysis_browser_player'] = 1
+        app.session_state['analysis_browser_query'] = 'Busca anterior'
+        app.session_state['analysis_browser_error'] = 'Erro anterior'
+        app.session_state['thermal_draft'] = {'player': 7, 'notes': 'Preservar'}
+        with patch.object(history, 'show_history') as dialog:
+            app.run()
+            app.button(key='thermal_history_open').click().run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            dialog.assert_called_once()
+            self.assertNotIn('analysis_browser_player', app.session_state)
+            self.assertNotIn('analysis_browser_query', app.session_state)
+            self.assertNotIn('analysis_browser_error', app.session_state)
+            self.assertEqual(app.session_state['thermal_draft']['notes'], 'Preservar')
+            self.assertFalse(app.error)
+            # AppTest não simula o X: representar o estado deixado ao fechar.
+            app.session_state['analysis_browser_player'] = 1
+            app.session_state['analysis_browser_query'] = 'Teste'
+            app.run()
+            app.button(key='thermal_history_open').click().run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertNotIn('analysis_browser_player', app.session_state)
+            self.assertNotIn('analysis_browser_query', app.session_state)
+            self.assertEqual(dialog.call_count, 2)
+
+    def test_back_button_remains_available_when_analysis_listing_fails(self):
+        script = '''
+import streamlit as st
+from frontend.streamlit.components.thermography.history import show_history
+st.session_state.setdefault('analysis_browser_player', 1)
+show_history({1: {'id_atleta': 1, 'nome': 'Teste'}})
+'''
+        with patch.object(history, 'list_local_analyses', side_effect=ValueError('Indisponível')):
+            app = AppTest.from_string(script).run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertEqual(app.button[-1].key, 'analysis_browser_back')
+            app.button(key='analysis_browser_back').click().run()
+            self.assertTrue(any(button.key == 'analysis_player_1' for button in app.button))
 
     def test_reopened_wizard_keeps_saved_masks_without_automatic_resegmentation(self):
         state = {}

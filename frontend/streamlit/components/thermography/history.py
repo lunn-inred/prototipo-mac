@@ -82,15 +82,15 @@ def show_history(athletes):
     else:
         render_analysis_card_style()
         st.markdown(f'#### Análises de {player_name(athletes[player_id])}')
-        st.button('Voltar aos atletas', width='stretch', on_click=_choose_player, args=(None,), key='analysis_browser_back')
         try:
             analyses = sorted(list_local_analyses(player_id), key=lambda item: (item['collected_at'], item['created_at']), reverse=True)
         except ValueError as error:
-            st.error(str(error)); return
-        if not analyses:
+            st.error(str(error))
+            analyses = None
+        if analyses == []:
             st.info('Não há análises salvas para este atleta.')
         with st.container(height=450, border=False, key='analysis_browser_results'):
-            for start in range(0, len(analyses), 3):
+            for start in range(0, len(analyses or []), 3):
                 for column, entry in zip(st.columns(3), analyses[start:start+3]):
                     with column:
                         selectable_analysis_card(
@@ -98,13 +98,20 @@ def show_history(athletes):
                             on_click=_select_analysis, args=(entry,),
                             details=f'Massa: {entry["mass"] if entry["mass"] is not None else "—"} kg · EVA: {entry["pain_score"] if entry["pain_score"] is not None else "—"}',
                         )
+        st.button('Voltar aos atletas', width='stretch', on_click=_choose_player, args=(None,), key='analysis_browser_back')
     if error := st.session_state.get('analysis_browser_error'):
         st.error(error)
-    st.caption('Ao abrir uma análise, o rascunho atual é substituído. Os registros só mudam ao salvar.')
+
+
+def _reset_browser():
+    # Callback do botão: não reiniciar durante reruns internos do diálogo.
+    for key in list(st.session_state):
+        if key.startswith('analysis_browser_'):
+            st.session_state.pop(key, None)
 
 
 @st.fragment
 def render_history_button(athletes):
-    if st.button('Ver análises anteriores', width='stretch', disabled=not athletes, key='thermal_history_open'):
-        st.session_state.pop('analysis_browser_loaded', None)
+    if st.button('Ver análises anteriores', width='stretch', disabled=not athletes,
+                 key='thermal_history_open', on_click=_reset_browser):
         show_history(athletes)
