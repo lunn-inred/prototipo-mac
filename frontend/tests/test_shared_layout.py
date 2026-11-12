@@ -20,3 +20,16 @@ class SharedLayoutTests(unittest.TestCase):
         self.assertIn('margin-inline: auto', css)
         self.assertIn('@media (max-width: 900px)', css)
         self.assertIn('width: 100%', css)
+
+    @patch('frontend.streamlit.components.ui.st.logo')
+    @patch('frontend.streamlit.components.ui.st.markdown')
+    def test_sidebar_logo_is_centered_without_reserving_collapse_button_width(self, markdown, _logo):
+        apply_global_style()
+        css = markdown.call_args.args[0]
+        self.assertIn('[data-testid="stSidebar"] [data-testid="stSidebarHeader"]', css)
+        self.assertIn('justify-content: center;', css)
+        self.assertIn('[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"]', css)
+        self.assertIn('inset-inline-end: 1.25rem;', css)
+        self.assertIn('[data-testid="stSidebar"] [data-testid="stSidebarLogo"]', css)
+        self.assertIn('transform: scale(1.32);', css)
+        self.assertIn('transform-origin: center;', css)
