@@ -91,6 +91,6 @@ def selectable_player_card(athlete, *, on_click):
     status = _plain_markdown(athlete.get('status') or 'ativo')
     return st.button(
         f'**{name}**\n\n{position}\n\nCadastro: {status}',
-        icon='👤', width='stretch', wrap=True, key=f'analysis_player_{athlete["id_atleta"]}',
+        icon='👤', width='stretch', key=f'analysis_player_{athlete["id_atleta"]}',
         on_click=on_click, args=(int(athlete['id_atleta']),),
     )

@@ -70,5 +70,5 @@ def selectable_analysis_card(entry, *, key, on_click, args, details):
     label = (f'![Análise de {date_label}](data:image/png;base64,{encoded})'
              f'\n\n**{date_label}**{status}\n\n{details}')
     with st.container(key=f'analysis_card_{key}'):
-        return st.button(label, key=key, width='stretch', wrap=True,
+        return st.button(label, key=key, width='stretch',
                          on_click=on_click, args=args)
