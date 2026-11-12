@@ -66,8 +66,9 @@ def selectable_analysis_card(entry, *, key, on_click, args, details):
     thumbnail.save(buffer, format='PNG')
     encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
     date_label = entry['collected_at'].strftime('%d/%m/%Y')
+    status = '\n\n:red[Análise incompleta]' if entry.get('is_draft') else ''
     label = (f'![Análise de {date_label}](data:image/png;base64,{encoded})'
-             f'\n\n**{date_label}**\n\n{details}')
+             f'\n\n**{date_label}**{status}\n\n{details}')
     with st.container(key=f'analysis_card_{key}'):
         return st.button(label, key=key, width='stretch', wrap=True,
                          on_click=on_click, args=args)

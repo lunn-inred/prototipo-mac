@@ -160,9 +160,20 @@ def restore_downloaded(source, work, *, progress=lambda text: None):
                     if local_snapshot['schema'] != snapshot['schema']:
                         raise ValueError('Esquema do backup incompatível com o banco local; nada foi substituído.')
                     bundle.package(safe_content, recovery, _installation())
-                    kept = reconciliation.capture(cursor, local_snapshot['schema'], retained)
-                    kept['ids'] = {entry['id'] for entry in retained}
-                    kept['entries'] = {entry['id']: entry for entry in retained}
+                    sql_retained = [entry for entry in retained if entry.get('pair')]
+                    draft_athletes = [entry['metadata']['athlete_id'] for entry in retained
+                                      if entry.get('is_draft') and entry['metadata'].get('athlete_id')]
+                    kept = reconciliation.capture(cursor, local_snapshot['schema'], sql_retained, draft_athletes=draft_athletes)
+                    kept['ids'] = {entry['id'] for entry in sql_retained}
+                    kept['entries'] = {entry['id']: entry for entry in sql_retained}
+                    kept['obsolete_pairs'] = set()
+                    for entry in sql_retained:
+                        if entry.get('is_draft'):
+                            origin = entry['metadata']['state'].get('source')
+                            if origin:
+                                old_pair = (int(origin['athlete_id']), origin['collected_at'])
+                                if old_pair != entry['pair']:
+                                    kept['obsolete_pairs'].add(old_pair)
                     for entry in winners.values():
                         shutil.copytree(entry['path'], stage / entry['relative'], ignore=shutil.ignore_patterns(*bundle.SYSTEM_FILES, '._*'))
                     _write_journal(journal, dict(recovery=str(recovery), previous=str(previous), stage=str(stage), analyses=str(root)))

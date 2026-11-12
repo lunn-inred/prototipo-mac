@@ -9,9 +9,9 @@ de frente e costas. O título **Termografia - Nova análise térmica** reúne o
 nome da página e do assistente, sem um subtítulo duplicado. Quando habilitado,
 o componente **Envio de Formulário** aparece ao final para importar fichas manuscritas.
 A consulta e a comparação de análises ficam na página separada **Timeline térmica**.
-Ao registrar a análise, uma janela solicita a data da coleta e apresenta a data
-atual de São Paulo como padrão. Quando omitida em uma chamada à API, a mesma
-data padrão é aplicada pelo serviço.
+A data da coleta aparece como coluna editável no resumo da última etapa, com a
+data atual de São Paulo como padrão. Não há pop-up para escolher a data.
+Quando omitida em uma chamada à API, a mesma data padrão é aplicada pelo serviço.
 
 A nova análise utiliza um assistente com **Continuar** e **Voltar**, apresentando
 somente uma etapa por vez:
@@ -28,8 +28,75 @@ somente uma etapa por vez:
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
    e os pixels quentes.
 7. Resumo da coleta: totais de frente/costas e tabela revisável no mesmo componente.
-   O botão **Registrar Análise** salva medidas no banco local e arquivos na timeline
-   com uma única confirmação de data. Voltar e iniciar outra análise aparecem abaixo.
+   Inclui a coluna editável **Data da coleta**, além de jogador, massa, EVA e
+   observações. **Salvar análise** grava medidas no banco local e arquivos na
+   timeline quando todos os dados estão completos.
+
+### Salvar e retomar uma análise incompleta
+
+**Salvar análise**, abaixo de **Continuar**, está disponível em todas as etapas,
+mesmo quando não é possível avançar. Sem jogador selecionado, mostra um aviso
+temporário no canto da tela: **Selecione um jogador antes de salvar a análise.**
+O assistente volta à primeira etapa, preservando os dados e imagens já preenchidos;
+não abre popup nem grava arquivos ou medidas. Se faltam outros dados ou etapas de cálculo, o
+sistema pergunta **A análise atual possui etapas pendentes. Deseja salvar mesmo
+assim?**, com **Não, voltar** à esquerda e **Salvar mesmo assim** à direita.
+No histórico, o cartão recebe o aviso **Análise incompleta** em vermelho.
+A completude depende dos dados obrigatórios e dos cálculos válidos das duas
+imagens, não da etapa aberta. Uma análise completa pode ser salva ao voltar a
+qualquer etapa ou logo após reabri-la do histórico, sem aviso de incompletude.
+Trocar imagem, rotação, caixas, barra térmica ou escala pode deixar os cálculos
+desatualizados; nesse caso, recalcule antes de salvar como completa ou confirme
+o salvamento parcial. O backend continua recalculando as contagens ao registrar.
+Com jogador selecionado, confirmar
+grava no PostgreSQL local as medidas disponíveis e mantém o estado de edição
+nos arquivos locais. Campos ausentes não recebem zeros nem valores fictícios:
+uma massa não informada não gera a medida `MASSA`; EVA igual a zero é um dado
+válido e é gravado. Observações preenchidas também são registradas. As contagens
+das imagens já calculadas são recalculadas no backend sobre máscaras e
+temperaturas; vistas ainda sem cálculo não recebem contagens inventadas.
+Cancelar ou fechar o diálogo não grava nada.
+
+Depois de salvar com sucesso, o assistente é reiniciado automaticamente na
+primeira etapa, com jogador, campos, imagens e ajustes limpos para outra análise.
+Os campos recebem valores vazios explicitamente antes de serem renderizados,
+inclusive quando o salvamento ocorre na própria primeira etapa, para limpar
+também o que já está exibido no navegador.
+Uma mensagem temporária confirma: **Análise salva. Você poderá visualizá-la em
+Ver análises anteriores.** ou **Análise parcial salva. Você poderá visualizá-la
+em Ver análises anteriores.** Para continuar editando a análise salva, reabra-a
+pelo histórico. Erros e cancelamentos preservam os dados preenchidos; o reinício
+limpa somente a sessão do assistente, não registros no banco ou arquivos salvos.
+
+O estado de edição guarda jogador, massa, EVA, observações, data, imagens
+disponíveis, rotações, caixas, barra de cores, divisões anatômicas, ajustes de
+máscara, escala e limiar já definidos. É possível salvar com somente uma imagem,
+desde que o jogador seja informado. Rascunhos antigos ainda sem jogador podem
+ser abertos, mas precisam receber um jogador antes de um novo salvamento.
+Use **Ver análises anteriores** para retomá-lo, inclusive após
+reiniciar a aplicação; os sem jogador ficam no cartão **Sem atleta (rascunhos)**.
+A retomada usa a etapa salva, limitada pelas informações disponíveis; o resumo
+é recalculado antes da finalização. A timeline compara somente análises completas.
+
+O arquivo fica em `MAC_ANALYSES_DIR/_drafts/<uuid>/draft.json`, com imagens e
+matrizes codificadas no próprio JSON. Rascunhos salvos entram no backup; mudanças
+ainda somente na sessão não entram. Ao finalizar, o UUID é preservado e o
+rascunho é removido somente depois do sucesso da gravação completa.
+
+Cada salvamento atualiza as medidas da mesma análise no banco, sem duplicar a
+coleta. Remover um dado antes de salvar também remove sua medida; mudar
+jogador/data move a coleta, sem deixar as medidas no destino anterior. Outras
+modalidades, como GPS e saltos, não são alteradas. O estado local identifica o
+par atleta/data e a revisão lógica das medidas, recusando alterações concorrentes.
+
+Uma edição incompleta de análise existente atualiza o SQL imediatamente; os
+arquivos completos antigos são preservados internamente até a finalização,
+mas deixam de ser oferecidos na timeline enquanto a edição está incompleta.
+Ao escolher outro atleta/data que já
+possui análise, a confirmação de sobrescrita continua obrigatória. Para um
+rascunho, confirmar já substitui as medidas térmicas conflitantes no banco pelos
+dados disponíveis; os arquivos completos são substituídos na finalização. Revisões concorrentes
+exigem reabrir a análise, não uma sobrescrita forçada.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
 anatômica, o GrabCut ainda não é executado: os limites são definidos sobre as
@@ -48,9 +115,8 @@ Os botões têm
 uma margem inferior reservada. **Concluir** é a ação destacada; aplicar,
 restaurar e confirmar registros são ações secundárias. As barras cinzas do canvas
 (Undo, Redo, Clear e botões de zoom) ficam ocultas; o zoom pela roda do mouse
-permanece disponível nos editores de caixas e máscaras. Nos diálogos de registro,
-**Concluir** apenas fecha: a gravação exige clicar explicitamente em confirmar.
-a roda do mouse fica reservada ao zoom da imagem. A página usa 90%
+permanece disponível nos editores de caixas e máscaras.
+A roda do mouse fica reservada ao zoom da imagem. A página usa 90%
 da área principal, limitada a 1440 px (100% em telas menores). Na página,
 as prévias ficam limitadas a 400 px e 40% da altura da janela, evitando expansão
 excessiva em monitores ultrawide. Os pop-ups mantêm seus limites ampliados,
@@ -72,7 +138,7 @@ Na segmentação, a segunda prévia mostra a área completa das pernas sem fundo
 A filtragem de pixels quentes aparece
 somente na etapa de cálculo, após a definição da escala e do limiar.
 
-O botão **Registrar Análise** registra as medidas no PostgreSQL local e salva as
+O botão **Salvar análise**, com a análise completa, registra as medidas no PostgreSQL local e salva as
 imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
 pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
 real com o limiar salvo em cada vista da coleta, sem controles de ajuste na timeline.
@@ -158,14 +224,25 @@ para o mesmo jogador/data, a interface solicita confirmação antes de substitu�
 O botão **Ver análises anteriores**, abaixo de **Voltar**, abre um pop-up com
 os cartões dos atletas e busca por nome. O cartão inteiro é clicável e pode ser
 acionado também pelo teclado, sem um botão de seleção separado. Ao selecionar um
-atleta, aparecem suas análises salvas com data e miniatura. As listas usam rolagem interna, sem paginação;
+atleta, aparecem suas análises salvas com data e miniatura. O pop-up aproveita
+quase toda a altura da janela, com margem de 1 rem no topo e embaixo; a lista
+acompanha a altura disponível, sem o limite fixo anterior de 450 px.
+O cabeçalho, a busca e o botão de voltar ficam fora da rolagem; a lista ocupa
+o espaço restante por layout flexível, sem reserva fixa de altura ou faixa
+vazia cortando os cartões na base.
+As listas usam rolagem interna, sem paginação;
 o pop-up pode ser fechado pelo X. Cada nova abertura volta à seleção de atletas
 com a busca limpa, sem descartar o rascunho. Dentro da lista de análises, **Voltar
 aos atletas** fica abaixo dos cartões. Os cartões de análise também são inteiramente
 clicáveis, incluindo a miniatura e a data, tanto aqui quanto em **Mudar Basal** na
 timeline, sem botões de seleção separados. A seleção de uma análise fecha o pop-up e
-abre o assistente na primeira etapa com os dados preenchidos. Isso substitui o
+abre o assistente com os dados preenchidos (análises completas começam na primeira
+etapa; rascunhos retomam a etapa possível). Isso substitui o
 rascunho em andamento, mas não modifica o registro salvo até a confirmação final.
+Ao abrir uma análise completa ou parcial, jogador, massa, EVA e observações são
+sincronizados explicitamente com os campos da primeira etapa. Isso substitui os
+valores vazios deixados pelo último salvamento ou os de outro atleta, sem alterar
+o arquivo salvo; campos ausentes continuam vazios e EVA zero é preservado.
 
 As imagens, rotações, caixas, divisões anatômicas, máscaras corrigidas,
 temperaturas e limiares são restaurados. Avançar pelas etapas sem modificações
@@ -174,7 +251,7 @@ temperaturas. Alterar uma caixa permite refazer sua segmentação; modificar a
 escala térmica, barra de cores ou rotação exige reestimar o campo de temperaturas.
 O botão de restaurar a máscara automática permite descartar uma correção anterior.
 
-Atleta e data podem ser alterados. Na última etapa, **Salvar alterações** substitui
+Atleta e data podem ser alterados. Com a análise completa, **Salvar análise** substitui
 a análise original, sem manter uma versão anterior. Se houver outra análise no
 destino, o pop-up mostra **Uma análise do atleta já foi realizada nessa data.
 Deseja sobrescrevê-la?**, com **Sim, sobrescrever** e **Não, voltar**. Cancelar
@@ -343,7 +420,7 @@ O armazenamento pertence à máquina do **backend**, não ao navegador. O fronte
 não grava diretamente em disco. Faça backup dessa pasta; ela está fora do Git
 e do contexto de build Docker por conter dados e imagens dos atletas.
 Arquivos antigos não são migrados da memória: análises ainda abertas precisam
-ser confirmadas em **Registrar Análise** para persistir ambos os conjuntos de dados.
+ser confirmadas em **Salvar análise** para persistir ambos os conjuntos de dados.
 
 No Compose, `./data/thermography` do computador é montada diretamente em
 `/app/data/thermography` do backend. Crie a pasta antes de iniciar:
@@ -372,7 +449,7 @@ Contratos de imagens, matrizes e rotação: [API térmica](api.md#contrato-de-te
 
 A consulta das análises locais e a comparação Basal × Atual ficam na página
 **Timeline térmica**, acessível pelo menu lateral. A etapa 7 da Termografia
-oferece **Registrar Análise**, mantendo o mesmo formato de armazenamento local.
+oferece **Salvar análise**, mantendo o mesmo formato de armazenamento completo local.
 Na etapa 6, cada perna é apresentada com o percentual de pixels quentes e a
 área total (pixels), por perna e por região anatômica; a esquerda aparece primeiro.
 
@@ -390,9 +467,11 @@ São gravadas as medidas por perna, as somas de frente/costas, massa, EVA e, qua
 preenchidas, observações. Nenhuma coluna ou tabela adicional é criada.
 
 A operação aceita somente `MAC_DB_TARGET=local`. Se já existir coleta térmica
-para o jogador/data, retorna conflito sem criar outro arquivo. Após sucesso,
-o botão fica desabilitado no rascunho atual; **Iniciar outra análise** o libera
-para um novo registro. Os caches do histórico térmico e mural de jogadores são
+para o jogador/data, retorna conflito e exige confirmação antes de substituí-la.
+Após sucesso, o assistente já fica limpo para um novo registro e a confirmação
+aparece em toast. Para editar a coleta recém-salva, abra-a em **Ver análises
+anteriores**; salvar essa edição atualiza a mesma análise, sem duplicá-la.
+Os caches do histórico térmico e mural de jogadores são
 invalidados, e o jogador salvo fica selecionado na timeline.
 
 As medidas são inseridas em uma transação SQL, e os arquivos são preparados

@@ -20,7 +20,7 @@ def _insert(cursor, state, table, record, *, omit=(), returning=None):
     return cursor.fetchone()[0] if returning else None
 
 
-def capture(cursor, state, retained):
+def capture(cursor, state, retained, draft_athletes=()):
     parents, collections, definitions = {}, {}, {}
     def parent(table, names, values):
         key = (table, tuple(names), tuple(values))
@@ -35,6 +35,8 @@ def capture(cursor, state, retained):
                 values = [record[name] for name in fk['columns']]
                 if all(value is not None for value in values):
                     parent(fk['parent'], fk['references'], values)
+    for athlete_id in sorted(set(draft_athletes)):
+        parent('atleta', ['id_atleta'], [athlete_id])
     for entry in retained:
         athlete_id, day = entry['pair']
         parent('atleta', ['id_atleta'], [athlete_id])
@@ -108,12 +110,12 @@ def apply(cursor, state, kept, remote):
         mapping[old_id] = candidates[0][0] if candidates else _insert(cursor, state, 'medida',
             {**definition, 'id_grupo_medida': group_id}, omit=('id_medida',), returning='id_medida')
     # Se uma versão local foi movida, eliminar também as medidas da localização antiga do backup.
-    remove_pairs = {pair for pair, records in kept['collections'].items() if records}
+    remove_pairs = {pair for pair, records in kept['collections'].items() if records} | kept.get('obsolete_pairs', set())
     for identity in remote:
         if identity in kept.get('ids', set()):
             here = kept['entries'][identity]
             if here['hashes'] != remote[identity]['hashes']:
-                remove_pairs.update((remote[identity]['pair'], here['pair']))
+                remove_pairs.update(pair for pair in (remote[identity]['pair'], here['pair']) if pair)
     for athlete_id, day in remove_pairs:
         cursor.execute("""DELETE FROM public.medida_valor v USING public.medida m,public.grupo_medida g
             WHERE v.id_medida=m.id_medida AND m.id_grupo_medida=g.id_grupo_medida

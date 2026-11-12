@@ -14,6 +14,8 @@ import numpy as np
 from PIL import Image
 from backend.mac_api.modules.thermography import analysis_archive as archive
 from backend.mac_api.core.settings import setting
+from backend.mac_api.core.wire import decode
+from backend.mac_api.modules.thermography import drafts
 
 SYSTEM_FILES = {'.DS_Store', 'Thumbs.db', 'desktop.ini'}
 
@@ -89,6 +91,22 @@ def index_analyses(root, *, validate=True):
         entries[identity] = dict(id=identity, path=metadata_file.parent, relative=relative,
                                  metadata=metadata, revision=saved_at, hashes=hashes,
                                  pair=(athlete_id, metadata['collected_at']))
+    for draft_file in sorted(root.glob('_drafts/*/draft.json')):
+        if draft_file.stat().st_size > 256 * 1024 * 1024:
+            raise ValueError('Rascunho muito grande no backup.')
+        payload = json.loads(draft_file.read_text(encoding='utf-8'))
+        identity = str(UUID(payload['analysis_id']))
+        if payload.get('format') != drafts.FORMAT or draft_file.parent.name != identity:
+            raise ValueError('Rascunho inválido no backup.')
+        drafts.validate_state(decode(payload['state']))
+        relative = Path('_drafts') / identity
+        key = f'draft:{identity}'
+        pair = payload.get('sql_pair')
+        if pair:
+            pair = (int(pair[0]), date.fromisoformat(pair[1]).isoformat())
+        entries[key] = dict(id=key, path=draft_file.parent, relative=relative, metadata=payload,
+            revision=revision(payload['created_at']), hashes={'draft.json': digest(draft_file)}, pair=pair, is_draft=True)
+        covered.add(draft_file)
     if set(files) != covered:
         raise ValueError('Há arquivos de análise incompletos ou fora da estrutura esperada; revise antes do backup.')
     return entries
@@ -106,6 +124,8 @@ def reconcile(local, remote):
             retained.append(here)
     pairs = {}
     for identity, entry in winners.items():
+        if entry.get('is_draft'):
+            continue
         if entry['pair'] in pairs:
             raise ValueError('Análises distintas ocupam o mesmo atleta/data. Revise o conflito antes de restaurar.')
         pairs[entry['pair']] = identity

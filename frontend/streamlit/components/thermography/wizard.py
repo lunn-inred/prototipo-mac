@@ -21,7 +21,7 @@ from frontend.streamlit.components.thermography.editor import (
 )
 from frontend.streamlit.presentation.thermography_data import athlete_label
 from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
-from frontend.streamlit.components.thermography.draft_state import clear_analysis_draft
+from frontend.streamlit.components.thermography.draft_state import clear_analysis_draft, reset_after_saved_analysis, set_metadata_widgets
 
 STEPS = ('Dados da coleta', 'Imagens e rotação', 'Caixas das pernas e barra de cores',
          'Divisão anatômica', 'Segmentação', 'Cálculo da termografia', 'Resumo da coleta')
@@ -206,15 +206,21 @@ def navigate(step, valid=True):
     if step == len(STEPS)-1 and right.button('Iniciar outra análise', width='stretch'):
         restart_analysis()
     from .history import render_history_button
-    history_column, _ = st.columns(2, gap='large')
+    history_column, save_column = st.columns(2, gap='large')
     with history_column:
         render_history_button(st.session_state.get('thermal_available_players', {}))
+    with save_column:
+        from .save_flow import render_save_button
+        render_save_button(step)
 
 
 def render_wizard(athletes_by_id):
+    reset_after_saved_analysis()
     st.session_state['thermal_available_players'] = athletes_by_id
     step = st.session_state.setdefault('thermal_step', 0)
     draft = st.session_state.setdefault('thermal_draft', {})
+    from frontend.streamlit.api_client.contracts import current_sao_paulo_date
+    draft.setdefault('collected_at', current_sao_paulo_date())
     st.progress((step+1)/len(STEPS), text=f'Etapa {step+1} de {len(STEPS)} — {STEPS[step]}')
     if step == 6:
         calculation = st.session_state.get('thermal_calculation')
@@ -223,21 +229,24 @@ def render_wizard(athletes_by_id):
             navigate(step)
         return calculation
     if step == 0:
+        set_metadata_widgets(draft, overwrite=False)
         columns = st.columns(3)
         ids = list(athletes_by_id)
         with columns[0]:
-            selected = draft.get('player')
+            selected = st.session_state['thermography_player']
+            if selected not in ids:
+                st.session_state['thermography_player'] = None
             player = st.selectbox('Jogador *', ids,
-                                  index=ids.index(selected) if selected in ids else None,
+                                  index=None,
                                   format_func=lambda value: athlete_label(athletes_by_id[value]),
                                   key='thermography_player')
         with columns[1]:
-            mass = st.number_input('Massa (kg) *', min_value=0.1, value=draft.get('mass'),
+            mass = st.number_input('Massa (kg) *', min_value=0.1, value=None,
                                    step=0.1, key='thermography_mass')
         with columns[2]:
             pain = st.number_input('EVA Dor *', min_value=0, max_value=10,
-                                   value=draft.get('pain'), step=1, key='thermography_pain_score')
-        notes = st.text_area('Observações', value=draft.get('notes', ''), key='thermography_observations')
+                                   value=None, step=1, key='thermography_pain_score')
+        notes = st.text_area('Observações', value='', key='thermography_observations')
         draft.update(player=player, mass=mass, pain=pain, notes=notes)
         navigate(step, player is not None and mass is not None and pain is not None)
         return None

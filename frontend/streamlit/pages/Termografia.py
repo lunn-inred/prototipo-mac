@@ -9,10 +9,15 @@ from frontend.streamlit.presentation.thermography_data import (
 )
 
 from frontend.streamlit.components.thermography.forms import render_forms
-from frontend.streamlit.components.thermography.registration import confirm_analysis_registration, cancel_overwrite
+from frontend.streamlit.components.thermography.save_flow import render_pending_save
+from frontend.streamlit.components.thermography.draft_state import reset_after_saved_analysis
 from frontend.streamlit.components.thermography.wizard import render_wizard, navigate
 
 st.set_page_config(page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide")
+reset_after_saved_analysis()
+if sync := st.session_state.pop('thermal_metadata_sync', None):
+    st.session_state.update(sync['updates'])
+    st.session_state.pop(sync['editor'], None)
 
 # Estilo somente desta página; não amplia os diálogos das outras funcionalidades.
 st.html('''
@@ -79,7 +84,7 @@ st.html('''
 
 
 
-st.title('Termografia - Editar análise térmica' if st.session_state.get('thermal_edit_source') else 'Termografia - Nova análise térmica')
+st.title('Termografia - Editar análise térmica' if st.session_state.get('thermal_edit_source') or st.session_state.get('thermal_saved_draft') else 'Termografia - Nova análise térmica')
 if source := st.session_state.get('thermal_edit_source'):
     st.caption(f'Editando análise de {source["collected_at"]:%d/%m/%Y}. As alterações só serão gravadas ao salvar.')
 
@@ -109,6 +114,7 @@ athlete_id_by_editor_label = {
 
 result = render_wizard(athletes_by_id)
 if result is None:
+    render_pending_save()
     # st.divider()
     # render_forms(athletes, editor_label_by_athlete_id, athlete_id_by_editor_label)
     st.stop()
@@ -137,6 +143,7 @@ if all(view_metrics.values()):
         "Frente": front_pixels,
         "Verso": back_pixels,
         "Observações": observations.strip(),
+        "Data da coleta": draft.get('collected_at'),
     }
 
     stored_metrics.clear()
@@ -170,10 +177,10 @@ if all(view_metrics.values()):
                 )
 
         st.caption(
-            "Edite Jogador, Massa, EVA Dor e Observações diretamente na tabela. "
+            "Edite Jogador, Massa, EVA Dor, Data da coleta e Observações diretamente na tabela. "
             "Frente e Costas são calculados automaticamente."
         )
-        prepared_frame = pd.DataFrame([record])
+        prepared_frame = pd.DataFrame([record])[['Jogador', 'Data da coleta', 'Massa', 'EVA Dor', 'Frente', 'Verso', 'Observações']]
         prepared_frame["Jogador"] = prepared_frame["Jogador"].astype("string")
         prepared_frame["Massa"] = pd.to_numeric(
             prepared_frame["Massa"], errors="coerce"
@@ -186,6 +193,7 @@ if all(view_metrics.values()):
         prepared_frame["Observações"] = (
             prepared_frame["Observações"].fillna("").astype("string")
         )
+        prepared_frame['Data da coleta'] = pd.to_datetime(prepared_frame['Data da coleta']).dt.date
         edited_prepared_frame = st.data_editor(
             prepared_frame,
             width="stretch",
@@ -193,6 +201,7 @@ if all(view_metrics.values()):
             num_rows="fixed",
             disabled=["Frente", "Verso"],
             column_config={
+                'Data da coleta': st.column_config.DateColumn(format='DD/MM/YYYY', required=True),
                 "Jogador": st.column_config.SelectboxColumn(
                     options=sorted(athlete_id_by_editor_label),
                     required=True,
@@ -225,6 +234,10 @@ if all(view_metrics.values()):
         )
         prepared_mass = prepared_record.get("Massa")
         prepared_pain_score = prepared_record.get("EVA Dor")
+        prepared_day = prepared_record.get('Data da coleta')
+        prepared_day = pd.to_datetime(prepared_day).date() if prepared_day is not None and not pd.isna(prepared_day) else None
+        prepared_mass = None if prepared_mass is None or pd.isna(prepared_mass) else float(prepared_mass)
+        prepared_pain_score = None if prepared_pain_score is None or pd.isna(prepared_pain_score) else int(prepared_pain_score)
         prepared_observations = prepared_record.get("Observações")
         if prepared_observations is None or pd.isna(prepared_observations):
             prepared_observations = ""
@@ -232,6 +245,8 @@ if all(view_metrics.values()):
             prepared_observations = str(prepared_observations).strip()
 
         missing_fields = []
+        if prepared_day is None:
+            missing_fields.append('Data da coleta')
         if prepared_player_id is None:
             missing_fields.append("Jogador")
         if prepared_mass is None or pd.isna(prepared_mass):
@@ -248,32 +263,18 @@ if all(view_metrics.values()):
         else:
             st.success("Registro pronto para envio. Observações permanece opcional.")
 
-        editing = bool(st.session_state.get('thermal_edit_source'))
-        already_registered = not editing and st.session_state.get('thermal_registered_analysis', {}).get('signature') == pair_signature
-        if already_registered:
-            st.info('Esta análise já foi registrada no banco local e na timeline. Inicie outra análise para um novo registro.')
-        if st.button(
-            'Salvar alterações' if editing else 'Registrar Análise',
-            type="primary",
-            disabled=bool(missing_fields) or already_registered,
-            key="register_thermography_analysis",
-            width='stretch',
-        ):
-            cancel_overwrite()
-            st.session_state.pop('thermal_registration_complete', None)
-            confirm_analysis_registration(
-                athlete_id=int(prepared_player_id),
-                mass=prepared_mass,
-                pain_score=prepared_pain_score,
-                athlete_name=athletes_by_id[int(prepared_player_id)]['nome'],
-                views=views,
-                items=items,
-                observations=prepared_observations,
-                pair_signature=pair_signature,
-            )
-        st.caption('O registro salva as medidas no banco local e as imagens, máscaras e temperaturas na timeline.')
+        draft.update(player=prepared_player_id, mass=prepared_mass, pain=prepared_pain_score,
+                     notes=prepared_observations, collected_at=prepared_day)
+        st.session_state.update(thermography_player=prepared_player_id, thermography_mass=prepared_mass,
+            thermography_pain_score=prepared_pain_score, thermography_observations=prepared_observations)
+        st.session_state['thermal_prepared_record'] = dict(athlete_id=prepared_player_id,
+            athlete_name=athletes_by_id.get(prepared_player_id, {}).get('nome', ''), mass=prepared_mass,
+            pain_score=prepared_pain_score, observations=prepared_observations, collected_at=prepared_day,
+            views=views, items=items, pair_signature=pair_signature)
+        st.caption('Use Salvar análise abaixo. Se houver dados incompletos, será salvo um rascunho mediante confirmação.')
 
     navigate(6)
+    render_pending_save()
 
 else:
     stored_metrics.clear()

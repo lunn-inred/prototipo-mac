@@ -40,7 +40,9 @@ navegador ou em uma janela desktop (WebView).
 - `infrastructure/`: imagens Docker; `docs/`: guias detalhados.
 
 As métricas são consultadas nas views do banco. Escritas passam pelas validações
-e transações da API. **Registrar Análise**, na última etapa térmica, salva as
+e transações da API. **Salvar análise** registra as medidas já disponíveis no
+banco local mesmo em etapas incompletas, com o jogador selecionado. Quando
+a análise está completa, salva todas as
 medidas no banco local e imagens, máscaras e temperaturas em `data/thermography`,
 disponibilizando a coleta na timeline. Detalhes: [registro unificado](docs/thermography.md#registro-unificado).
 A página **Backups** envia o banco local e as análises ao Drive e permite baixar

@@ -69,6 +69,8 @@ Com a API em execução:
 | `PUT /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Substitui uma análise salva, podendo mudar atleta/data | Sim |
 | `GET /api/v1/thermography/analyses?athlete_id=` | Lista análises locais com miniatura | Não |
 | `GET /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Carrega imagens, máscaras e matrizes de uma análise | Não |
+| `POST /api/v1/thermography/drafts` | Salva análise parcial e suas medidas disponíveis no banco local | Sim, se houver atleta |
+| `GET /api/v1/thermography/drafts/{draft_id}` | Carrega o estado de um rascunho | Não |
 | `GET /api/v1/backups?desktop=false` | Lista pacotes MAC na pasta configurada do Drive | Não |
 | `POST /api/v1/backups` | Inicia snapshot local e envio de um novo pacote ao Drive | Arquivos/Drive |
 | `POST /api/v1/backups/restore` | Baixa e restaura o banco local com reconciliação das análises | Sim, exige confirmação |
@@ -191,7 +193,7 @@ o histórico de medidas do banco continua sem imagens.
 
 ### Registro único de análise
 
-O botão **Registrar Análise** usa `POST /api/v1/thermography/analyses/register`.
+O botão **Salvar análise**, quando completa, usa `POST /api/v1/thermography/analyses/register`.
 O corpo tem o mesmo formato de `analyses`, mas `mass` e `pain_score` são
 obrigatórios; EVA zero é válido. `observations` é opcional. `athlete_name` deve
 ser enviado, mas o nome persistido é o do cadastro SQL. A data informada é usada
@@ -207,6 +209,47 @@ distribuída tolerante a desligamento abrupto. Veja [registro unificado](thermog
 
 As rotas antigas permanecem disponíveis para compatibilidade. Não execute a
 rota antiga de medidas e a rota unificada para a mesma coleta: isso gera conflito.
+
+### Rascunhos térmicos persistentes
+
+`POST /api/v1/thermography/drafts` recebe `state`, `draft_id` e
+`expected_revision` opcionais, mais `overwrite` (padrão `false`). `state` usa o
+transporte de matrizes existente e contém `step` (0–6), `draft` (`player`,
+`mass`, `pain`, `notes`, `collected_at`), `uploads` por `front`/`back` (nome,
+conteúdo original em base64 e rotação), `items` com os ajustes de cada imagem e
+`source` opcional com a identidade/revisão da análise completa em edição.
+Campos de coleta podem ser nulos. Não aceita pickle nem objetos executáveis.
+
+A resposta contém o resumo com `id`, `created_at` (revisão) e `is_draft: true`.
+Para atualizar, envie o ID e a revisão recebidos. `GET .../drafts/{draft_id}`
+retorna também `state`. Exige chave da API e destino local; valida o atleta
+selecionado e insere as medidas disponíveis nas tabelas existentes. Não exige
+massa, EVA ou ambas as imagens para salvar; omite medidas ausentes, preservando
+EVA zero. Contagens disponíveis na etapa de cálculo são recalculadas no backend.
+Novos salvamentos substituem as medidas da mesma coleta; mudanças de jogador/data
+movem os dados, sem duplicar. Por compatibilidade, esta rota ainda aceita um
+rascunho sem atleta somente em arquivos, sem conexão SQL; a interface, porém,
+bloqueia esse caso antes da chamada, mostra um toast e pede a seleção do jogador.
+Uma análise já vinculada ao
+banco não pode perder o jogador ao ser salva.
+Conflitos de atleta/data e revisão usam os mesmos códigos `409` da análise
+completa; `overwrite` não ignora revisões desatualizadas.
+
+`GET .../analyses?athlete_id=<id>&include_drafts=true` inclui rascunhos; o ID `0`
+lista apenas os ainda sem atleta. Sem `include_drafts`, a listagem permanece
+restrita às análises completas, como exige a timeline. Uma edição em rascunho
+aparece no histórico no lugar da versão completa. Atualiza as medidas SQL
+imediatamente, preserva internamente os arquivos completos antigos até a
+finalização e retira essa versão antiga da listagem usada pela timeline.
+O resumo do rascunho inclui `sql_pair` e `sql_revision` para identificar a coleta
+parcial e detectar alterações concorrentes, sem adicionar colunas ao banco.
+
+Na finalização, envie `draft_id` e `draft_revision` no `POST .../analyses/register`
+(novo registro) ou no `PUT` da origem (edição existente). O backend confere as
+revisões e a origem, mantém o UUID e só remove o rascunho depois do sucesso.
+Falha de registro preserva o rascunho para nova tentativa. O `POST` retorna `201`
+e o `PUT`, `200`, com o envelope de registro unificado. A data vem da coluna
+editável do resumo; nenhuma chamada separada para escolha de data é necessária.
 
 ### Edição e sobrescrita de análise
 

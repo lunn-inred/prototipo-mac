@@ -40,7 +40,10 @@ class AnalysisHistoryTests(unittest.TestCase):
         self.assertEqual(state['thermal_draft']['pain'], 0)
         self.assertEqual(state['thermal_draft']['notes'], 'Anterior')
         self.assertEqual(state['thermal_edit_source']['id'], self.saved['id'])
-        self.assertNotIn('thermography_mass', state)
+        self.assertEqual(state['thermography_mass'], 75.)
+        self.assertEqual(state['thermography_player'], 1)
+        self.assertEqual(state['thermography_pain_score'], 0)
+        self.assertEqual(state['thermography_observations'], 'Anterior')
         self.assertNotIn('thermography_front_upload_0', state)
         self.assertEqual(state['thermal_upload_generation'], 1)
         for key, item in state['thermography_items'].items():
@@ -89,10 +92,18 @@ from frontend.streamlit.components.thermography.history import show_history
 show_history({i: {'id_atleta': i, 'nome': f'Atleta {i}'} for i in range(1, 9)})
 '''
         entries = [{**self.saved, 'id': f'analysis-{i}'} for i in range(7)]
-        with patch.object(history, 'list_local_analyses', return_value=entries):
+        with patch.object(history, 'list_local_analyses', return_value=entries), \
+             patch.object(history.st, 'html', wraps=history.st.html) as html:
             app = AppTest.from_string(script).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
-            self.assertEqual([button.key for button in app.button], [f'analysis_player_{i}' for i in range(1, 9)])
+            styles = '\n'.join(call.args[0] for call in html.call_args_list)
+            self.assertIn('[data-testid="stDialog"]:has(.st-key-analysis_browser_results)', styles)
+            self.assertIn('height: calc(100dvh - 2rem) !important;', styles)
+            self.assertIn('flex: 1 1 0% !important;', styles)
+            self.assertIn('min-height: 0 !important;', styles)
+            self.assertIn('max-height: none !important;', styles)
+            self.assertNotIn('calc(100dvh - 300px)', styles)
+            self.assertEqual([button.key for button in app.button], [f'analysis_player_{i}' for i in range(1, 9)] + ['analysis_player_0'])
             self.assertFalse(any(button.label == 'Selecionar atleta' for button in app.button))
             self.assertTrue(any('analysis_browser_results' in block.proto.id for block in app.get('flex_container')))
             app.button(key='analysis_player_8').click().run()
@@ -100,7 +111,7 @@ show_history({i: {'id_atleta': i, 'nome': f'Atleta {i}'} for i in range(1, 9)})
             self.assertEqual([button.key for button in app.button], [f'analysis_select_analysis-{i}' for i in range(7)] + ['analysis_browser_back'])
             app.button(key='analysis_browser_back').click().run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
-            self.assertEqual(len(app.button), 8)
+            self.assertEqual(len(app.button), 9)
             app.text_input(key='analysis_browser_query').set_value('Atleta 8').run()
             self.assertEqual([button.key for button in app.button], ['analysis_player_8'])
 

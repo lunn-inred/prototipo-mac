@@ -89,6 +89,34 @@ O banco de teste não tem volume persistente: remover o container descarta seus 
 
 ## Limites da validação
 
+Os testes `test_thermal_drafts.py` e `test_thermal_draft_flow.py` cobrem confirmação
+e cancelamento, compatibilidade da API com rascunhos antigos sem atleta,
+bloqueio na interface por toast quando falta jogador, retorno à primeira etapa
+sem perda de dados/imagens, upload de uma única vista, retomada em
+outra sessão, preservação de matrizes/ajustes e revisão desatualizada. O teste do
+assistente verifica que a coluna editável de data é enviada ao salvar, sem
+diálogo de data. Após sucesso completo ou parcial, verificam campos/imagens
+limpos, retorno à primeira etapa e toast de confirmação exibido uma única vez;
+falhas e cancelamentos mantêm o preenchimento. Usam diretórios temporários e
+API interna de teste.
+O salvamento na primeira etapa verifica também o sinal `set_value` enviado aos
+widgets: o estado Python vazio, sozinho, não comprova que o navegador limpou os
+campos já montados.
+Os testes de reabertura usam a mesma sessão após a limpeza e após preencher outro
+atleta, verificando restauração explícita dos widgets, campos ausentes e EVA zero.
+
+`test_thermal_save_readiness.py` verifica completude nas etapas anteriores ao
+resumo, reabertura de análise completa sem confirmação indevida e rejeição de
+caches antigos após mudar imagem, rotação, caixas, barra ou escala. Também cobre
+EVA zero, metadados atuais e o contrato de armazenamento das matrizes restauradas.
+
+Com PostgreSQL descartável habilitado, `test_thermal_drafts_postgres.py` cobre
+promoção do rascunho mantendo UUID, edição incompleta preservando a versão
+completa em arquivos, atualização imediata de medidas parciais no SQL, mudança
+de jogador/data sem duplicação, EVA zero, omissão de campos ausentes, contagens
+recalculadas, rollback SQL/arquivos, sobrescrita explícita e restauração de
+backup preservando análise parcial, medidas e atleta.
+
 Os testes de OAuth em `backend/tests/test_google_auth.py` simulam as respostas do
 Google e usam arquivos de credenciais temporários. Cobrem a pasta configurada,
 tokens independentes web/desktop, acesso negado, lixeira, destino sem escrita,
@@ -105,6 +133,17 @@ python -m streamlit run frontend/tests/fixtures/dialog_browser_app.py
 Clique em **Abrir** e compare a primeira abertura com a reabertura. A legenda
 `MEASURED` mostra os limites recebidos do navegador. Essa tela é apenas uma
 fixture de diagnóstico, não faz parte da navegação do produto.
+
+Para conferir o popup de análises anteriores com listas longas de atletas e
+análises fictícios, sem API nem banco:
+
+```bash
+python -m streamlit run frontend/tests/fixtures/history_browser_app.py
+```
+
+Confira as margens superior/inferior, o acesso ao último cartão pela rolagem e
+o botão **Voltar aos atletas** em diferentes alturas de janela. Essa fixture
+reutiliza os estilos da página térmica para reproduzir seus limites internos.
 
 Os testes de interface usam Streamlit AppTest e simulam o retorno do canvas.
 Eles verificam navegação, rascunho, prévias e atualização das divisões, mas não

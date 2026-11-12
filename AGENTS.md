@@ -50,8 +50,15 @@ documentação em `docs/`; não substituem a inspeção do código atual.
 
 - Preserve as análises existentes e o formato de máscaras, matrizes e metadados.
   `MAC_ANALYSES_DIR` tem padrão `./data/thermography`, resolvido no backend.
-- O botão **Registrar Análise** registra medidas no banco local e arquivos para
-  a timeline em uma operação da API, com a mesma data e o atleta cadastrado.
+- **Salvar análise** está disponível em todas as etapas. Análises incompletas
+  gravam no banco local as medidas disponíveis, sem valores fictícios para campos
+  ausentes, e preservam o estado de edição em arquivos. Na interface, salvar sem
+  jogador deve mostrar um toast, voltar à primeira etapa e não gravar nada.
+  Preserve os dados já preenchidos nesse retorno. Análises completas
+  gravam banco local e arquivos da timeline pela mesma operação da API; a data
+  é editável no resumo. Preserve as confirmações de incompletude e sobrescrita.
+- Após salvar com sucesso, reinicie somente o estado do assistente para uma nova
+  análise e confirme por toast. Não limpe dados após erro ou cancelamento.
 - Recalcule contagens no backend sobre temperaturas e máscaras, não sobre valores
   resumidos enviados pela interface. Preserve medidas por perna e somas por vista.
 - Preserve rollback SQL e compensação dos arquivos recém-criados nas falhas.

@@ -4,6 +4,7 @@ import logging
 from backend.mac_api.core.database import database_write_connection
 from backend.mac_api.core.settings import setting
 from . import analysis_archive as archive
+from . import collection_state
 from .thermography_service import IMAGE_MEASURES, _insert_collection, image_measurements
 
 
@@ -16,12 +17,13 @@ class AnalysisChangedError(ValueError):
 
 
 def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_score,
-                      observations='', views, connection_factory=None, overwrite=False):
-    if overwrite:
+                      observations='', views, connection_factory=None, overwrite=False, analysis_id=None, partial_pair=None, partial_revision=None):
+    if overwrite or partial_pair:
         return replace_analysis(source=None, athlete_id=athlete_id, athlete_name=athlete_name,
                                 collected_at=collected_at, mass=mass, pain_score=pain_score,
-                                observations=observations, views=views, overwrite=True,
-                                connection_factory=connection_factory)
+                                observations=observations, views=views, overwrite=overwrite,
+                                connection_factory=connection_factory, analysis_id=analysis_id,
+                                partial_pair=partial_pair, partial_revision=partial_revision)
     if setting('MAC_DB_TARGET', 'local') != 'local':
         raise ValueError('Registrar Análise exige o banco local configurado.')
     # Mesma precisão e mesma máscara usadas no arquivo: não confiar nas contagens
@@ -50,7 +52,7 @@ def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_scor
             entry = archive.save_analysis(
                 athlete_id=athlete_id, athlete_name=name or f'Atleta {athlete_id}',
                 collected_at=collected_at, mass=float(mass), pain_score=int(pain_score),
-                observations=observations, views=views,
+                observations=observations, views=views, **({'analysis_id': analysis_id} if analysis_id else {}),
             )
         # O context manager acima só retorna depois do commit.
         return {'analysis': entry, 'inserted_measurements': inserted}
@@ -65,7 +67,8 @@ def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_scor
 
 
 def replace_analysis(*, source, athlete_id, athlete_name, collected_at, mass, pain_score,
-                     observations='', views, overwrite=False, expected_revision=None, connection_factory=None):
+                     observations='', views, overwrite=False, expected_revision=None, connection_factory=None, analysis_id=None,
+                     partial_pair=None, partial_revision=None):
     if setting('MAC_DB_TARGET', 'local') != 'local':
         raise ValueError('Salvar análise exige o banco local configurado.')
     if set(views) != {'front', 'back'}:
@@ -78,26 +81,33 @@ def replace_analysis(*, source, athlete_id, athlete_name, collected_at, mass, pa
     entry, staged = None, []
     target_pair = (int(athlete_id), collected_at)
     source_pair = (int(source['athlete_id']), source['collected_at']) if source else None
+    if partial_pair:
+        from datetime import date
+        partial_pair = (int(partial_pair[0]), date.fromisoformat(str(partial_pair[1])))
     try:
         with (connection_factory or database_write_connection)() as database, database.cursor() as cursor:
-            for player_id in sorted({athlete_id, source['athlete_id'] if source else athlete_id}):
+            for player_id in sorted({athlete_id, source['athlete_id'] if source else athlete_id} | ({partial_pair[0]} if partial_pair else set())):
                 cursor.execute('SELECT id_atleta FROM public.atleta WHERE id_atleta=%s FOR UPDATE', (player_id,))
                 if cursor.fetchone() is None:
                     raise ValueError('Jogador não encontrado no banco.')
             original = archive.load_analysis(**source) if source else None
             if original and expected_revision != original['created_at']:
                 raise AnalysisChangedError('Esta análise foi alterada por outra sessão. Abra-a novamente antes de salvar.')
+            if partial_pair and collection_state.revision(cursor, partial_pair)[0] != partial_revision:
+                raise AnalysisChangedError('As medidas da análise parcial foram alteradas. Reabra o registro antes de salvar.')
             others = [item for item in archive.list_analyses(athlete_id)
                       if item['collected_at'] == collected_at and
                       not (original and str(item['id']) == str(original['id']) and source_pair == target_pair)]
             cursor.execute('''SELECT count(*) FROM public.medida_valor v
                 JOIN public.medida m USING (id_medida) JOIN public.grupo_medida g USING (id_grupo_medida)
                 WHERE v.id_atleta=%s AND v.data::date=%s AND lower(trim(g.nome))='termografia' ''', target_pair)
-            has_target = cursor.fetchone()[0] > 0 and source_pair != target_pair
+            has_target = cursor.fetchone()[0] > 0 and target_pair not in (source_pair if not partial_pair else None, partial_pair)
             if (has_target or others) and not overwrite:
                 raise AnalysisConflictError('Uma análise do atleta já foi realizada nessa data. Deseja sobrescrevê-la?')
             # Excluir apenas termografia dos pares explicitamente substituídos.
-            for pair in sorted({target_pair} | ({source_pair} if source_pair else set())):
+            # O SQL já foi movido quando uma edição parcial mudou atleta/data.
+            source_sql_pair = source_pair if not partial_pair else None
+            for pair in sorted({target_pair} | ({source_sql_pair} if source_sql_pair else set()) | ({partial_pair} if partial_pair else set())):
                 cursor.execute('''DELETE FROM public.medida_valor v USING public.medida m, public.grupo_medida g
                     WHERE v.id_medida=m.id_medida AND m.id_grupo_medida=g.id_grupo_medida
                     AND lower(trim(g.nome))='termografia' AND v.id_atleta=%s AND v.data::date=%s''', pair)
@@ -107,7 +117,7 @@ def replace_analysis(*, source, athlete_id, athlete_name, collected_at, mass, pa
                                           measurements=measurements, required_measures=IMAGE_MEASURES)
             cursor.execute('SELECT nome FROM public.atleta WHERE id_atleta=%s', (athlete_id,))
             name = cursor.fetchone()[0]
-            analysis_id = original['id'] if original else (others[-1]['id'] if others else None)
+            analysis_id = original['id'] if original else analysis_id or (others[-1]['id'] if others else None)
             entry = archive.save_analysis(athlete_id=athlete_id, athlete_name=name or f'Atleta {athlete_id}',
                 collected_at=collected_at, mass=float(mass), pain_score=int(pain_score), observations=observations,
                 views=views, analysis_id=analysis_id)

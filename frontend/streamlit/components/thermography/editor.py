@@ -373,13 +373,17 @@ def cached_temperature_scale(content: bytes) -> dict[str, float]:
     return extract_thermography_scale(content)
 
 
-def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature, threshold, item):
-    from frontend.streamlit.api_client.thermal_client import segmented_image
-    config = (minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
+def analysis_configuration(minimum_temperature, maximum_temperature, threshold, item):
+    return (minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
               item.get('saved_analysis_revision', 0),
               repr(item.get('manual_boxes')), repr(item.get('manual_colorbar_box')),
               tuple((side, hashlib.sha256(seed.tobytes()).hexdigest())
                     for side, seed in sorted(item.get('mask_seeds', {}).items())))
+
+
+def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature, threshold, item):
+    from frontend.streamlit.api_client.thermal_client import segmented_image
+    config = analysis_configuration(minimum_temperature, maximum_temperature, threshold, item)
     if item.get('analysis_config') == config and item.get('analysis') is not None:
         return item['analysis']
     analysis = segmented_image(image, view_key, minimum_temperature, maximum_temperature,

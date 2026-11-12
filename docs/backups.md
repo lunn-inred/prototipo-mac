@@ -48,11 +48,15 @@ manifest.json                 # versão, criação UTC, instalação e SHA-256/t
 database/database.json        # contrato do esquema, contagens e estado das sequências
 database/0.csv, 1.csv, ...     # dump lógico via COPY de todas as tabelas public
 analyses/atleta_<id>/<data>/analise_<uuid>/...
+analyses/_drafts/<uuid>/draft.json  # rascunhos térmicos salvos, inclusive sem atleta
 ```
 
 As análises incluem imagens originais, máscaras PNG, temperaturas NumPy e todos
-os metadados/divisões/limiares. Não inclui `.env`, tokens, sessões, o diretório de
-backups ou rascunhos ainda não registrados. Os CSVs contêm dados privados reais;
+os metadados/divisões/limiares. Inclui também os rascunhos térmicos persistidos por
+**Salvar análise**, com imagens e ajustes já definidos, e suas medidas disponíveis
+no banco. Campos não informados não ganham medidas fictícias.
+Não inclui `.env`, tokens, sessões, o diretório de backups ou alterações ainda
+somente na memória da interface. Os CSVs contêm dados privados reais;
 não os publique, abra com ferramentas indiscriminadas ou versione o ZIP.
 A identificação da instalação fica em `MAC_BACKUPS_DIR/installation.txt`.
 
@@ -91,6 +95,14 @@ automaticamente ao Drive. As cópias originais geradas para envio também perman
 em `MAC_BACKUPS_DIR`; cuide do espaço em disco e da retenção.
 
 ## Regras de reconciliação
+
+Rascunhos salvos também seguem as regras de revisão abaixo, mas possuem uma
+identidade separada das análises completas de mesmo UUID. Preservar um rascunho
+local mantém o cadastro do atleta necessário e as medidas SQL já registradas.
+A identidade/revisão lógica das medidas é mantida para permitir futuras edições.
+Uma versão completa e seu estado de edição parcial podem coexistir em arquivos. Após restaurar,
+se a origem completa tiver sido alterada, será necessário reabri-la antes de
+finalizar a edição; a revisão antiga não permite sobrescrevê-la silenciosamente.
 
 A identidade da análise é seu UUID. A revisão é `created_at` dos metadados
 (atualizado pelo salvamento de alterações), em UTC; não é a data da coleta nem
