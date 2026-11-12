@@ -44,9 +44,17 @@ manualmente uma URI de retorno nesse cliente.
 
 O executável guarda a autorização do cliente Desktop em
 `data/credentials/google-drive-desktop.json` ao lado do binário, com permissão
-de acesso apenas ao usuário. Se houver um ID de pasta conhecido, ele fica salvo
-apenas como referência para uma verificação futura. O envio e a importação de
-análises ainda não estão implementados.
+de acesso apenas ao usuário. Configure no `.env` ao lado do binário o mesmo
+`MAC_GOOGLE_BACKUP_FOLDER_ID` usado pela equipe. O login valida a pasta e a
+permissão de adicionar arquivos com o token do próprio cliente Desktop; não
+reutiliza tokens Web nem cria outra pasta se não tiver acesso. IDs legados
+salvos como referência não substituem a configuração. Veja as instruções e a
+limitação de autorização `drive.file` em
+[pasta única de backup](configuration.md#pasta-única-de-backup-da-equipe).
+A página **Backups** usa essa autorização para envio e restauração manuais.
+Os pacotes locais e as cópias preventivas ficam em `data/backups` ao lado do
+binário (ou em `MAC_BACKUPS_DIR`). Não feche o aplicativo durante uma operação.
+Veja o [guia de backups](backups.md), inclusive os limites do esquema suportado.
 
 ## 1. Instale as dependências
 

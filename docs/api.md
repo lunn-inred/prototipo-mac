@@ -69,12 +69,49 @@ Com a API em execução:
 | `PUT /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Substitui uma análise salva, podendo mudar atleta/data | Sim |
 | `GET /api/v1/thermography/analyses?athlete_id=` | Lista análises locais com miniatura | Não |
 | `GET /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Carrega imagens, máscaras e matrizes de uma análise | Não |
+| `GET /api/v1/backups?desktop=false` | Lista pacotes MAC na pasta configurada do Drive | Não |
+| `POST /api/v1/backups` | Inicia snapshot local e envio de um novo pacote ao Drive | Arquivos/Drive |
+| `POST /api/v1/backups/restore` | Baixa e restaura o banco local com reconciliação das análises | Sim, exige confirmação |
+| `GET /api/v1/backups/jobs/{id}` | Progresso/resultado da operação em segundo plano | Não |
 
 Uploads usam `multipart/form-data`; os demais corpos usam JSON. Os esquemas,
 campos obrigatórios e exemplos para testar cada chamada ficam sempre atualizados
 na página `/docs`.
 Os formatos de imagens/matrizes e as operações permitidas estão em
 [Contratos de processamento](#contrato-de-termografia).
+
+## Contrato de backups
+
+As rotas de backup exigem chave de API e sessão Google mesmo no desenvolvimento;
+operam exclusivamente em `MAC_DB_TARGET=local`. A listagem retorna metadados do
+Drive (`id`, `name`, `size`, `createdTime`, `properties`). O campo
+`properties.sha256` identifica o conteúdo que será confirmado para restauração.
+
+`POST /api/v1/backups` recebe `{"desktop": false}`. `POST .../restore` recebe:
+
+```json
+{
+  "desktop": false,
+  "file_id": "ID_DO_ARQUIVO_DE_BACKUP",
+  "expected_sha256": "HASH_SHA256_DE_64_CARACTERES_HEXADECIMAIS",
+  "confirm": true
+}
+```
+
+O hash deve ser o valor real da listagem. `confirm` omitido/falso retorna 422;
+o arquivo precisa continuar pertencendo à pasta configurada e ter o hash
+confirmado. `desktop=true` seleciona o token nativo quando disponível, sem
+compartilhá-lo com o cliente OAuth Web. As respostas de início são `202`, com
+`id`, `kind`, `status` e `message`; consulte `GET .../jobs/{id}` até `completed`
+ou `failed`. Em sucesso, `result` informa contagens e caminho da cópia local ou
+preventiva, nunca credenciais. Não repita automaticamente um POST após perder
+a resposta; confira o estado para não iniciar duas restaurações.
+
+Uma tarefa por vez por processo (409 em tentativa simultânea). Enquanto aplica
+uma restauração ou copia o snapshot, as rotas normais de dados retornam 423;
+os endpoints de listagem/polling de backups continuam disponíveis. As tarefas
+não sobrevivem ao reinício da API; um diário de restauração pendente mantém
+os dados bloqueados até revisão. Regras, formato e limites: [Backups](backups.md).
 
 ## Contrato de termografia
 

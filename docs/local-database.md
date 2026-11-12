@@ -151,6 +151,6 @@ Após alterações intencionais locais, é esperado que a cópia deixe de coinci
 com o snapshot original; isso não significa corrupção.
 
 O banco persistente não recebe dados artificiais dos testes. Os testes de CRUD
-devem usar uma cópia descartável separada. O backup do banco **local atualizado**,
-junto das imagens e do envio ao Google Drive, será uma etapa posterior; o comando
-`export` descrito aqui sempre lê a **origem na nuvem**, não o trabalho local.
+devem usar uma cópia descartável separada. O backup do banco **local atualizado**
+e das imagens fica na página **Backups**; veja o [guia de envio e restauração](backups.md).
+O comando `export` descrito aqui sempre lê a **origem na nuvem**, não o trabalho local.

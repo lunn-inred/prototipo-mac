@@ -39,6 +39,11 @@ services:
         target: /app/data/credentials
         bind:
           create_host_path: false
+      - type: bind
+        source: ./data/backups
+        target: /app/data/backups
+        bind:
+          create_host_path: false
     ports: ["127.0.0.1:8000:8000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]

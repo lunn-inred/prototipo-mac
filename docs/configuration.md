@@ -21,6 +21,9 @@ de Secrets. Credenciais do banco e OCR pertencem ao ambiente da API.
 | `MAC_API_BASE_URL` | Streamlit | URL pública ou interna da API |
 | `MAC_API_TIMEOUT_SECONDS` | Streamlit | Timeout de chamadas longas, padrão 300 s |
 | `MAC_ANALYSES_DIR` | API | Arquivo local de análises; padrão `./data/thermography` |
+| `MAC_BACKUPS_DIR` | API | Pacotes locais, cópias preventivas e diário de recuperação; padrão `./data/backups` |
+| `MAC_BACKUP_MAX_BYTES` | API | Limite do ZIP enviado/baixado; padrão 10737418240 (10 GiB) |
+| `MAC_BACKUP_MAX_EXTRACTED_BYTES` | API | Limite descompactado; padrão 21474836480 (20 GiB) |
 | `MAC_GOOGLE_CLIENT_ID` | Ambos | Ativa o login Google quando preenchido |
 | `MAC_GOOGLE_CLIENT_SECRET` | API | Segredo do cliente OAuth; nunca enviar ao navegador |
 | `MAC_GOOGLE_ALLOWED_EMAIL` | API | Única conta Google autorizada nesta fase |
@@ -28,6 +31,7 @@ de Secrets. Credenciais do banco e OCR pertencem ao ambiente da API.
 | `MAC_GOOGLE_FRONTEND_URL` | API | URL da interface após o login |
 | `MAC_GOOGLE_PUBLIC_API_URL` | Streamlit | URL da API alcançável pelo navegador para iniciar o login |
 | `MAC_GOOGLE_TOKEN_FILE` | API | Arquivo privado do token Drive; padrão `data/credentials/google-drive.json` |
+| `MAC_GOOGLE_BACKUP_FOLDER_ID` | API web/desktop | ID único da pasta de backup da equipe; obrigatório para concluir o login Google; nunca cria outra pasta |
 | `MAC_GOOGLE_DESKTOP_CLIENT_ID` e `MAC_GOOGLE_DESKTOP_CLIENT_SECRET` | API desktop | Cliente OAuth Desktop app para retorno local em porta variável |
 | `MAC_GOOGLE_DESKTOP_REMEMBER_FILE` | API | Hash e expiração da sessão desktop lembrada; padrão `data/credentials/desktop-remember.json` |
 | `MAC_GOOGLE_DESKTOP_SESSION_FILE` | Streamlit desktop | Identificador da sessão desktop lembrada; padrão `data/credentials/desktop-session.txt` |
@@ -111,6 +115,7 @@ Para o primeiro teste, execute API e Streamlit no mesmo computador e abra
 MAC_GOOGLE_CLIENT_ID=cole_o_client_id
 MAC_GOOGLE_CLIENT_SECRET=cole_o_client_secret
 MAC_GOOGLE_ALLOWED_EMAIL=conta_do_mac@example.org
+MAC_GOOGLE_BACKUP_FOLDER_ID=cole_somente_o_id_da_pasta
 MAC_GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
 MAC_GOOGLE_FRONTEND_URL=http://localhost:8501
 MAC_GOOGLE_PUBLIC_API_URL=http://localhost:8000
@@ -120,10 +125,44 @@ O ID e o secret não devem ser enviados por chat nem versionados. Ao preencher
 `MAC_GOOGLE_CLIENT_ID`, todas as rotas `/api/v1` passam a exigir uma sessão
 Google válida além de `MAC_API_KEY`; se faltar outra variável, o login falha
 fechado. A primeira autorização pede `openid`, `email`, `profile` e
-`drive.file`, cria **MAC Backups** no Meu Drive da conta autorizada e salva o
-token de renovação e o ID da pasta no arquivo privado em `data/credentials/`.
-O arquivo não entra no Git nem na imagem Docker. A pasta e o token preparam o
-backup, mas **o envio automático dos arquivos ainda não foi implementado**.
+`drive.file`, valida a pasta de backup configurada e salva o token de renovação
+e o ID validado no arquivo privado em `data/credentials/`. O arquivo não entra
+no Git nem na imagem Docker. O envio e a restauração manuais ficam na página
+**Backups**, descrita no [guia de backups](backups.md). Não há agendamento automático.
+
+### Pasta única de backup da equipe
+
+1. Escolha uma das pastas **MAC Backups** existentes como destino oficial. Na URL
+   `https://drive.google.com/drive/folders/ID_DA_PASTA`, copie apenas `ID_DA_PASTA`.
+2. Coloque o mesmo valor em `MAC_GOOGLE_BACKUP_FOLDER_ID` no `.env` de cada
+   instalação (ao lado do binário no desktop). Não é necessário renomear a pasta.
+3. Reinicie a API e saia/entre novamente com a mesma conta Google autorizada.
+   Uma sessão já aberta não revalida o destino automaticamente.
+4. Cada instalação obtém sua própria autorização; não copie `data/credentials/`
+   entre computadores. Compartilhe a configuração necessária de forma segura,
+   não os refresh tokens ou arquivos de sessão.
+
+O ID do `.env` é a única fonte de destino: IDs antigos em `folder_id` ou
+`folder_id_hint` não são usados como fallback. Sem configuração, o login informa
+o que preencher. Nos fluxos web e desktop, a API faz uma consulta de metadados
+para conferir que o ID identifica uma pasta fora da lixeira e que a autorização
+declara `capabilities.canAddChildren=true`. Não cria pasta nem arquivo de teste.
+Em falha de rede, pasta inválida/inacessível ou falta de escrita, o login falha
+com uma mensagem; não troca silenciosamente de destino. Credenciais locais
+anteriores são preservadas quando a validação falha. As pastas duplicadas já
+existentes não são excluídas ou mescladas automaticamente.
+
+O ID não concede acesso por si só. O escopo `drive.file` alcança somente arquivos
+criados/abertos ou autorizados para o aplicativo. Se ocorrer 403/404 mesmo com
+conta e ID corretos, poderá ser necessária a seleção explícita da pasta pelo
+Google Picker, principalmente ao usar outro cliente/projeto OAuth. Essa seleção
+ainda não está implementada: a mensagem informa a limitação, e o projeto não
+amplia a permissão para todo o Drive. Mantenha os clientes Web e Desktop no
+mesmo projeto Google e faça a validação real em ambos. Consulte a
+[documentação de escopos do Google](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
+
+O login apenas valida o destino. Envio e restauração são ações explícitas na
+página **Backups**, nunca efeitos automáticos de entrar na conta.
 
 No Compose, crie `data/credentials/` no host antes de iniciar os serviços e
 garanta escrita ao usuário do container. O teste com `localhost` funciona apenas no computador servidor. Para dois

@@ -36,6 +36,15 @@ HTTP. As contagens de chamadas não representam medições de latência do Supab
 
 ## Testes locais com PostgreSQL
 
+Os backups têm cobertura em `backend.tests.test_backup_bundle`,
+`backend.tests.test_backup_drive`, `backend.tests.test_backup_routes` e
+`frontend.tests.test_backups_page`, sem usar o Drive real. No banco descartável,
+`backend.tests.test_backup_postgres` testa restauração dos dados e imagens,
+preservação de medidas locais mais recentes, conflito de IDs e rollback em
+falha na publicação dos arquivos. Execute com as mesmas variáveis seguras abaixo.
+Esses testes usam somente arquivos temporários e recusam qualquer banco diferente
+de `mac_test`; não os direcione à cópia persistente.
+
 A fixture `backend/tests/fixtures/schema.sql` reproduz o modelo necessário aos
 testes. Não é um dump completo do Supabase nem uma migração de produção.
 Com `.env` presente na raiz, inicie somente o banco descartável:
@@ -79,6 +88,13 @@ docker compose -p mac-tests -f compose.yaml -f compose.test.yaml --profile test 
 O banco de teste não tem volume persistente: remover o container descarta seus dados.
 
 ## Limites da validação
+
+Os testes de OAuth em `backend/tests/test_google_auth.py` simulam as respostas do
+Google e usam arquivos de credenciais temporários. Cobrem a pasta configurada,
+tokens independentes web/desktop, acesso negado, lixeira, destino sem escrita,
+falhas de rede e ausência de criação automática. Não comprovam o acesso real
+à pasta da equipe: após preencher `MAC_GOOGLE_BACKUP_FOLDER_ID`, faça novo login
+nos dois modos e confirme que a autorização `drive.file` permite esse destino.
 
 Para reproduzir o dimensionamento dos diálogos sem API nem banco:
 

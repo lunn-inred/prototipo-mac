@@ -65,7 +65,7 @@ class GoogleLoginNavigationTests(unittest.TestCase):
         pages, _ = declarations[0]
         self.assertEqual(
             [page.title for page in pages],
-            ["Jogadores", "Monitoramento GPS", "Monitoramento Salto", "Termografia", "Timeline térmica"],
+            ["Jogadores", "Monitoramento GPS", "Monitoramento Salto", "Termografia", "Timeline térmica", "Backups"],
         )
 
     def test_logout_button_is_in_authenticated_sidebar(self):

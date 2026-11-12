@@ -21,6 +21,7 @@ navegador ou em uma janela desktop (WebView).
 - Documentação detalhada:
   - [Configuração e modelo de .env](docs/configuration.md)
   - [Banco local — cópia da nuvem e restauração](docs/local-database.md)
+  - [Backups — Drive, restauração e reconciliação](docs/backups.md)
   - [Execução web, Docker e hospedagem](docs/web.md)
   - [Desktop, build e distribuição](docs/desktop.md)
   - [API — endpoints completos e contratos](docs/api.md)
@@ -42,6 +43,9 @@ As métricas são consultadas nas views do banco. Escritas passam pelas validaç
 e transações da API. **Registrar Análise**, na última etapa térmica, salva as
 medidas no banco local e imagens, máscaras e temperaturas em `data/thermography`,
 disponibilizando a coleta na timeline. Detalhes: [registro unificado](docs/thermography.md#registro-unificado).
+A página **Backups** envia o banco local e as análises ao Drive e permite baixar
+e restaurar um pacote com confirmação e preservação das análises locais mais
+recentes. Antes de usar, leia os [limites e cuidados da restauração](docs/backups.md).
 
 ## Preparação do Ambiente de Desenvolvimento
 
@@ -95,7 +99,7 @@ Hospedagem e instalação por processo: [guia web](docs/web.md).
 Com Docker Compose instalado e o `.env` preenchido:
 
 ```bash
-mkdir -p data/thermography
+mkdir -p data/thermography data/credentials data/backups
 docker compose up --build -d
 ```
 
@@ -153,7 +157,7 @@ macOS e empacotamento do OCR: [build e distribuição](docs/desktop.md).
 Com as dependências desktop instaladas e o `.env` preenchido:
 
 ```bash
-mkdir -p data/thermography
+mkdir -p data/thermography data/credentials data/backups
 docker compose up --build -d backend
 python desktop.py
 ```

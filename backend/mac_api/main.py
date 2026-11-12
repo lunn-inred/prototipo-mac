@@ -52,7 +52,8 @@ def require_api_key(
         raise HTTPException(status_code=401, detail="Entre com a conta Google do MAC.")
 
 
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
+from backend.mac_api.core.maintenance import normal_operation
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key), Depends(normal_operation)])
 from backend.mac_api.modules.thermography.operations import router as processing_router
 router.include_router(processing_router)
 from backend.mac_api.modules.thermography.archive_routes import router as archive_router
@@ -347,6 +348,8 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(router)
+    from backend.mac_api.modules.backups.routes import router as backups_router
+    app.include_router(backups_router, prefix='/api/v1', dependencies=[Depends(require_api_key)])
     return app
 
 
