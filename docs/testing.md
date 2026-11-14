@@ -4,6 +4,16 @@
 
 ## Suíte automatizada
 
+Zonas térmicas e assistente:
+
+```bash
+python -X utf8 -m unittest backend.tests.test_thermal_zones frontend.tests.test_thermal_wizard -v
+```
+
+Cobrem fronteiras exatas de 31/33 °C, ausência de sobreposição, faixa vazia,
+contagem por região, imagem filtrada, API tipada, persistência da zona, comparação
+pela zona basal e troca dos três botões sem slider. Não acessam bancos reais.
+
 Regressões da segmentação watershed (sem banco, OCR ou dados privados):
 
 ```bash

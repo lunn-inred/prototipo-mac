@@ -360,15 +360,17 @@ def cached_temperature_scale(content: bytes) -> dict[str, float]:
 
 def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature, threshold, item):
     from frontend.streamlit.api_client.thermal_client import segmented_image
-    config = ('watershed-v2', minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
+    config = ('watershed-v2-zones-v1', item.get('thermal_zone'), minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
               repr(item.get('manual_boxes')), repr(item.get('manual_colorbar_box')),
               tuple((side, hashlib.sha256(seed.tobytes()).hexdigest())
                     for side, seed in sorted(item.get('mask_seeds', {}).items())))
-    if item.get('analysis_config') == config and item.get('analysis') is not None:
+    if (item.get('analysis_config') == config and item.get('analysis') is not None
+            and item['analysis'].get('thermal_zone') == item.get('thermal_zone')):
         return item['analysis']
     analysis = segmented_image(image, view_key, minimum_temperature, maximum_temperature,
                                threshold, item.get('manual_boxes'), item.get('manual_colorbar_box'),
-                               item.get('mask_seeds'), image_rotation=item.get('image_rotation', 0))
+                               item.get('mask_seeds'), image_rotation=item.get('image_rotation', 0),
+                               thermal_zone=item.get('thermal_zone'))
     item['analysis_config'] = config
     item['analysis'] = analysis
     return analysis

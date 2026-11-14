@@ -3,6 +3,8 @@
 .env.*
 **/secrets.toml
 .venv
+.venv-desktop/
+.venv-windows-antigo/
 **/__pycache__
 build
 dist
@@ -13,3 +15,4 @@ experiments
 data/thermography/
 data/backups/
 data/credentials/
+data/watershed-validation/

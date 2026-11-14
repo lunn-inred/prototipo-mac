@@ -150,14 +150,15 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                         st.image(comparison['images'][side], caption=label, width='stretch')
                 st.image(comparison['legend'], width='stretch')
             with metrics_column:
-                st.markdown('##### Área quente comparada')
+                area_label = comparison['zone_label'] if comparison.get('thermal_zone') else 'Área quente'
+                st.markdown(f'##### {area_label} comparada')
                 for label, side in LEGS.items():
                     previous = comparison['summaries'][side]['baseline']['total']['hot_percentage']
                     actual = comparison['summaries'][side]['current']['total']['hot_percentage']
                     if previous is None or actual is None:
-                        st.caption(f'{label}: sem pixels válidos para calcular a área quente.')
+                        st.caption(f'{label}: sem pixels válidos para calcular a área selecionada.')
                         continue
-                    st.metric(f'Área quente — {label}', f'{actual:.1f}%',
+                    st.metric(f'{area_label} — {label}', f'{actual:.1f}%',
                               delta=f'{actual - previous:+.1f} p.p.')
                     st.caption(f'Basal: {previous:.1f}% da área segmentada.')
 
@@ -242,6 +243,7 @@ def views_for_storage(views, items):
             "minimum_temperature": float(item["minimum_temperature"]),
             "maximum_temperature": float(item["maximum_temperature"]),
             "default_threshold": float(analysis["threshold"]),
+            "thermal_zone": analysis.get('thermal_zone'),
             "boxes": analysis["boxes"], "colorbar_box": analysis.get("colorbar_box"),
             "temperatures": analysis["temperatures"], "segmentation_masks": analysis["masks"],
             "part_settings": item.get("part_settings_v4", {}),

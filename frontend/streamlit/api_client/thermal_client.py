@@ -1,5 +1,5 @@
 """HTTP adapters. Image analysis is exclusively executed by FastAPI."""
-from frontend.streamlit.api_client.service_gateway import _request
+from frontend.streamlit.api_client.service_gateway import _request, ApiClientError
 from frontend.streamlit.api_client.wire import encode, decode
 
 LEG_PARTS = ('coxa', 'joelho', 'canela', 'pe')
@@ -24,9 +24,17 @@ for _name in (
 
 
 def segmented_image(image, view, minimum_temperature, maximum_temperature, threshold,
-                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0):
+                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0, thermal_zone=None):
     payload = encode(dict(image=image, view=view, minimum_temperature=minimum_temperature,
                           maximum_temperature=maximum_temperature, threshold=threshold,
                           manual_boxes=manual_boxes, colorbar_box=colorbar_box, seeds=seeds,
-                          image_rotation=image_rotation))
-    return decode(_request('POST', '/api/v1/thermography/segment', json=payload))
+                          image_rotation=image_rotation, thermal_zone=thermal_zone))
+    result = decode(_request('POST', '/api/v1/thermography/segment', json=payload))
+    if thermal_zone is not None and result.get('thermal_zone') != thermal_zone:
+        raise ApiClientError(
+            'A API em execução não confirmou a zona térmica selecionada. '
+            'No modo Python, encerre a API com Ctrl+C e inicie-a novamente. '
+            'No Docker, atualize a imagem com docker compose up -d --build --no-deps backend. '
+            'O cálculo foi interrompido para não apresentar valores de outra faixa.'
+        )
+    return result

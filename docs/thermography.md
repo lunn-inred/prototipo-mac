@@ -24,10 +24,10 @@ somente uma etapa por vez:
 4. Divisão de cada perna em coxa, joelho, canela e pé, com uma prévia anatômica por vista
    e o botão **Redefinir regiões**.
 5. Revisão da segmentação automática por watershed e correção manual pelo botão **Ajustar área perna**.
-6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala e métricas.
+6. Cálculo da termografia: Tmin/Tmax, seleção da zona térmica e métricas.
    Cada vista apresenta a imagem
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
-   e os pixels quentes.
+   e os pixels da zona selecionada.
 7. Resumo da coleta: totais de frente/costas e tabela revisável no mesmo componente.
    O botão **Registrar Análise** salva medidas no banco local e arquivos na timeline
    com uma única confirmação de data. Voltar e iniciar outra análise aparecem abaixo.
@@ -72,12 +72,13 @@ centralizadas e botões que ocupam a largura disponível de suas colunas.
 Na divisão anatômica, aparece somente a prévia com nomes e limites das áreas.
 Na segmentação, a segunda prévia mostra a área completa das pernas sem fundo.
 A filtragem de pixels quentes aparece
-somente na etapa de cálculo, após a definição da escala e do limiar.
+somente na etapa de cálculo, após a definição da escala e da zona térmica.
 
 O botão **Registrar Análise** registra as medidas no PostgreSQL local e salva as
 imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
 pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
-real com o limiar salvo em cada vista da coleta, sem controles de ajuste na timeline.
+real com a zona térmica (ou o limiar legado) salvo em cada vista da coleta,
+sem controles de ajuste na timeline.
 Ao escolher o jogador, a timeline
 seleciona automaticamente a data mais antiga como **Basal** e a mais recente como
 **Atual**. O botão **Mudar Basal**, abaixo da imagem basal, abre um pop-up com as análises desse jogador;
@@ -107,16 +108,34 @@ e costas e o OCR é aplicado às regiões superior e inferior
 do canto direito para preencher automaticamente Tmax e Tmin. Os campos continuam
 editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece uma
 escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
-térmica lateral e conta como quentes os pixels a partir de 90% da escala por
-padrão: `Tmin + 0,90 × (Tmax − Tmin)`. O usuário ainda pode ajustar esse limiar
-no bloco **Limiar de pixels quentes**, que reúne seletor de unidade, barra e
-campo numérico à direita. Barra e digitação são sincronizadas nos dois sentidos.
-Em cada imagem, o seletor permite controlar o limiar diretamente pela temperatura
-em °C (modo padrão, à esquerda) ou pela porcentagem da escala. Ao alternar o modo, o sistema preserva o
-limiar equivalente; a análise e os resultados continuam usando a temperatura
-convertida em °C. A porcentagem aceita de 0 a 100 e a temperatura fica limitada
-a Tmin/Tmax. Se a escala mudar no modo °C, preserva-se o valor absoluto quando
-possível, limitando-o aos novos extremos. O preenchimento aceita duas casas decimais.
+térmica lateral. Na etapa de cálculo, cada vista oferece três botões:
+**Zona fria** (T < 31 °C), **Zona neutra** (31 ≤ T < 33 °C) e
+**Zona quente** (T ≥ 33 °C, padrão). Não há slider ou seletor de unidade do
+limiar nesse assistente. As faixas são fixas, sem sobreposição, e não são
+redefinidas por Tmin/Tmax; uma zona fora da escala pode retornar zero pixels.
+A imagem resultante usa o nome da zona selecionada. Contagens e percentuais
+totais e por coxa/joelho/canela/pé usam somente pixels dessa zona dentro das
+máscaras. O denominador continua sendo a área segmentada total de cada região:
+`pixels na zona ÷ pixels segmentados × 100`. O resumo e o registro utilizam
+as mesmas contagens recalculadas no backend.
+
+A zona é salva por vista nos metadados `thermal_zone` (`cold`, `neutral`, `hot`).
+Ao atualizar para esse fluxo, reinicie também a API, não somente o Streamlit.
+Se a API roda no Docker, use `docker compose up -d --build --no-deps backend`:
+reiniciar um Python no host não atualiza o código copiado para a imagem.
+Esse comando substitui apenas a API; não restaura o banco nem remove volumes.
+Após atualizar arquivos do desktop, feche e reabra sua janela para recarregar
+os módulos da interface, pois o launcher desativa o monitoramento de arquivos.
+O cliente exige que a resposta confirme a zona pedida; uma API antiga interrompe
+o cálculo com orientação de reinicialização, em vez de exibir contagens por
+limiar como se fossem da zona. Resultados antigos na sessão são recalculados,
+preservando os demais campos do rascunho. A legenda pode ser obtida pelo nome
+da zona confirmada quando o campo de apresentação `zone_label` estiver ausente.
+Chaves técnicas legadas `hot_pixels`, `hot_percentage` e `hot_overlay` permanecem
+nos contratos para compatibilidade, representando a zona selecionada quando
+informada. Análises antigas sem zona continuam usando o limiar salvo. Na timeline,
+a zona basal é a referência para os percentuais e contornos das duas coletas;
+o alinhamento e o mapa de diferenças de temperatura permanecem iguais.
 
 O watershed usa marcadores automáticos da paleta térmica, incluindo os dois
 extremos de vermelho do HSV. Linhas finas claras são suprimidas apenas numa cópia
@@ -144,11 +163,10 @@ automaticamente e destacada na prévia. Dentro de **Ajustar regiões**, a opçã
 **Barra de cores** permite redesenhar sua caixa; a paleta extraída dessa região é a fonte usada
 para converter as cores da imagem em temperaturas aproximadas. Para cada perna
 e para os totais de frente/costas, a tela
-apresenta a quantidade de pixels quentes, a área total segmentada e o percentual
-`pixels quentes ÷ área segmentada × 100`. A área do retângulo não é usada como
+apresenta a quantidade de pixels da zona, a área total segmentada e o percentual
+`pixels na zona ÷ área segmentada × 100`. A área do retângulo não é usada como
 denominador. Ao lado da máscara, uma segunda prévia usa fundo preto e mantém
-visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
-limiar térmico selecionado.
+visíveis somente os pixels que pertencem às pernas segmentadas e à zona selecionada.
 
 Novas análises usam a versão `thermal-rgb-watershed-v2`. Fundos com cores
 semelhantes às próprias pernas ou pouco contraste ainda podem exigir ajuste
@@ -316,14 +334,15 @@ A operação `compare_temperature_maps` aceita `gamma` opcional e preserva 1
 como padrão para clientes da API; a timeline envia explicitamente o valor do
 controle, incluído na chave de cache de cada comparação.
 
-O limiar salvo no basal continua sendo aplicado às duas coletas para os
-percentuais de área quente. Esses indicadores usam os pixels nativos de cada
-coleta, não os pixels interpolados do mapa; os limiares originais permanecem
+O critério salvo no basal (zona térmica, ou limiar nas análises legadas) é
+aplicado às duas coletas para os percentuais de área selecionada. Esses indicadores
+usam os pixels nativos de cada coleta, não os pixels interpolados do mapa;
+as zonas e os limiares originais permanecem
 nos arquivos salvos, sem descrições auxiliares na tela. O gradiente de diferenças
 não depende desses limiares. Cálculos e
 carregamentos são armazenados em cache por até 60 segundos para cada par.
 
-A timeline apresenta os percentuais de área quente por perna, sem tabela
+A timeline apresenta os percentuais da zona (ou área quente legada) por perna, sem tabela
 regional. A comparação não modifica os arquivos salvos e não exige migração.
 Na etapa 7, as duas gravações fazem parte de uma única operação da API. As rotas
 antigas de gravação independente continuam disponíveis por compatibilidade,

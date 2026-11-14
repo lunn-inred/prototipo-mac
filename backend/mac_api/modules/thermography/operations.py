@@ -52,6 +52,7 @@ class SegmentationInput(BaseModel):
     manual_boxes: dict[Literal['right', 'left'], BoundingBox] | None = None
     colorbar_box: BoundingBox | None = None
     seeds: dict[Literal['right', 'left'], ArrayPayload] | None = None
+    thermal_zone: Literal['cold', 'neutral', 'hot'] | None = None
 
 
 class LegMetric(BaseModel):
@@ -75,6 +76,8 @@ class SegmentationOutput(BaseModel):
     temperatures: ArrayPayload
     threshold: float
     segmentation_warning: str | None = None
+    thermal_zone: Literal['cold', 'neutral', 'hot'] | None = None
+    zone_label: str = 'Pixels quentes'
 
 
 @router.post('/thermography/segment', response_model=SegmentationOutput, tags=['Processamento térmico'])

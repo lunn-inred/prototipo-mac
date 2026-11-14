@@ -11,6 +11,7 @@ from frontend.streamlit.presentation.thermography_data import (
 from frontend.streamlit.components.thermography.forms import render_forms
 from frontend.streamlit.components.thermography.registration import confirm_analysis_registration
 from frontend.streamlit.components.thermography.wizard import render_wizard, navigate
+from frontend.streamlit.presentation.thermal_zones import ZONE_NAMES
 
 st.set_page_config(page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide")
 
@@ -123,6 +124,8 @@ if all(view_metrics.values()):
     front_pixels, back_pixels = summary['front']['hot_pixels'], summary['back']['hot_pixels']
     front_area, back_area = summary['front']['total_pixels'], summary['back']['total_pixels']
     front_percentage, back_percentage = summary['front']['hot_percentage'], summary['back']['hot_percentage']
+    zone_labels = {view: ZONE_NAMES.get(items[f'{view}:{views[view]["signature"]}'].get('thermal_zone'), 'Pixels quentes')
+                   for view in ('front', 'back')}
     selected_player = athletes_by_id.get(selected_player_id)
     record = {
         "Jogador": (
@@ -149,21 +152,21 @@ if all(view_metrics.values()):
         with summary_columns[0]:
             with st.container(border=True):
                 st.metric(
-                    "Pixels quentes — Frente (duas pernas)",
+                    f"{zone_labels['front']} — Frente (duas pernas)",
                     f"{front_pixels:,} px".replace(",", "."),
                 )
                 st.caption(
-                    f"{front_percentage:.1f}% quentes · área segmentada: "
+                    f"{front_percentage:.1f}% na zona selecionada · área segmentada: "
                     f"{front_area:,} pixels".replace(",", ".")
                 )
         with summary_columns[1]:
             with st.container(border=True):
                 st.metric(
-                    "Pixels quentes — Costas (duas pernas)",
+                    f"{zone_labels['back']} — Costas (duas pernas)",
                     f"{back_pixels:,} px".replace(",", "."),
                 )
                 st.caption(
-                    f"{back_percentage:.1f}% quentes · área segmentada: "
+                    f"{back_percentage:.1f}% na zona selecionada · área segmentada: "
                     f"{back_area:,} pixels".replace(",", ".")
                 )
 

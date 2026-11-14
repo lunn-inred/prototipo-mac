@@ -96,6 +96,18 @@ localizada na orientação original e transformada, preservando a ordem da palet
 - `manual_boxes`: caixas opcionais `right` e `left`;
 - `colorbar_box`: caixa opcional da paleta;
 - `seeds`: matrizes opcionais de correção de cada perna.
+- `thermal_zone`: opcional, `cold` (T < 31), `neutral` (31 ≤ T < 33) ou `hot`
+  (T ≥ 33), em °C. Sem esse campo, preserva a seleção legada por `threshold`.
+
+Com zona informada, a imagem `hot_overlay`, as contagens `hot_pixels` e os
+percentuais `hot_percentage` usam a faixa selecionada. O denominador permanece
+a área segmentada total. O resultado inclui `thermal_zone` e `zone_label`.
+`threshold` continua sendo enviado por compatibilidade; o retorno armazena uma
+referência escalar limitada à escala, mas é a zona que determina os pixels.
+`leg_part_metrics`, `count_hot_pixels` e `hot_pixels_overlay` aceitam o mesmo
+argumento opcional. Nas vistas salvas, `thermal_zone` preserva a seleção para
+recalcular contagens na persistência e ao abrir a timeline. Registros antigos
+sem esse campo mantêm seu comportamento por limiar.
 
 Uma caixa contém `left`, `top`, `width`, `height` em pixels da imagem enviada,
 com orientação EXIF corrigida e rotação aplicada. Seeds usam `int8`: `1` inclui, `-1` exclui e `0`
