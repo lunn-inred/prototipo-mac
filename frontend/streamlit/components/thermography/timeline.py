@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib
 import io
+from html import escape
 from datetime import date
 from typing import Any
 import numpy as np
@@ -99,6 +100,48 @@ def _cached_comparison(baseline_entry, current_entry, limit=None, gamma=0.5):
     return {'front': front, 'back': back}
 
 
+def _render_regional_comparison(comparison, view_key):
+    area_label = comparison.get('zone_label', 'Zona selecionada') if comparison.get('thermal_zone') else 'Área quente'
+    st.markdown(f'##### {area_label} por região')
+    st.caption('Percentuais por região · Δ em pontos percentuais')
+    cards = []
+    for label, side in LEGS.items():
+        summaries = comparison.get('summaries', {}).get(side, {})
+        baseline, current = summaries.get('baseline', {}), summaries.get('current', {})
+        rows = []
+        for part, part_label in (('total', 'Total'), ('coxa', 'Coxa'), ('joelho', 'Joelho'),
+                                 ('canela', 'Canela'), ('pe', 'Pé')):
+            previous = baseline.get(part, {}).get('hot_percentage')
+            actual = current.get(part, {}).get('hot_percentage')
+            value = f'{actual:.1f}%' if actual is not None else '—'
+            old = f'{previous:.1f}%' if previous is not None else '—'
+            delta = f'{actual - previous:+.1f}' if actual is not None and previous is not None else '—'
+            title = 'Atual: sem pixels válidos.' if actual is None else 'Basal: sem pixels válidos.' if previous is None else 'Variação em pontos percentuais.'
+            rows.append(f'<tr data-region="{part}" title="{title}"><th scope="row">{part_label}</th>'
+                        f'<td class="region-current">{value}</td><td>{old}</td><td>{delta}</td></tr>')
+        cards.append(f'<section class="regional-card" aria-label="{escape(label)}">'
+                     f'<h6>{escape(label)}</h6><table aria-label="Percentuais de {escape(label)}">'
+                     '<thead><tr><th>Região</th><th>Atual</th><th>Basal</th><th>Δ p.p.</th></tr></thead>'
+                     f'<tbody>{"".join(rows)}</tbody></table></section>')
+    st.html('''<style>
+    .regional-panel {container-type:inline-size;}
+    .regional-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+    .regional-card {min-width:0;border:1px solid #cbd0d7;border-radius:10px;padding:10px 8px;background:transparent;}
+    .regional-card h6 {margin:0 0 8px;padding:0;font-size:12px;font-weight:650;line-height:1.3;}
+    .regional-card table {width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums;}
+    .regional-card th,.regional-card td {padding:8px 1px;white-space:nowrap;overflow:visible;text-overflow:clip;
+      font-size:11px;line-height:1.3;text-align:right;border-bottom:1px solid #dce0e6;}
+    .regional-card th:first-child {text-align:left;width:27%;}
+    .regional-card thead th {font-size:10px;color:#6b7280;font-weight:500;padding-top:0;}
+    .regional-card tbody th {font-weight:500;}
+    .regional-card .region-current {font-size:12px;font-weight:700;}
+    .regional-card tr[data-region="total"] {background:rgba(127,139,156,.08);}
+    .regional-card tr[data-region="total"] th {font-weight:700;}
+    .regional-card tbody tr:last-child>* {border-bottom:0;}
+    @container (max-width:360px) {.regional-grid {grid-template-columns:1fr;}}
+    </style><div class="regional-panel"><div class="regional-grid">'''+''.join(cards)+'</div></div>')
+
+
 def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
     st.markdown('#### Comparação Basal × Atual')
     gamma = st.slider(
@@ -125,7 +168,7 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
             current = ti['views'][view_key]
             comparison = comparisons[view_key]
             t0_column, ti_column, map_column, metrics_column = st.columns(
-                [1.1, 1.1, 1.4, 1.2], gap='medium'
+                [1, 1, 1.3, 2.1], gap='medium'
             )
             with t0_column:
                 st.markdown(f"##### Basal ({t0['collected_at'].strftime('%d/%m/%Y')})")
@@ -149,18 +192,27 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                     with column:
                         st.image(comparison['images'][side], caption=label, width='stretch')
                 st.image(comparison['legend'], width='stretch')
-            with metrics_column:
-                area_label = comparison['zone_label'] if comparison.get('thermal_zone') else 'Área quente'
-                st.markdown(f'##### {area_label} comparada')
-                for label, side in LEGS.items():
-                    previous = comparison['summaries'][side]['baseline']['total']['hot_percentage']
-                    actual = comparison['summaries'][side]['current']['total']['hot_percentage']
-                    if previous is None or actual is None:
-                        st.caption(f'{label}: sem pixels válidos para calcular a área selecionada.')
-                        continue
-                    st.metric(f'{area_label} — {label}', f'{actual:.1f}%',
-                              delta=f'{actual - previous:+.1f} p.p.')
-                    st.caption(f'Basal: {previous:.1f}% da área segmentada.')
+            with metrics_column, st.container(key=f'timeline_metrics_{view_key}'):
+                st.html(f'''<style>
+                .st-key-timeline_metrics_{view_key} [data-testid="stMetricValue"] {{
+                    font-size: clamp(1rem, 1.1vw, 1.35rem); line-height: 1.15;
+                }}
+                .st-key-timeline_metrics_{view_key} [data-testid="stMetric"] {{
+                    padding: .35rem .5rem; min-height: 0;
+                }}
+                .st-key-timeline_metrics_{view_key} [data-testid="stMetricDelta"] {{
+                    font-size: .75rem;
+                }}
+                .st-key-timeline_metrics_{view_key} [data-testid="stCaptionContainer"] p {{
+                    font-size: .72rem; margin-bottom: 0;
+                }}
+                .st-key-timeline_metrics_{view_key} [data-testid="stVerticalBlock"] {{
+                    gap: .35rem;
+                }}
+                .st-key-timeline_metrics_{view_key} h5 {{font-size: 1rem; padding-top: 0;}}
+                .st-key-timeline_metrics_{view_key} h6 {{font-size: .85rem; padding-top: 0;}}
+                </style>''')
+                _render_regional_comparison(comparison, view_key)
 
 
 

@@ -342,8 +342,20 @@ nos arquivos salvos, sem descrições auxiliares na tela. O gradiente de diferen
 não depende desses limiares. Cálculos e
 carregamentos são armazenados em cache por até 60 segundos para cada par.
 
-A timeline apresenta os percentuais da zona (ou área quente legada) por perna, sem tabela
-regional. A comparação não modifica os arquivos salvos e não exige migração.
+A timeline apresenta os percentuais da zona (ou área quente legada) por perna e
+por coxa, joelho, canela e pé, nas vistas de frente e costas. Cada região mostra
+o percentual atual, o basal e a diferença em pontos percentuais. Regiões sem
+pixels válidos são identificadas sem ocultar as demais. As divisões e métricas
+são as calculadas pelo backend a partir de cada análise salva; não há novo
+alinhamento nem alteração do denominador. A comparação não modifica os arquivos
+salvos e não exige migração.
+Os indicadores aparecem na coluna à direita das imagens em dois cartões compactos,
+um por perna. Cada cartão contém linhas para total, coxa, joelho, canela e pé,
+com colunas fixas de Atual, Basal e Δ p.p. A tipografia é reduzida para exibir
+os números completos, sem o truncamento dos widgets de métricas em colunas
+estreitas. Em painéis muito estreitos, os cartões se empilham para preservar a leitura.
+Os deltas usam cor neutra, sem sugerir avaliação clínica automática de melhora
+ou piora. Uma região sem dados mostra um traço e mantém as outras visíveis.
 Na etapa 7, as duas gravações fazem parte de uma única operação da API. As rotas
 antigas de gravação independente continuam disponíveis por compatibilidade,
 mas não são usadas pelo novo botão. Análises antigas continuam na timeline sem
