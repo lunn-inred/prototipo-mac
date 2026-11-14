@@ -224,7 +224,17 @@ para o mesmo jogador/data, a interface solicita confirmação antes de substitu�
 O botão **Ver análises anteriores**, abaixo de **Voltar**, abre um pop-up com
 os cartões dos atletas e busca por nome. O cartão inteiro é clicável e pode ser
 acionado também pelo teclado, sem um botão de seleção separado. Ao selecionar um
-atleta, aparecem suas análises salvas com data e miniatura. O pop-up aproveita
+atleta, aparecem suas análises salvas com data e prévias de **Frente** e **Costas**
+lado a lado. Ao selecionar um atleta, a lista anterior é limpa antes da consulta
+à API e o pop-up indica o carregamento, sem manter os cartões dos atletas na tela
+enquanto aguarda a resposta. A API gera cada prévia a partir da imagem original, preservando
+proporção e rotação, com limite de 640 × 480 px e redução LANCZOS; o cartão não
+reduz novamente a imagem antes de exibi-la. Imagens pequenas não são ampliadas
+artificialmente na geração das miniaturas. Em análises parciais, uma vista ausente
+aparece como **Imagem não enviada**, sem repetir a outra vista.
+As prévias são geradas na leitura: análises existentes não precisam ser salvas
+novamente, e os originais, máscaras, temperaturas e arquivos de análise não são
+alterados. O pop-up aproveita
 quase toda a altura da janela, com margem de 1 rem no topo e embaixo; a lista
 acompanha a altura disponível, sem o limite fixo anterior de 450 px.
 O cabeçalho, a busca e o botão de voltar ficam fora da rolagem; a lista ocupa

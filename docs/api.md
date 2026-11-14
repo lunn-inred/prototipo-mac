@@ -191,6 +191,14 @@ nem alteram o banco. Data e UUID identificam arquivos, não coletas SQL.
 O arquivo local permite recuperar as imagens após encerrar a sessão;
 o histórico de medidas do banco continua sem imagens.
 
+Os resumos completos e parciais incluem `thumbnails`, com `front` e `back`
+codificados pelo transporte de imagens da API. Cada prévia mantém proporção e
+rotação, com até 640 × 480 px, sem ampliar imagens menores. Em análises parciais,
+somente as vistas enviadas aparecem nesse mapa; ele pode estar vazio.
+O campo singular `thumbnail` continua disponível em tamanho reduzido por
+compatibilidade com clientes anteriores. Nenhum arquivo salvo é migrado ou
+reescrito para gerar as prévias.
+
 ### Registro único de análise
 
 O botão **Salvar análise**, quando completa, usa `POST /api/v1/thermography/analyses/register`.

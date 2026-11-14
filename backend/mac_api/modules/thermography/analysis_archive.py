@@ -14,6 +14,7 @@ import numpy as np
 from PIL import Image
 from backend.mac_api.core.settings import setting
 from .thermal_analysis import count_hot_pixels, leg_part_metrics
+from .analysis_previews import build_thumbnails, legacy_thumbnail
 
 FORMAT_VERSION = 1
 ANALYSIS_VERSION = 'thermal-rgb-grabcut-v1'
@@ -190,13 +191,15 @@ def _metadata(directory):
 
 
 def _summary(directory, metadata):
-    with Image.open(_safe_path(directory / 'frente/original.png')) as image:
-        thumbnail = image.convert('RGB'); thumbnail.thumbnail((170, 110))
+    thumbnails = {}
+    for view, folder in (('front', 'frente'), ('back', 'verso')):
+        with Image.open(_safe_path(directory / folder / 'original.png')) as image:
+            thumbnails.update(build_thumbnails({view: image}))
     created = datetime.fromisoformat(metadata['created_at'])
     return dict(version=3, id=metadata['analysis_id'], analysis_id=metadata['analysis_id'],
                 athlete_id=metadata['athlete_id'], athlete_name=metadata['athlete_name'],
                 collected_at=date.fromisoformat(metadata['collected_at']), created_at=metadata['created_at'],
-                sequence=int(created.timestamp()*1_000_000), thumbnail=thumbnail,
+                sequence=int(created.timestamp()*1_000_000), thumbnail=legacy_thumbnail(thumbnails), thumbnails=thumbnails,
                 mass=metadata['mass'], pain_score=metadata['pain_score'], observations=metadata['observations'])
 
 

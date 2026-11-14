@@ -96,6 +96,11 @@ def show_history(athletes):
     athletes = {**athletes, 0: dict(id_atleta=0, nome='Sem atleta (rascunhos)', posicao='Análises ainda não associadas', status='não associado')}
     # Os editores de imagem não têm scroll; somente esta lista é rolável.
     st.html('''<style>
+        /* Elementos obsoletos podem ficar no DOM até o fim da consulta. */
+        [data-testid="stDialog"]:has(.st-key-analysis_browser_loading)
+        .st-key-analysis_browser_results {
+            display: none !important;
+        }
         [data-testid="stDialog"]:has(.st-key-analysis_browser_results) {
             box-sizing: border-box;
             align-items: center !important;
@@ -139,6 +144,27 @@ def show_history(athletes):
             scrollbar-gutter: stable;
         }
     </style>''')
+    # Limpar os cartões antigos antes de qualquer consulta bloqueante. O
+    # Streamlit normalmente só remove os elementos obsoletos ao fim do rerun.
+    content = st.empty()
+    content.empty()
+    analyses, loading_error = None, None
+    player_id = st.session_state.get('analysis_browser_player')
+    if player_id in athletes:
+        # O marcador também oculta os filhos obsoletos que o navegador mantém
+        # durante a reconciliação dos containers do Streamlit.
+        with content.container(key='analysis_browser_loading'):
+            st.info('Carregando análises...')
+        try:
+            analyses = sorted(list_local_analyses(player_id, include_drafts=True),
+                              key=lambda item: (item['collected_at'], item['created_at']), reverse=True)
+        except ValueError as error:
+            loading_error = str(error)
+    with content.container():
+        _render_history_content(athletes, analyses, loading_error)
+
+
+def _render_history_content(athletes, analyses, loading_error):
     player_id = st.session_state.get('analysis_browser_player')
     if player_id not in athletes:
         query = st.text_input('Buscar atleta', key='analysis_browser_query').strip().casefold()
@@ -154,11 +180,8 @@ def show_history(athletes):
     else:
         render_analysis_card_style()
         st.markdown(f'#### Análises de {player_name(athletes[player_id])}')
-        try:
-            analyses = sorted(list_local_analyses(player_id, include_drafts=True), key=lambda item: (item['collected_at'], item['created_at']), reverse=True)
-        except ValueError as error:
-            st.error(str(error))
-            analyses = None
+        if loading_error:
+            st.error(loading_error)
         if analyses == []:
             st.info('Não há análises salvas para este atleta.')
         with st.container(border=False, key='analysis_browser_results'):

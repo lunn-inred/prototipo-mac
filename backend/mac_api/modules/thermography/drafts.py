@@ -22,6 +22,7 @@ from .analysis_registration import AnalysisChangedError, AnalysisConflictError
 from .thermography_service import current_sao_paulo_date
 from .thermography_service import _insert_collection
 from . import collection_state
+from .analysis_previews import build_thumbnails, legacy_thumbnail
 
 LOCK = RLock()
 FORMAT = 'mac-thermal-draft-v1'
@@ -110,12 +111,12 @@ def _read(identity):
 def summary(identity):
     payload, state = _read(identity)
     images = validate_state(state)
-    thumbnail = next(iter(images.values()), Image.new('RGB', (170, 110), '#d8dee8')).copy()
-    thumbnail.thumbnail((170, 110))
+    thumbnails = build_thumbnails(images)
     return dict(id=payload['analysis_id'], analysis_id=payload['analysis_id'], is_draft=True,
         athlete_id=payload['athlete_id'], athlete_name=payload['athlete_name'],
         collected_at=date.fromisoformat(payload['collected_at']), created_at=payload['created_at'],
-        sequence=int(datetime.fromisoformat(payload['created_at']).timestamp()*1_000_000), thumbnail=thumbnail,
+        sequence=int(datetime.fromisoformat(payload['created_at']).timestamp()*1_000_000),
+        thumbnail=legacy_thumbnail(thumbnails), thumbnails=thumbnails,
         mass=state['draft'].get('mass'), pain_score=state['draft'].get('pain'), observations=state['draft'].get('notes', ''),
         sql_pair=payload.get('sql_pair'), sql_revision=payload.get('sql_revision'), source=state.get('source'))
 

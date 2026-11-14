@@ -2,6 +2,7 @@
 import base64
 import io
 import streamlit as st
+from PIL import Image
 
 
 def render_analysis_card_style():
@@ -27,14 +28,15 @@ def render_analysis_card_style():
             width: 100%;
         }
         [class*="st-key-analysis_card_"] [data-testid="stMarkdownContainer"] {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: .25rem .75rem;
             width: 100%;
             min-width: 0;
             text-align: center;
         }
         [class*="st-key-analysis_card_"] button p {
+            grid-column: 1 / -1;
             display: block;
             width: 100%;
             margin: .25rem 0;
@@ -42,6 +44,12 @@ def render_analysis_card_style():
             overflow-wrap: anywhere;
             font-size: .8rem;
             color: var(--mac-muted, #64748b);
+        }
+        [class*="st-key-analysis_card_"] button p:has(img):has(strong) {
+            grid-column: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
         [class*="st-key-analysis_card_"] button strong {
             font-size: 1rem;
@@ -59,16 +67,32 @@ def render_analysis_card_style():
     </style>''')
 
 
-def selectable_analysis_card(entry, *, key, on_click, args, details):
-    thumbnail = entry['thumbnail'].copy()
-    thumbnail.thumbnail((250, 180))
+def _image_markdown(image, description):
     buffer = io.BytesIO()
-    thumbnail.save(buffer, format='PNG')
+    image.save(buffer, format='PNG')
     encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
+    return f'![{description}](data:image/png;base64,{encoded})'
+
+
+def selectable_analysis_card(entry, *, key, on_click, args, details):
     date_label = entry['collected_at'].strftime('%d/%m/%Y')
+    if 'thumbnails' in entry:
+        blocks = []
+        for view, name in (('front', 'Frente'), ('back', 'Costas')):
+            image = entry['thumbnails'].get(view)
+            missing = image is None
+            if missing:
+                image = Image.new('RGB', (240,180), '#eef1f5')
+            block = f'**{name}**\n{_image_markdown(image, name)}'
+            if missing:
+                block += '  \nImagem não enviada'
+            blocks.append(block)
+        preview = '\n\n'.join(blocks)
+    else:
+        # Compatibilidade com resumos de APIs/fixtures anteriores.
+        preview = _image_markdown(entry['thumbnail'], f'Análise de {date_label}')
     status = '\n\n:red[Análise incompleta]' if entry.get('is_draft') else ''
-    label = (f'![Análise de {date_label}](data:image/png;base64,{encoded})'
-             f'\n\n**{date_label}**{status}\n\n{details}')
+    label = f'{preview}\n\n**{date_label}**{status}\n\n{details}'
     with st.container(key=f'analysis_card_{key}'):
         return st.button(label, key=key, width='stretch',
                          on_click=on_click, args=args)

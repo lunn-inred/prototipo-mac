@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import unittest
 import numpy as np
 import streamlit as st
@@ -70,7 +70,8 @@ if not st.session_state.get('thermal_edit_source'):
             app.button(key='analysis_player_1').click().run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             card = app.button(key=f'analysis_select_{self.saved["id"]}')
-            self.assertIn('![Análise de 01/11/2026](data:image/png;base64,', card.label)
+            self.assertIn('**Frente**\n![Frente](data:image/png;base64,', card.label)
+            self.assertIn('**Costas**\n![Costas](data:image/png;base64,', card.label)
             self.assertIn('**01/11/2026**', card.label)
             self.assertIn('Massa: 75.0 kg · EVA: 0', card.label)
             self.assertFalse(any(button.label == 'Selecionar análise' for button in app.button))
@@ -78,6 +79,36 @@ if not st.session_state.get('thermal_edit_source'):
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertEqual(app.session_state['thermal_edit_source']['id'], self.saved['id'])
             load.assert_called_once()
+
+    def test_browser_clears_previous_cards_before_requesting_analyses(self):
+        script = '''
+from frontend.streamlit.components.thermography.history import show_history
+show_history({1: {'id_atleta': 1, 'nome': 'Teste'}})
+'''
+        original_empty = st.empty
+        slots = []
+
+        def empty():
+            slot = original_empty()
+            slot.empty = Mock(wraps=slot.empty)
+            slot.container = Mock(wraps=slot.container)
+            slots.append(slot)
+            return slot
+
+        def load(*args, **kwargs):
+            # A limpeza deve ser enviada antes da consulta, não só ao concluir.
+            slots[0].empty.assert_called_once_with()
+            slots[0].container.assert_called_once_with(key='analysis_browser_loading')
+            return [self.saved]
+
+        app = AppTest.from_string(script).run()
+        with patch.object(history.st, 'empty', side_effect=empty), \
+             patch.object(history, 'list_local_analyses', side_effect=load) as request:
+            app.button(key='analysis_player_1').click().run()
+        self.assertFalse(app.exception)
+        request.assert_called_once_with(1, include_drafts=True)
+        self.assertFalse(any(button.key.startswith('analysis_player_') for button in app.button))
+        self.assertIsNotNone(app.button(key=f'analysis_select_{self.saved["id"]}'))
 
     def test_loading_failure_keeps_current_draft(self):
         state = {'thermal_draft': {'player': 5, 'notes': 'Não perder'}}
