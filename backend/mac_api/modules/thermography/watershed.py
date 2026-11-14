@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 
-ALGORITHM_VERSION = 'thermal-rgb-watershed-v1'
+ALGORITHM_VERSION = 'thermal-rgb-watershed-v2'
 
 
 def largest(mask):
@@ -43,6 +43,16 @@ def prepare(image):
     candidate = (colored | hot_white).astype('uint8')
     candidate = cv2.morphologyEx(candidate, cv2.MORPH_OPEN, np.ones((3, 3), 'uint8'))
     candidate = cv2.morphologyEx(candidate, cv2.MORPH_CLOSE, np.ones((5, 5), 'uint8'))
+    # Neutral backgrounds may be dark gray OR brighter than the hot-white rule.
+    # Only broad neutral components connected to the image perimeter are
+    # background; isolated white hot regions inside a limb remain candidates.
+    neutral = cv2.morphologyEx((hsv[..., 1] < 45).astype('uint8'), cv2.MORPH_OPEN,
+                              np.ones((3, 3), 'uint8'))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(neutral)
+    edge_labels = np.unique(np.concatenate((labels[0], labels[-1], labels[:, 0], labels[:, -1])))
+    exterior = [label for label in edge_labels if label and stats[label, cv2.CC_STAT_AREA] >= candidate.size*.01]
+    if exterior:
+        candidate[np.isin(labels, exterior)] = 0
     return clean, hsv, candidate
 
 
@@ -65,18 +75,22 @@ def grow(clean, sides):
 
 def segment_pair(image):
     """Return full-resolution image-left/image-right masks without R1/R2."""
-    clean, hsv, candidate = prepare(image)
+    clean, _, candidate = prepare(image)
     h, w = candidate.shape
+    # Find a continuous non-body corridor, not a particular background hue.
+    # Keep this before geometric clipping so the clipped margins cannot create
+    # artificial evidence of a gap. Bilateral thermal support is checked below.
+    background = candidate == 0
     candidate[:int(.1*h)] = 0
     candidate[int(.94*h):] = 0
     candidate[:, :int(.06*w)] = 0
     candidate[:, int(.96*w):] = 0
-    magenta = (hsv[..., 0] > 115) & (hsv[..., 0] < 175) & (hsv[..., 1] > 80)
     choices = []
     for x in range(int(.35*w), int(.66*w)):
         for y in range(int(.18*h), int(.56*h)):
             depth = max(1, int(.10*h))
-            if magenta[y:y+depth, x].mean() < .95:
+            gap_depth = max(1, int(.20*h))
+            if background[y:y+gap_depth, x].mean() < .95:
                 continue
             band = candidate[y:y+depth]
             left = band[:, max(0, x-int(.30*w)):x-max(1, int(.02*w))].mean()

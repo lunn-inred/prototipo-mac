@@ -48,7 +48,7 @@ class ArchiveTests(unittest.TestCase):
         self.assertTrue((folder/'frente/original.png').is_file())
         self.assertTrue((folder/'verso/mascara_esquerda.png').is_file())
         metadata = json.loads((folder/'metadados.json').read_text(encoding='utf-8'))
-        self.assertEqual(metadata['algorithm_version'], 'thermal-rgb-watershed-v1')
+        self.assertEqual(metadata['algorithm_version'], 'thermal-rgb-watershed-v2')
         self.assertEqual(metadata['athlete_name'], 'João / teste')
         self.assertEqual(metadata['views']['front']['part_settings']['right']['boundaries_pixels'], [3,6,9])
         self.assertNotIn('database_reference', metadata)

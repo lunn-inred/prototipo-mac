@@ -360,7 +360,7 @@ def cached_temperature_scale(content: bytes) -> dict[str, float]:
 
 def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature, threshold, item):
     from frontend.streamlit.api_client.thermal_client import segmented_image
-    config = ('watershed-v1', minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
+    config = ('watershed-v2', minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
               repr(item.get('manual_boxes')), repr(item.get('manual_colorbar_box')),
               tuple((side, hashlib.sha256(seed.tobytes()).hexdigest())
                     for side, seed in sorted(item.get('mask_seeds', {}).items())))

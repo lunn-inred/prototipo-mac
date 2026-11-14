@@ -11,6 +11,7 @@ python -X utf8 -m unittest backend.tests.test_watershed backend.tests.test_therm
 ```
 
 Validam a faixa circular de vermelho, linhas R1/R2 sem inclusão do fundo,
+fundos neutros/azuis/magenta e preservação de regiões brancas quentes,
 lateralidade frente/costas, rotação já aplicada, pincéis, recuperação por regiões
 manuais, contagens via HTTP, referências anatômicas e leitura de arquivos GrabCut
 sem resegmentação. A suíte usa UTF-8 explícito para rodar também no Windows.

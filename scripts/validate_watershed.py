@@ -17,6 +17,7 @@ from PIL import Image, ImageOps, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.mac_api.modules.thermography.thermal_analysis import segmented_image
+from backend.mac_api.modules.thermography.watershed import ALGORITHM_VERSION
 
 
 def main():
@@ -88,7 +89,7 @@ def main():
                 sheet.paste(thumb, ((j%3)*360, (j//3)*190))
             sheet.save(folder/f'contact_{offset//12+1:02d}.jpg')
         (folder/'index.html').write_text('<!doctype html><meta charset="utf-8"><style>body{background:#181818;color:white;font:16px sans-serif;margin:24px}img{max-width:100%}</style><h1>'+html.escape(source.name)+'</h1><p>Original | produção watershed | recorte. Status ok não mede precisão. Escala usada para validar cálculos é ilustrativa, não clínica.</p>'+''.join(cards), encoding='utf-8')
-        summary.append(dict(session=source.name, rotation=rotation, files=len(rows),
+        summary.append(dict(session=source.name, algorithm_version=ALGORITHM_VERSION, rotation=rotation, files=len(rows),
                             passed=sum(row['status']=='ok' for row in rows),
                             rejected=[row for row in rows if row['status']!='ok'],
                             internal_holes_pct=round(100*hole_pixels/max(1,filled_pixels),3)))

@@ -13,8 +13,8 @@ from backend.mac_api.modules.thermography import thermal_analysis as thermal
 from backend.mac_api.modules.thermography.watershed import segment_pair, segment_region
 
 
-def thermogram(box_lines=False):
-    image = Image.new('RGB', (240, 320), (170, 0, 210))
+def thermogram(box_lines=False, background=(170, 0, 210)):
+    image = Image.new('RGB', (240, 320), background)
     draw = ImageDraw.Draw(image)
     draw.rectangle((65, 30, 170, 90), fill=(40, 185, 80))
     red = tuple(int(v) for v in cv2.cvtColor(np.array([[[178, 200, 230]]], 'uint8'), cv2.COLOR_HSV2RGB)[0, 0])
@@ -29,6 +29,40 @@ def thermogram(box_lines=False):
 
 
 class WatershedTests(unittest.TestCase):
+    def test_background_colors_preserve_legs_and_isolated_white_hot_regions(self):
+        for color in ((40, 40, 40), (0, 0, 0), (230, 230, 230),
+                      (255, 255, 255), (30, 30, 150), (170, 0, 210)):
+            with self.subTest(background=color):
+                image = thermogram(True, background=color)
+                ImageDraw.Draw(image).ellipse((70, 135, 90, 160), fill='white')
+                original = np.array(image).copy()
+                left, right = segment_pair(image)
+                self.assertTrue(left[148, 80])
+                self.assertTrue(right[150, 155])
+                self.assertFalse(left[220, 120] or right[220, 120])
+                self.assertFalse(left[200, 35] or right[200, 207])
+                self.assertFalse(np.any(left & right))
+                np.testing.assert_array_equal(np.array(image), original)
+
+    def test_neutral_gradient_background_does_not_become_foreground(self):
+        image = thermogram()
+        pixels = np.array(image)
+        background = np.all(pixels == (170, 0, 210), axis=2)
+        gray = np.repeat(np.linspace(25, 230, image.height, dtype='uint8')[:, None], image.width, axis=1)
+        pixels[background] = np.repeat(gray[..., None], 3, axis=2)[background]
+        left, right = segment_pair(Image.fromarray(pixels))
+        self.assertTrue(left[150, 80] and right[150, 155])
+        self.assertFalse(left[250, 120] or right[250, 120])
+
+    def test_dark_patch_in_clothing_does_not_define_the_start_of_the_gap(self):
+        image = thermogram(background=(40, 40, 40))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((100, 60, 140, 120), fill=(40, 185, 80))
+        draw.rectangle((116, 65, 124, 105), fill=(30, 30, 30))
+        left, right = segment_pair(image)
+        self.assertFalse(left[:100].any() or right[:100].any())
+        self.assertTrue(left[150, 80] and right[150, 155])
+
     def test_red_wrap_and_camera_lines_do_not_fill_background(self):
         for lines in (False, True):
             image = thermogram(lines)

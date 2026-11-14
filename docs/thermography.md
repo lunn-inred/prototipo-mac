@@ -121,7 +121,14 @@ possível, limitando-o aos novos extremos. O preenchimento aceita duas casas dec
 O watershed usa marcadores automáticos da paleta térmica, incluindo os dois
 extremos de vermelho do HSV. Linhas finas claras são suprimidas apenas numa cópia
 de processamento; os valores RGB originais continuam sendo usados nos cálculos.
-O espaço entre as pernas fornece a separação inicial; não há preenchimento global
+O espaço entre as pernas fornece a separação inicial: busca-se um corredor
+contínuo de fundo com regiões térmicas dos dois lados, sem exigir magenta.
+O corredor deve continuar por uma faixa vertical mais longa, reduzindo a confusão
+com pequenas manchas escuras no short.
+Fundos neutros (cinza, preto e branco), azulados e roxos também são aceitos.
+Regiões neutras largas conectadas à borda da imagem são identificadas como fundo;
+regiões brancas quentes isoladas dentro das pernas são preservadas.
+Não há preenchimento global
 de contornos que transforme as caixas impressas em área válida. O método ainda
 depende de contraste/paleta e enquadramento: confira o início das coxas, os pés,
 roupas e textos sobrepostos. A segmentação não recupera temperaturas ocultadas
@@ -143,8 +150,10 @@ denominador. Ao lado da máscara, uma segunda prévia usa fundo preto e mantém
 visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
 limiar térmico selecionado.
 
-Novas análises usam a versão `thermal-rgb-watershed-v1`. O formato de arquivos
-permanece o mesmo; análises GrabCut existentes conservam máscaras, temperaturas,
+Novas análises usam a versão `thermal-rgb-watershed-v2`. Fundos com cores
+semelhantes às próprias pernas ou pouco contraste ainda podem exigir ajuste
+manual; a mudança não constitui uma identificação universal de qualquer fundo.
+O formato de arquivos permanece o mesmo; análises GrabCut e watershed anteriores conservam máscaras, temperaturas,
 divisões e comparação originais, sem resegmentação automática ao abrir a timeline.
 
 Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
