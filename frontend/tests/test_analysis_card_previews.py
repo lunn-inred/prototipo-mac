@@ -26,6 +26,7 @@ selectable_analysis_card(st.session_state['fixture_entry'],key='fixture_card',on
         label = app.button(key='fixture_card').label
         self.assertIn('**Frente**\n![Frente]',label)
         self.assertIn('**Costas**\n![Costas]',label)
+        self.assertEqual(label.count('\u200b'), 3)  # Duas legendas e o status reservado.
         images = re.findall(r'data:image/png;base64,([A-Za-z0-9+/=]+)',label)
         self.assertEqual(len(images),2)
         decoded = [Image.open(io.BytesIO(base64.b64decode(value))) for value in images]
@@ -42,6 +43,7 @@ selectable_analysis_card(st.session_state['fixture_entry'],key='fixture_card',on
         self.assertEqual(label.count('Imagem não enviada'),1)
         self.assertIn(':red[Análise incompleta]',label)
         self.assertIn('**Costas**',label)
+        self.assertEqual(label.count('\u200b'),1)  # Somente a vista disponível.
 
     def test_empty_partial_and_legacy_summary_are_still_supported(self):
         empty = self.app(dict(is_draft=True,thumbnails={}))

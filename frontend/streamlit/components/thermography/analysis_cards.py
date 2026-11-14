@@ -43,6 +43,7 @@ def render_analysis_card_style():
             white-space: normal;
             overflow-wrap: anywhere;
             font-size: .8rem;
+            line-height: 1.25rem;
             color: var(--mac-muted, #64748b);
         }
         [class*="st-key-analysis_card_"] button p:has(img):has(strong) {
@@ -84,14 +85,15 @@ def selectable_analysis_card(entry, *, key, on_click, args, details):
             if missing:
                 image = Image.new('RGB', (240,180), '#eef1f5')
             block = f'**{name}**\n{_image_markdown(image, name)}'
-            if missing:
-                block += '  \nImagem não enviada'
+            # Reservar também a linha da legenda nas vistas disponíveis.
+            block += '  \n' + ('Imagem não enviada' if missing else '\u200b')
             blocks.append(block)
         preview = '\n\n'.join(blocks)
     else:
         # Compatibilidade com resumos de APIs/fixtures anteriores.
         preview = _image_markdown(entry['thumbnail'], f'Análise de {date_label}')
-    status = '\n\n:red[Análise incompleta]' if entry.get('is_draft') else ''
+    # A linha de status existe em ambos os casos, sem texto extra nas completas.
+    status = '\n\n' + (':red[Análise incompleta]' if entry.get('is_draft') else '\u200b')
     label = f'{preview}\n\n**{date_label}**{status}\n\n{details}'
     with st.container(key=f'analysis_card_{key}'):
         return st.button(label, key=key, width='stretch',
