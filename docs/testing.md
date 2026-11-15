@@ -14,6 +14,12 @@ Cobrem fronteiras exatas de 31/33 °C, ausência de sobreposição, faixa vazia,
 contagem por região, imagem filtrada, API tipada, persistência da zona, comparação
 pela zona basal e troca dos três botões sem slider. Não acessam bancos reais.
 
+`backend.tests.test_regional_zones` valida as 48 contagens consolidadas da
+planilha, os limites de 31/33 °C, exclusões da máscara, lateralidade, vistas e
+mudanças dos limites anatômicos. O registro unificado exige essas medidas além
+das legadas. A integração optativa `test_combined_analysis_registration_and_file_failure_rollback`
+também aplica duas vezes a migração regional e consulta suas colunas no `mac_test`.
+
 Regressões da segmentação watershed (sem banco, OCR ou dados privados):
 
 ```bash

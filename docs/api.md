@@ -143,6 +143,7 @@ interação. Recebe `{ "args": [...], "kwargs": {...} }` e retorna
 | `timeline_view_at_threshold` | Recalcular máscaras quentes e métricas |
 | `compare_hot_masks` | Mapa de pixels novos, persistentes e resolvidos |
 | `summarize_pair` | Totais e percentuais de frente/verso |
+| `preview_regional_zones` | Recebe `views` no formato do registro e retorna as 48 contagens; com `include_totals=true`, retorna `measurements` e `totals` por vista/zona (soma das duas pernas). Não acessa banco nem grava arquivos |
 | `detect_leg_boxes`, `detect_colorbar_box`, `image_regions` | Detectar regiões e transformar caixas após rotação |
 | `segment_leg_mask` | Segmentar com correções opcionais |
 | `temperature_matrix`, `count_hot_pixels` | Conversão térmica e contagem |

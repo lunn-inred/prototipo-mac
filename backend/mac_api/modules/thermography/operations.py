@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from backend.mac_api.core.wire import encode, decode
 from backend.mac_api.modules.thermography import thermal_analysis as thermal
+from .regional_zones import preview_regional_zones
 
 router = APIRouter()
 OPERATIONS = {name: getattr(thermal, name) for name in (
@@ -14,6 +15,7 @@ OPERATIONS = {name: getattr(thermal, name) for name in (
     'temperature_from_scale_percentage', 'segmented_image', 'timeline_view_at_threshold',
     'summarize_pair', 'image_regions', 'compare_temperature_maps',
 )}
+OPERATIONS['preview_regional_zones'] = preview_regional_zones
 
 class ProcessingInput(BaseModel):
     args: list[Any] = Field(default_factory=list)

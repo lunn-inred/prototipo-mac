@@ -37,6 +37,12 @@ class LocalPostgresTests(unittest.TestCase):
         from uuid import uuid4
         from backend.tests.test_analysis_archive import example_views
         from backend.mac_api.core.wire import encode, decode
+        from backend.mac_api.core.database import database_write_connection
+        migration = Path(__file__).resolve().parents[1] / 'migrations/20261115_thermography_regional_zones.sql'
+        with database_write_connection() as database, database.cursor() as cursor:
+            cursor.execute(migration.read_text(encoding='utf-8'))
+            # Reexecutar não duplica o catálogo e mantém a view disponível.
+            cursor.execute(migration.read_text(encoding='utf-8'))
         with TemporaryDirectory(prefix='mac-combined-postgres-') as directory, patch.dict(os.environ, MAC_ANALYSES_DIR=directory):
             athlete = self.client.post('/api/v1/athletes', json={'name': 'Teste integrado '+uuid4().hex[:8]}, headers=self.headers)
             self.assertEqual(athlete.status_code, 201, athlete.text)
@@ -45,7 +51,12 @@ class LocalPostgresTests(unittest.TestCase):
                            mass=75., pain_score=0, observations='Teste', views=encode(example_views()))
             saved = self.client.post('/api/v1/thermography/analyses/register', json=payload, headers=self.headers)
             self.assertEqual(saved.status_code, 201, saved.text)
-            self.assertEqual(decode(saved.json())['inserted_measurements'], 9)
+            self.assertEqual(decode(saved.json())['inserted_measurements'], 57)
+            with database_write_connection() as database, database.cursor() as cursor:
+                cursor.execute('SELECT coxa_direita_frente_zona_fria, coxa_direita_frente_zona_neutra, '
+                               'coxa_direita_frente_zona_quente FROM public.vw_termografia_zonas '
+                               'WHERE id_atleta = %s', (athlete_id,))
+                self.assertEqual(cursor.fetchone(), (12, 0, 0))
             history = self.client.get(f'/api/v1/thermography?athlete_id={athlete_id}', headers=self.headers).json()
             self.assertEqual(len(history), 1)
             entries = decode(self.client.get(f'/api/v1/thermography/analyses?athlete_id={athlete_id}', headers=self.headers).json())

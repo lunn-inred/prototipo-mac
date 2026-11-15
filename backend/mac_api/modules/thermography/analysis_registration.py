@@ -5,6 +5,7 @@ from backend.mac_api.core.database import database_write_connection
 from backend.mac_api.core.settings import setting
 from . import analysis_archive as archive
 from .thermography_service import IMAGE_MEASURES, _insert_collection, image_measurements
+from .regional_zones import REGIONAL_ZONE_MEASURES, regional_zone_measurements
 
 
 def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_score,
@@ -15,17 +16,20 @@ def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_scor
     # enviadas pelo frontend ou calcular sobre pixels RGB diretamente.
     if set(views) != {'front', 'back'}:
         raise ValueError('Informe as imagens de frente e costas.')
-    metrics = {view: archive._validate_view(source)[3]['metrics'] for view, source in views.items()}
+    validated = {view: archive._validate_view(source) for view, source in views.items()}
+    metrics = {view: value[3]['metrics'] for view, value in validated.items()}
     measurements = image_measurements(
         mass=mass, pain_score=pain_score, observations=observations,
         front_right=metrics['front']['right']['hot_pixels'], front_left=metrics['front']['left']['hot_pixels'],
         back_right=metrics['back']['right']['hot_pixels'], back_left=metrics['back']['left']['hot_pixels'],
     )
+    measurements.update(regional_zone_measurements(validated))
     entry = None
     try:
         with (connection_factory or database_write_connection)() as database, database.cursor() as cursor:
             inserted = _insert_collection(cursor, athlete_id=athlete_id, collected_at=collected_at,
-                                          measurements=measurements, required_measures=IMAGE_MEASURES)
+                                          measurements=measurements,
+                                          required_measures=IMAGE_MEASURES | REGIONAL_ZONE_MEASURES)
             # A linha do atleta já foi bloqueada/validada por _insert_collection.
             cursor.execute('SELECT nome FROM public.atleta WHERE id_atleta = %s', (athlete_id,))
             name = cursor.fetchone()[0]

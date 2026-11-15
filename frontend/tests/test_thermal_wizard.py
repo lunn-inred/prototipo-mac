@@ -104,7 +104,7 @@ class ThermalWizardTests(unittest.TestCase):
                 self.assertNotIn('Timeline térmica', headers)
                 self.assertFalse(any(expander.label == 'Formulários' for expander in app.expander))
                 self.assertFalse(any('Timeline' in expander.label for expander in app.expander))
-                self.assertEqual(len(app.get('tab')), 0)
+                self.assertEqual(len(app.get('tab')), 2 if step == 6 else 0)
                 temperature_inputs = [widget for widget in app.number_input
                                       if widget.key and widget.key.startswith('wizard_tmin_')]
                 self.assertEqual(len(temperature_inputs), 2 if step == 5 else 0)
@@ -228,12 +228,43 @@ class ThermalWizardTests(unittest.TestCase):
             self.assertLess(labels.index('Voltar'), labels.index('Iniciar outra análise'))
             self.assertFalse(any(widget.key and widget.key.startswith('wizard_tmin_') for widget in app.number_input))
             self.assertFalse(app.button(key='register_thermography_analysis').disabled)
+            self.assertIn('Frente', [tab.label for tab in app.tabs])
+            self.assertIn('Costas', [tab.label for tab in app.tabs])
+            regional_tables = [table.value for table in app.dataframe
+                               if list(table.value.columns) == ['Região', 'Fria', 'Neutra', 'Quente']]
+            self.assertEqual(len(regional_tables), 4)
+            total_tables = [table.value for table in app.dataframe
+                            if list(table.value.columns) == ['Zona', 'Total (px)']]
+            self.assertEqual(len(total_tables), 0)
+            for table in regional_tables:
+                for zone in ('Fria', 'Neutra', 'Quente'):
+                    self.assertEqual(table[zone].iloc[-1], table[zone].iloc[:4].sum())
+            self.assertEqual(len(app.metric), 0)
+            self.assertEqual(app.selectbox(key='thermography_player').value, 1)
+            app.number_input(key='thermography_mass').set_value(76.5).run()
+            app.text_area(key='thermography_observations').set_value('Revisado no resumo').run()
+            for table in regional_tables:
+                self.assertEqual(list(table['Região']), ['Coxa', 'Joelho', 'Canela', 'Pé', 'Total'])
+                self.assertTrue((table[['Fria', 'Neutra', 'Quente']] >= 0).all().all())
+            with patch('frontend.streamlit.components.thermography.regional_summary._preview', side_effect=RuntimeError('API indisponível')):
+                app.run()
+                self.assertTrue(app.button(key='register_thermography_analysis').disabled)
+            app.run()
+            self.assertFalse(app.button(key='register_thermography_analysis').disabled)
+            app.button(key='regional_edit_parts').click().run()
+            self.assertEqual(app.session_state['thermal_step'], 3)
+            self.assertEqual(app.session_state['thermal_draft']['mass'], 76.5)
+            self.assertEqual(app.session_state['thermal_draft']['notes'], 'Revisado no resumo')
+            for _ in range(3):
+                app.button(key='thermal_next').click().run()
+            self.assertEqual(app.session_state['thermal_step'], 6)
+            self.assertEqual(len(app.exception), 0, list(app.exception))
             signature = next(iter(app.session_state['thermography_metrics']))
             app.session_state['thermal_registered_analysis'] = {'signature': signature}
             app.run()
             self.assertTrue(app.button(key='register_thermography_analysis').disabled)
             for _ in range(6):
                 app.button(key='thermal_previous').click().run()
-            self.assertEqual(app.number_input(key='thermography_mass').value, 75.0)
+            self.assertEqual(app.number_input(key='thermography_mass').value, 76.5)
             self.assertEqual(app.number_input(key='thermography_pain_score').value, 0)
             self.assertEqual(app.selectbox(key='thermography_player').value, 1)

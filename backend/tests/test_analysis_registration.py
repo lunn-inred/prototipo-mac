@@ -42,13 +42,15 @@ class CombinedRegistrationTests(unittest.TestCase):
             raise
 
     def test_success_stores_files_and_measures_with_identical_pixel_counts(self):
-        with patch.object(registration, '_insert_collection', return_value=9) as insert:
+        with patch.object(registration, '_insert_collection', side_effect=lambda cursor, **kw: len(kw['measurements'])) as insert:
             result = registration.register_analysis(**self.values, connection_factory=self.factory)
         self.assertTrue(self.committed)
-        self.assertEqual(result['inserted_measurements'], 9)
+        self.assertEqual(result['inserted_measurements'], 57)
         saved = archive.load_analysis(123, self.values['collected_at'], result['analysis']['id'])
         self.assertEqual(saved['athlete_name'], 'Nome do banco')
         measurements = insert.call_args.kwargs['measurements']
+        self.assertEqual(len(measurements), 57)
+        self.assertEqual(set(measurements), insert.call_args.kwargs['required_measures'])
         for view, suffix in [('front', 'FRENTE'), ('back', 'VERSO')]:
             for side, label in [('left', 'ESQUERDA'), ('right', 'DIREITA')]:
                 expected = saved['metadata']['views'][view]['metrics'][side]['hot_pixels']

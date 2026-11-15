@@ -28,7 +28,16 @@ somente uma etapa por vez:
    Cada vista apresenta a imagem
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
    e os pixels da zona selecionada.
-7. Resumo da coleta: totais de frente/costas e tabela revisável no mesmo componente.
+7. Resumo da coleta: campos de jogador, massa e dor lado a lado, com observações
+   abaixo, no mesmo formato da primeira etapa. Não há cartões de totais da zona selecionada.
+   As 48 contagens regionais aparecem em abas Frente/Costas, com uma tabela por
+   perna: linhas Coxa/Joelho/Canela/Pé e colunas Fria/Neutra/Quente, em pixels.
+   A última linha de cada tabela apresenta o **Total** por zona daquela perna,
+   somando coxa, joelho, canela e pé, sem tabela adicional.
+   A prévia é calculada pela API com as mesmas regras do registro e atualizada
+   após correções. Jogador, massa, dor e observações permanecem editáveis nos campos;
+   contagens são automáticas, com atalhos para ajustar divisões ou segmentação.
+   Se a prévia não carregar, o registro fica bloqueado para evitar envio sem revisão.
    O botão **Registrar Análise** salva medidas no banco local e arquivos na timeline
    com uma única confirmação de data. Voltar e iniciar outra análise aparecem abaixo.
 
@@ -120,6 +129,25 @@ máscaras. O denominador continua sendo a área segmentada total de cada região
 as mesmas contagens recalculadas no backend.
 
 A zona é salva por vista nos metadados `thermal_zone` (`cold`, `neutral`, `hot`).
+No **Registrar Análise**, também são gravadas as três zonas simultaneamente,
+independentemente do botão selecionado: 48 contagens inteiras de pixels para
+coxa/joelho/canela/pé, direita/esquerda e frente/costas. Elas seguem os limites anatômicos
+ajustados na análise e somente a máscara segmentada. As quatro regiões permanecem
+separadas, inclusive joelho e pé. Os intervalos de 1 °C
+da planilha são consolidados em fria (T < 31 °C), neutra (31 ≤ T < 33 °C) e quente
+(T ≥ 33 °C), incluindo temperaturas abaixo de 28 ou acima de 36 °C. Não há
+importação dos valores da planilha nem conversão para percentuais.
+
+As medidas seguem o nome `COXA_DIREITA_FRENTE_ZONA_FRIA` (e combinações
+equivalentes). São armazenadas no modelo existente `medida`/`medida_valor`;
+a view `public.vw_termografia_zonas` apresenta uma coluna por combinação,
+identificada por atleta e data. Os totais legados continuam representando a zona
+selecionada na interface. O endpoint antigo de contagens resumidas permanece
+compatível e não inventa medidas regionais sem matrizes e máscaras.
+Antes de usar esse registro, aplique a
+[migração regional](../backend/migrations/README.md). Coletas antigas não são
+alteradas; valores regionais ausentes aparecem como nulos, e não como zero.
+
 Ao atualizar para esse fluxo, reinicie também a API, não somente o Streamlit.
 Se a API roda no Docker, use `docker compose up -d --build --no-deps backend`:
 reiniciar um Python no host não atualiza o código copiado para a imagem.
