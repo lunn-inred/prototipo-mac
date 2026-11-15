@@ -32,6 +32,7 @@ navegador ou em uma janela desktop (WebView).
   - [Saltos — importação, métricas e gráficos](docs/jumps.md)
   - [GPS — extração e importação](docs/gps.md)
   - [Termografia — etapas, cálculos, timeline e formulários](docs/thermography.md)
+  - [Mapa corporal experimental — uso, integração e licença](docs/body-muscles.md)
 
 ## Resumo do projeto
 

@@ -15,4 +15,4 @@ exclude = ["*.tests", "*.tests.*"]
 
 [tool.setuptools.package-data]
 "backend.mac_api" = ["assets/fonts/*.ttf", "assets/fonts/LICENSE.txt"]
-"frontend.streamlit" = ["pages/*.py", "assets/*.png", "assets/fonts/*.ttf", "assets/fonts/LICENSE.txt", ".streamlit/config.toml"]
+"frontend.streamlit" = ["pages/*.py", "assets/*.png", "assets/fonts/*.ttf", "assets/fonts/LICENSE.txt", "assets/vendor/body-muscles/2.1.1/*", ".streamlit/config.toml"]
