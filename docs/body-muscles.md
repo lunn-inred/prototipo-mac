@@ -34,6 +34,15 @@ A opção **Agrupamento personalizado** vem desmarcada. Ao ativá-la, cada grupo
 recebe um único valor/seleção e colore juntas suas regiões originais. Os nomes
 passam a ser em português; outras regiões ficam esmaecidas e não são editáveis.
 As divisões internas do SVG permanecem: não houve fusão geométrica dos paths.
+A opção **Somente Pernas**, disponível apenas no modo personalizado, oculta os
+paths restantes (incluindo a silhueta cinza) e ajusta o enquadramento às pernas
+visíveis de frente/costas. Desmarcar restaura o corpo inteiro. É somente uma
+mudança de visualização: preserva valores, seleção, agrupamento e arquivos do
+fornecedor. A fonte dos números continua sendo definida em `.mac-intensity-label`.
+Os grupos personalizados mostram permanentemente a intensidade em branco sobre
+o mapa, mesmo sem seleção. Cada grupo tem um único número, reposicionado conforme
+o tamanho/vista do SVG. Um grupo ainda não informado mostra 0 apenas nesta prévia,
+sem criar automaticamente um registro no estado ou no banco.
 
 Definição em `components/body_muscles_groups.py`, espelhada para esquerda/direita:
 

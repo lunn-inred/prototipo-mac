@@ -7,14 +7,18 @@ st.set_page_config(page_title='MAC Performance | Mapa corporal (experimental)', 
 st.title('Mapa corporal — experimental')
 st.info('Área de exploração: os valores ficam somente nesta sessão. Não são vinculados a um atleta nem salvos no banco, nas análises ou no Drive.')
 
-controls = st.columns([2, 1, 1, 2])
+controls = st.columns([2, 1, 1, 2, 1.5])
 views = {'Frente e costas': 'BOTH', 'Frente': 'FRONT', 'Costas': 'BACK'}
 view = controls[0].selectbox('Vista', list(views), key='body_lab_view')
 tooltip = controls[1].checkbox('Mostrar nomes', value=True, key='body_lab_tooltip')
 transitions = controls[2].checkbox('Animações', value=True, key='body_lab_transitions')
 custom_grouping = controls[3].checkbox('Agrupamento personalizado', value=False, key='body_lab_custom_grouping')
+legs_only = controls[4].checkbox('Somente Pernas', value=False, key='body_lab_legs_only',
+                               disabled=not custom_grouping, help='Disponível no agrupamento personalizado. Desmarque para voltar ao corpo inteiro.')
 if custom_grouping:
-    st.caption('Modo personalizado: 16 áreas das pernas. As outras regiões ficam esmaecidas e não são editáveis. As linhas internas do SVG original foram mantidas.')
+    st.caption('Modo personalizado: 16 áreas das pernas. ' +
+               ('Somente as pernas são exibidas.' if legs_only else 'As outras regiões ficam esmaecidas e não são editáveis.') +
+               ' As linhas internas do SVG original foram mantidas.')
 
 def reset():
     st.session_state['body_lab_generation'] = st.session_state.get('body_lab_generation', 0) + 1
@@ -25,7 +29,7 @@ st.button('Limpar exploração', on_click=reset, key='body_lab_reset', width='st
 mode = '_custom' if custom_grouping else ''
 value = body_muscles_map(key=f'body_lab_map_{st.session_state.get("body_lab_generation", 0)}{mode}',
                         state_key='body_lab_custom_state' if custom_grouping else 'body_lab_state', view=views[view], show_tooltip=tooltip,
-                        transitions=transitions, custom_grouping=custom_grouping)
+                        transitions=transitions, custom_grouping=custom_grouping, legs_only=legs_only)
 catalog = custom_groups() if custom_grouping else region_catalog()
 st.caption(f'Body Muscles 2.1.1 · {len(catalog)} regiões {"personalizadas" if custom_grouping else "originais"} · clique numa região e ajuste a intensidade ao lado do mapa. Esquerda e direita são as do atleta.')
 

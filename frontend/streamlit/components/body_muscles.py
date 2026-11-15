@@ -26,6 +26,7 @@ export default function({parentElement, data, setStateValue}) {
     let active = data.value.active;
     const {BodyChart, MUSCLE_METADATA} = BodyMuscles;
     const groups = data.customGrouping ? data.groups : null;
+    map.dataset.legsOnly = String(Boolean(groups && data.legsOnly));
     const catalog = groups || MUSCLE_METADATA;
     const membership = {};
     if (groups) for (const group of Object.values(groups)) {
@@ -49,6 +50,59 @@ export default function({parentElement, data, setStateValue}) {
     function emit() {
         setStateValue('value', {active, bodyState: state});
     }
+    let legsFramed = false;
+    function frameLegs() {
+        if (!groups || !data.legsOnly || legsFramed) return;
+        const svg = map.querySelector('svg');
+        const paths = [...map.querySelectorAll('[data-mac-group]')];
+        if (!svg?.getScreenCTM() || !paths.length) return;
+        const bounds = paths.map(path => path.getBoundingClientRect());
+        if (!bounds.some(b => b.width && b.height)) return;
+        const inverse = svg.getScreenCTM().inverse();
+        const first = svg.createSVGPoint(), last = svg.createSVGPoint();
+        first.x = Math.min(...bounds.map(b => b.left));
+        first.y = Math.min(...bounds.map(b => b.top));
+        last.x = Math.max(...bounds.map(b => b.right));
+        last.y = Math.max(...bounds.map(b => b.bottom));
+        const a = first.matrixTransform(inverse), b = last.matrixTransform(inverse);
+        const margin = 1.5, width = b.x - a.x + 2 * margin, height = b.y - a.y + 2 * margin;
+        svg.setAttribute('viewBox', `${a.x-margin} ${a.y-margin} ${width} ${height}`);
+        svg.style.aspectRatio = `${width} / ${height}`;
+        legsFramed = true;
+    }
+    function renderLabels() {
+        if (!groups) return;
+        frameLegs();
+        const svg = map.querySelector('svg');
+        if (!svg?.getScreenCTM()) return;
+        svg.querySelector('[data-mac-labels]')?.remove();
+        const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        layer.setAttribute('data-mac-labels', 'true');
+        layer.setAttribute('aria-hidden', 'true');
+        layer.style.pointerEvents = 'none';
+        const inverse = svg.getScreenCTM().inverse();
+        for (const id of Object.keys(groups)) {
+            const paths = [...map.querySelectorAll('[data-mac-group]')].filter(p => p.dataset.macGroup === id);
+            if (!paths.length) continue;
+            const bounds = paths.map(p => p.getBoundingClientRect());
+            const left = Math.min(...bounds.map(b => b.left)), right = Math.max(...bounds.map(b => b.right));
+            const top = Math.min(...bounds.map(b => b.top)), bottom = Math.max(...bounds.map(b => b.bottom));
+            const point = svg.createSVGPoint();
+            point.x = (left + right) / 2;
+            point.y = (top + bottom) / 2;
+            const position = point.matrixTransform(inverse);
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', position.x);
+            text.setAttribute('y', position.y);
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('dominant-baseline', 'central');
+            text.setAttribute('class', 'mac-intensity-label');
+            text.setAttribute('data-mac-intensity', id);
+            text.textContent = String(state[id]?.intensity ?? 0);
+            layer.appendChild(text);
+        }
+        svg.appendChild(layer);
+    }
     const chart = new BodyChart(map, {
         view: data.view,
         bodyState: renderState(),
@@ -71,6 +125,7 @@ export default function({parentElement, data, setStateValue}) {
                 [key, {...entry, selected: false}]));
             state[id] = {...previous, selected: true};
             chart.update({bodyState: renderState()});
+            renderLabels();
             showEditor();
             emit();
         },
@@ -94,6 +149,7 @@ export default function({parentElement, data, setStateValue}) {
         }
         state = {...state, [active]: {intensity: value, selected: true}};
         chart.update({bodyState: renderState()});
+        renderLabels();
         showEditor();
         emit();
     }
@@ -101,11 +157,15 @@ export default function({parentElement, data, setStateValue}) {
     slider.addEventListener('change', changeIntensity);
     function previewIntensity() {number.value = slider.value;}
     slider.addEventListener('input', previewIntensity);
+    const labelObserver = groups ? new ResizeObserver(renderLabels) : null;
+    if (labelObserver) labelObserver.observe(map);
+    renderLabels();
     showEditor();
     let disposed = false;
     const instance = {dispose() {
         if (disposed) return;
         disposed = true;
+        labelObserver?.disconnect();
         number.removeEventListener('change', changeIntensity);
         slider.removeEventListener('change', changeIntensity);
         slider.removeEventListener('input', previewIntensity);
@@ -144,6 +204,9 @@ CSS = '''
 .body-editor input[type=number] {padding:8px;}
 [data-body-map] {min-width:0;--bm-max-height:65vh;}
 [data-mac-disabled=true] {pointer-events:none !important;opacity:.12 !important;}
+[data-legs-only=true] svg path:not([data-mac-group]) {display:none !important;}
+.mac-intensity-label {fill:white;font-family:Arial,sans-serif;font-size:2.5px;
+  font-weight:700;stroke:#172033;stroke-width:.22px;paint-order:stroke fill;pointer-events:none;}
 @media(max-width:700px) {.body-lab {grid-template-columns:1fr;} .body-editor {width:auto;}}
 '''
 
@@ -181,7 +244,7 @@ def _component():
 
 
 def body_muscles_map(*, key, state_key, view='BOTH', show_tooltip=True, transitions=True,
-                     custom_grouping=False):
+                     custom_grouping=False, legs_only=False):
     if view not in ('FRONT', 'BACK', 'BOTH'):
         raise ValueError('Vista desconhecida do mapa corporal.')
     # O estado do widget contém o evento mais recente ANTES deste rerun.
@@ -189,6 +252,7 @@ def body_muscles_map(*, key, state_key, view='BOTH', show_tooltip=True, transiti
     value = normalize_state(widget.get('value') or st.session_state.get(state_key), custom_grouping=custom_grouping)
     result = _component()(key=key, data=dict(value=value, view=view, showTooltip=show_tooltip,
         enableTransitions=transitions, customGrouping=bool(custom_grouping),
+        legsOnly=bool(custom_grouping and legs_only),
         groups=custom_groups() if custom_grouping else {}),
         default={'value': value}, height='content',
         on_value_change=lambda: None)
