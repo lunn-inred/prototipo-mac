@@ -47,11 +47,11 @@ class Drive:
             raise ValueError(f'O Drive recusou a operação (HTTP {response.status_code}). Confira autorização, espaço e conexão.')
         return response
 
-    def list(self):
+    def list(self, *, sync=False):
         entries, token = [], None
         for _ in range(100):
             response = self._checked(self.client.get(API, headers=self.headers, params=dict(
-                q=f"'{self.folder}' in parents and trashed=false and properties has {{ key='macBackupFormat' and value='1' }}",
+                q=f"'{self.folder}' in parents and trashed=false and properties has {{ key='{'macSyncFormat' if sync else 'macBackupFormat'}' and value='1' }}",
                 fields='nextPageToken,files(id,name,size,createdTime,properties)', pageSize=100,
                 orderBy='createdTime desc', **({'pageToken': token} if token else {}))))
             result = response.json()
@@ -61,19 +61,23 @@ class Drive:
                 return entries
         raise ValueError('Muitos backups para listar. Organize a pasta antes de continuar.')
 
-    def metadata(self, file_id):
+    def rename_sync_folder(self):
+        self._checked(self.client.patch(f'{API}/{self.folder}', headers=self.headers,
+                                       json={'name': 'Analises MAC'}))
+
+    def metadata(self, file_id, *, sync=False):
         if not isinstance(file_id, str) or not file_id or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in file_id):
             raise ValueError('Identificador de backup inválido.')
         result = self._checked(self.client.get(f'{API}/{file_id}', headers=self.headers,
             params={'fields': 'id,name,size,mimeType,parents,properties,trashed'})).json()
         if (self.folder not in result.get('parents', []) or result.get('trashed')
-                or result.get('mimeType') != 'application/zip'
-                or result.get('properties', {}).get('macBackupFormat') != '1'):
+                or result.get('mimeType') not in (('application/zip', 'application/json') if sync else ('application/zip',))
+                or result.get('properties', {}).get('macSyncFormat' if sync else 'macBackupFormat') != '1'):
             raise ValueError('O arquivo não é um backup MAC na pasta configurada.')
         return result
 
-    def download(self, file_id, destination):
-        metadata = self.metadata(file_id)
+    def download(self, file_id, destination, *, sync=False):
+        metadata = self.metadata(file_id, sync=sync)
         limit = int(setting('MAC_BACKUP_MAX_BYTES', str(10 * 1024**3)))
         if int(metadata.get('size', limit + 1)) > limit:
             raise ValueError('Backup excede MAC_BACKUP_MAX_BYTES.')
@@ -91,15 +95,17 @@ class Drive:
             raise ValueError('Backup incompleto ou corrompido no Drive.')
         return metadata
 
-    def upload(self, source, name, installation):
+    def upload(self, source, name, installation, *, sync_properties=None, mime_type='application/zip'):
         size = source.stat().st_size
         if size > int(setting('MAC_BACKUP_MAX_BYTES', str(10 * 1024**3))):
             raise ValueError('Backup excede MAC_BACKUP_MAX_BYTES.')
-        properties = dict(macBackupFormat='1', sha256=digest(source), installation=installation)
+        properties = ({'macBackupFormat': '1'} if sync_properties is None
+                      else {'macSyncFormat': '1', **sync_properties})
+        properties.update(sha256=digest(source), installation=installation)
         response = self._checked(self.client.post('https://www.googleapis.com/upload/drive/v3/files',
             params={'uploadType': 'resumable', 'fields': 'id,name,size,createdTime,properties'},
-            headers={**self.headers, 'X-Upload-Content-Type': 'application/zip', 'X-Upload-Content-Length': str(size)},
-            json=dict(name=name, mimeType='application/zip', parents=[self.folder], properties=properties)))
+            headers={**self.headers, 'X-Upload-Content-Type': mime_type, 'X-Upload-Content-Length': str(size)},
+            json=dict(name=name, mimeType=mime_type, parents=[self.folder], properties=properties)))
         location = response.headers.get('Location', '')
         parsed = urlparse(location)
         if parsed.scheme != 'https' or parsed.hostname != 'www.googleapis.com':
@@ -108,7 +114,7 @@ class Drive:
         with source.open('rb') as stream:
             while chunk := stream.read(8 * 1024 * 1024):
                 response = self.client.put(location, headers={**self.headers,
-                    'Content-Length': str(len(chunk)), 'Content-Type': 'application/zip',
+                    'Content-Length': str(len(chunk)), 'Content-Type': mime_type,
                     'Content-Range': f'bytes {offset}-{offset + len(chunk)-1}/{size}'}, content=chunk)
                 offset += len(chunk)
                 if response.status_code == 308 and offset < size:

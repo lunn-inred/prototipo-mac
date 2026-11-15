@@ -43,3 +43,14 @@ def restore_backup(payload: RestoreInput):
 @router.get('/jobs/{identity}')
 def status(identity: str):
     return jobs.status(identity)
+
+
+@router.get('/sync/status', tags=['Sincronização'])
+def sync_status(desktop: bool = False):
+    from .synchronization import status
+    return status(desktop=desktop)
+
+
+@router.post('/sync', status_code=202, tags=['Sincronização'])
+def synchronize(payload: BackupInput):
+    return jobs.start('sync', desktop=payload.desktop)

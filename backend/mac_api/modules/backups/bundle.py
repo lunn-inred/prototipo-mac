@@ -151,7 +151,7 @@ def package(content, destination, installation):
     return manifest
 
 
-def unpack(source, destination):
+def unpack(source, destination, *, require_database=True):
     max_bytes = int(setting('MAC_BACKUP_MAX_EXTRACTED_BYTES', str(20 * 1024**3)))
     with ZipFile(source) as zipped:
         members = zipped.infolist()
@@ -185,6 +185,6 @@ def unpack(source, destination):
                 shutil.copyfileobj(input_file, output, length=1024 * 1024)
             if digest(path) != expected['sha256']:
                 raise ValueError('Backup corrompido: verificação SHA-256 falhou.')
-    if not (destination / 'database/database.json').is_file():
+    if require_database and not (destination / 'database/database.json').is_file():
         raise ValueError('Backup não contém o banco local.')
     return manifest

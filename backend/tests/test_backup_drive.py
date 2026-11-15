@@ -70,6 +70,27 @@ class BackupDriveTests(unittest.TestCase):
         self.assertEqual((self.root / 'download.zip').read_bytes(), content)
         self.assertIn(b'client_id=desktop-id', self.requests[0].content)
 
+    def test_sync_index_is_json_with_separate_role_and_folder_is_renamed_by_id(self):
+        source = self.root/'index.json'
+        source.write_text('{"format":"mac-sync-v1"}')
+        def handler(request):
+            if request.method == 'PATCH':
+                self.assertTrue(request.url.path.endswith('/folder-id'))
+                self.assertEqual(json.loads(request.content), {'name': 'Analises MAC'})
+                return httpx.Response(200, json={'id': 'folder-id'})
+            if request.method == 'POST':
+                metadata = json.loads(request.content)
+                self.assertEqual(metadata['mimeType'], 'application/json')
+                self.assertEqual(metadata['properties']['macSyncFormat'], '1')
+                self.assertNotIn('macBackupFormat', metadata['properties'])
+                return httpx.Response(200, headers={'Location': 'https://www.googleapis.com/upload/drive/v3/files?upload_id=test'})
+            return httpx.Response(201, json={'id': 'index'})
+        self.install(handler)
+        with drive.Drive() as client:
+            client.rename_sync_folder()
+            self.assertEqual(client.upload(source, 'index.json', 'installation',
+                sync_properties={'role': 'commit'}, mime_type='application/json')['id'], 'index')
+
     def test_foreign_folder_and_invalid_upload_host_are_rejected(self):
         self.install(lambda request: httpx.Response(200, json=dict(parents=['another-folder'], mimeType='application/zip',
             properties={'macBackupFormat': '1'})) if request.method == 'GET' else httpx.Response(200, headers={'Location': 'https://attacker.invalid/upload'}))

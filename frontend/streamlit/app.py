@@ -46,7 +46,7 @@ else:
                 title="Timeline térmica",
                 icon="🗓️",
             ),
-            st.Page(PAGE_ROOT / 'Backups.py', title='Backups', icon='☁️'),
+            st.Page(PAGE_ROOT / 'Sincronizacao.py', title='Sincronização', icon='☁️'),
         ]
     )
     render_logout()

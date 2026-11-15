@@ -37,6 +37,16 @@ HTTP. As contagens de chamadas não representam medições de latência do Supab
 
 ## Testes locais com PostgreSQL
 
+A sincronização tem testes de mesclagem em `backend.tests.test_synchronization`,
+transporte Drive simulado em `test_backup_drive` e interface em
+`frontend.tests.test_sync_page`. Com o PostgreSQL descartável habilitado,
+`backend.tests.test_sync_postgres` simula dois computadores com estados locais
+independentes e Drive em memória. Cobre dados/ZIPs, reaproveitamento de arquivos,
+análises parciais, exclusões, conflitos de edição/IDs, estruturas incompatíveis e
+rollback de SQL/arquivos. Use as mesmas variáveis seguras abaixo, acrescentando
+`backend.tests.test_sync_postgres` à seleção de módulos. Não valida OAuth real,
+velocidade da rede nem publicação concorrente real entre dois processos.
+
 Os backups têm cobertura em `backend.tests.test_backup_bundle`,
 `backend.tests.test_backup_drive`, `backend.tests.test_backup_routes` e
 `frontend.tests.test_backups_page`, sem usar o Drive real. No banco descartável,

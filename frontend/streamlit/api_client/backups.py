@@ -33,3 +33,11 @@ def restore_backup(entry):
 
 def job_status(identity):
     return _request('GET', f'/api/v1/backups/jobs/{identity}')
+
+
+def sync_status():
+    return _request('GET', '/api/v1/backups/sync/status', params={'desktop': _desktop()})
+
+
+def synchronize():
+    return _request('POST', '/api/v1/backups/sync', json={'desktop': _desktop()})

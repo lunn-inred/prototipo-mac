@@ -2,6 +2,11 @@
 
 [← Voltar ao README](../README.md)
 
+> Fluxo legado de recuperação. A navegação principal agora oferece
+> [Sincronização](synchronization.md), sem substituição integral do banco.
+> Os endpoints de backup/restauração e esta documentação foram preservados
+> para recuperação explícita; não são acionados pela nova página.
+
 ## Preparação
 
 A página **Backups** exige login Google e `MAC_API_KEY`, a mesma conta autorizada

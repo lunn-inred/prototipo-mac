@@ -128,14 +128,15 @@ fechado. A primeira autorização pede `openid`, `email`, `profile` e
 `drive.file`, valida a pasta de backup configurada e salva o token de renovação
 e o ID validado no arquivo privado em `data/credentials/`. O arquivo não entra
 no Git nem na imagem Docker. O envio e a restauração manuais ficam na página
-**Backups**, descrita no [guia de backups](backups.md). Não há agendamento automático.
+**Sincronização**, descrita no [guia de sincronização](synchronization.md). Não há agendamento automático.
 
-### Pasta única de backup da equipe
+### Pasta única da equipe
 
-1. Escolha uma das pastas **MAC Backups** existentes como destino oficial. Na URL
+1. Escolha a pasta oficial **Analises MAC** (pode reutilizar a antiga **MAC Backups**). Na URL
    `https://drive.google.com/drive/folders/ID_DA_PASTA`, copie apenas `ID_DA_PASTA`.
 2. Coloque o mesmo valor em `MAC_GOOGLE_BACKUP_FOLDER_ID` no `.env` de cada
-   instalação (ao lado do binário no desktop). Não é necessário renomear a pasta.
+   instalação (ao lado do binário no desktop). A sincronização renomeia a pasta
+   existente para **Analises MAC**, preservando seu ID e conteúdo anterior.
 3. Reinicie a API e saia/entre novamente com a mesma conta Google autorizada.
    Uma sessão já aberta não revalida o destino automaticamente.
 4. Cada instalação obtém sua própria autorização; não copie `data/credentials/`
@@ -161,8 +162,8 @@ amplia a permissão para todo o Drive. Mantenha os clientes Web e Desktop no
 mesmo projeto Google e faça a validação real em ambos. Consulte a
 [documentação de escopos do Google](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
 
-O login apenas valida o destino. Envio e restauração são ações explícitas na
-página **Backups**, nunca efeitos automáticos de entrar na conta.
+O login apenas valida o destino. A sincronização é uma ação explícita na
+página **Sincronização**, nunca efeito automático de entrar na conta.
 
 No Compose, crie `data/credentials/` no host antes de iniciar os serviços e
 garanta escrita ao usuário do container. O teste com `localhost` funciona apenas no computador servidor. Para dois

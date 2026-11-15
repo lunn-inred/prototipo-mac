@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+import httpx
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from backend.mac_api.main import create_app
@@ -48,3 +49,26 @@ class BackupRoutesTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'exclusivamente'):
                 service.create_backup()
             drive.assert_not_called()
+
+    def test_sync_requires_authentication_and_uses_the_shared_job_queue(self):
+        self.assertEqual(self.client.post('/api/v1/backups/sync', json={}).status_code, 401)
+        with patch.object(jobs, 'start', return_value=dict(id='sync-job', status='queued')) as start:
+            response = self.client.post('/api/v1/backups/sync', headers=self.headers, json={'desktop': True})
+            self.assertEqual(response.status_code, 202)
+            start.assert_called_once_with('sync', desktop=True)
+
+    def test_job_errors_report_type_and_stage_without_logging_private_details(self):
+        for error in (httpx.ConnectError('token-privado'), PermissionError(13, 'token-privado')):
+            with self.subTest(error=type(error).__name__), patch.dict(jobs._jobs, {
+                    'diagnostic-test': dict(kind='sync', status='queued', message='Aguardando')}):
+                def fail(progress):
+                    progress('Consultando o índice de sincronização no Drive.')
+                    raise error
+                with self.assertLogs(jobs.__name__, level='ERROR') as logs:
+                    jobs._run('diagnostic-test', fail)
+                result = jobs.status('diagnostic-test')
+                self.assertEqual(result['status'], 'failed')
+                self.assertEqual(result['error_type'], type(error).__name__)
+                self.assertIn('sincronização', result['message'])
+                self.assertIn('Consultando o índice', result['message'])
+                self.assertNotIn('token-privado', result['message'] + '\n'.join(logs.output))
