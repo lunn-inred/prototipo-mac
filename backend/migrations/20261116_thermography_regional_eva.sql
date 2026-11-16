@@ -1,6 +1,9 @@
 -- Somente banco local; faça backup antes de remover o EVA geral antigo.
 BEGIN;
 DO $$ BEGIN
+ IF to_regclass('public.vw_termografia_zonas') IS NULL THEN
+  RAISE EXCEPTION 'Aplique primeiro 20261115_thermography_regional_zones.sql; nenhuma alteração de EVA foi aplicada';
+ END IF;
  IF (SELECT count(*) FROM public.grupo_medida WHERE lower(trim(nome))='termografia') <> 1 THEN
   RAISE EXCEPTION 'É necessário exatamente um grupo termografia';
  END IF;
