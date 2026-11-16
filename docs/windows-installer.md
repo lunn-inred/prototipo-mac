@@ -128,6 +128,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\infrastructure\windows\bui
   -TesseractRoot 'C:\Program Files\Tesseract-OCR' `
   -WebView2Installer 'C:\MAC-vendor\MicrosoftEdgeWebView2RuntimeInstallerX64.exe' `
   -VcRedist 'C:\MAC-vendor\VC_redist.x64.exe' `
+  -DeploymentConfig 'C:\MAC-vendor\mac-oauth-desktop.json' `
   -Version '1.0.0'
 ```
 
@@ -142,8 +143,8 @@ PowerShell para limpar esse cache numa compilação de diagnóstico/reprodução
 Feche a instância em `dist\MAC Performance` antes de recompilar. O script
 recusa sobrescrever o executável em uso; não encerra processos automaticamente.
 
-Para sincronização, o operador pode fornecer `-DeploymentConfig` apontando para
-um JSON privado fora do Git, contendo somente parâmetros do cliente OAuth Desktop
+O build exige `-DeploymentConfig` apontando para um JSON privado fora do Git,
+contendo somente parâmetros do cliente OAuth Desktop
 e o ID da pasta compartilhada:
 
 ```json
@@ -158,6 +159,11 @@ e o ID da pasta compartilhada:
 Nenhum token, conta de serviço, chave de nuvem ou senha PostgreSQL pode entrar
 nesse arquivo. O consentimento Desktop e as permissões da pasta precisam estar
 configurados no Google; o instalador não os concede automaticamente.
+No pacote gerenciado, a tela de login e a exigência de sessão na API ficam
+sempre ativas. Sem os parâmetros OAuth Desktop, a tela informa que o login não
+foi configurado e não abre as páginas internas. O ID do cliente Web não é
+necessário nessa instalação. A correção exige gerar e instalar um novo Setup;
+o pacote já instalado não atualiza sozinho.
 
 Assinatura digital do instalador final é recomendada antes da distribuição.
 O pipeline ainda não possui certificado nem assinatura automática: antivírus e

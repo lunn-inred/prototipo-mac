@@ -35,7 +35,7 @@ _SCOPE = "openid email profile https://www.googleapis.com/auth/drive.file"
 
 def enabled() -> bool:
     if setting('MAC_DESKTOP_MANAGED') == '1':
-        return bool(setting('MAC_GOOGLE_DESKTOP_CLIENT_ID'))
+        return True
     return bool(setting("MAC_GOOGLE_CLIENT_ID"))
 
 

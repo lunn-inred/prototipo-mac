@@ -13,6 +13,8 @@ from frontend.streamlit.components.ui import LOGO_PATH
 
 
 def enabled() -> bool:
+    if setting('MAC_DESKTOP_MANAGED') == '1':
+        return True
     return bool(setting("MAC_GOOGLE_CLIENT_ID"))
 
 
@@ -109,6 +111,9 @@ def render_login() -> None:
         st.write("Entre com a conta Google do MAC para continuar.")
         if message := st.session_state.pop("mac_google_login_error", None):
             st.error(message)
+        if setting('MAC_DESKTOP_MANAGED') == '1' and not setting('MAC_GOOGLE_DESKTOP_CLIENT_ID'):
+            st.error('Login Google não configurado nesta instalação. Instale uma versão preparada com o cliente OAuth Desktop.')
+            return
         if setting("MAC_DESKTOP_MODE") == "1":
             _render_desktop_login()
         else:

@@ -44,6 +44,17 @@ class GoogleAuthTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertIn('Google', response.json()['detail'])
 
+    def test_managed_desktop_without_oauth_configuration_still_requires_session(self):
+        from backend.mac_api.main import require_api_key
+
+        with patch.dict(os.environ, MAC_DESKTOP_MANAGED='1', MAC_GOOGLE_CLIENT_ID='',
+                        MAC_GOOGLE_DESKTOP_CLIENT_ID=''):
+            self.assertTrue(google_auth.enabled())
+            with self.assertRaises(HTTPException) as error:
+                require_api_key(x_api_key='api-test-key')
+        self.assertEqual(error.exception.status_code, 401)
+        self.assertIn('Google', error.exception.detail)
+
     def test_installed_desktop_login_does_not_require_web_client_secrets(self):
         with patch.dict(os.environ,MAC_DESKTOP_MANAGED='1',MAC_GOOGLE_CLIENT_ID='',
                         MAC_GOOGLE_CLIENT_SECRET='',MAC_GOOGLE_DESKTOP_CLIENT_ID='desktop-client',

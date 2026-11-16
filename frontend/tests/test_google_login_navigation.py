@@ -46,6 +46,35 @@ class GoogleLoginNavigationTests(unittest.TestCase):
         self.assertEqual(pages[0].title, "Entrar")
         self.assertEqual(options["position"], "hidden")
 
+    def test_managed_windows_uses_desktop_client_for_login_navigation(self):
+        original = st.navigation
+        declarations = []
+
+        def capture(pages, **kwargs):
+            declarations.append((pages, kwargs))
+            return original(pages, **kwargs)
+
+        with patch.dict(os.environ, MAC_DESKTOP_MANAGED='1', MAC_DESKTOP_MODE='1',
+                        MAC_GOOGLE_CLIENT_ID='', MAC_GOOGLE_DESKTOP_CLIENT_ID='desktop-client'), \
+             patch('frontend.streamlit.google_login.authenticated', return_value=False), \
+             patch.object(st, 'navigation', side_effect=capture):
+            app = AppTest.from_file(str(APP), default_timeout=20).run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual([button.label for button in app.button], ['Entrar com Google'])
+        self.assertEqual([page.title for page in declarations[0][0]], ['Entrar'])
+        self.assertEqual(declarations[0][1]['position'], 'hidden')
+
+    def test_managed_windows_without_desktop_client_shows_configuration_error(self):
+        with patch.dict(os.environ, MAC_DESKTOP_MANAGED='1', MAC_DESKTOP_MODE='1',
+                        MAC_GOOGLE_CLIENT_ID='', MAC_GOOGLE_DESKTOP_CLIENT_ID=''):
+            app = AppTest.from_file(str(APP), default_timeout=20).run()
+
+        self.assertFalse(app.exception)
+        self.assertTrue(any('Login Google não configurado' in item.value for item in app.error))
+        self.assertFalse(app.button)
+        self.assertFalse(app.sidebar.button)
+
     def test_authenticated_navigation_contains_application_pages(self):
         original = st.navigation
         declarations = []

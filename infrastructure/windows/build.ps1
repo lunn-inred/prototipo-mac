@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$TesseractRoot,
     [Parameter(Mandatory=$true)][string]$WebView2Installer,
     [Parameter(Mandatory=$true)][string]$VcRedist,
-    [string]$DeploymentConfig,
+    [Parameter(Mandatory=$true)][string]$DeploymentConfig,
     [string]$Version = '1.0.0',
     [switch]$Clean,
     [string]$Iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
@@ -24,6 +24,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Use Python 3.11 x64 para este build.' }
 foreach ($path in @("$PostgresRoot\bin\pg_ctl.exe", "$PostgresRoot\bin\initdb.exe", "$PostgresRoot\bin\pg_dump.exe", "$PostgresRoot\bin\pg_restore.exe", "$TesseractRoot\tesseract.exe", "$TesseractRoot\tessdata\por.traineddata", "$TesseractRoot\tessdata\eng.traineddata", $WebView2Installer, $VcRedist, $Iscc)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Dependência ausente: $path" }
 }
+if (-not (Test-Path -LiteralPath $DeploymentConfig -PathType Leaf)) { throw 'Arquivo de configuração OAuth Desktop ausente.' }
+python -c "import json,sys; p=json.load(open(sys.argv[1],encoding='utf-8-sig')); required={'MAC_GOOGLE_ALLOWED_EMAIL','MAC_GOOGLE_DESKTOP_CLIENT_ID','MAC_GOOGLE_DESKTOP_CLIENT_SECRET','MAC_GOOGLE_BACKUP_FOLDER_ID'}; assert set(p)==required and all(isinstance(v,str) and v.strip() and not any(c in v for c in '\r\n\x00') for v in p.values())" $DeploymentConfig
+if ($LASTEXITCODE -ne 0) { throw 'Configuração OAuth Desktop incompleta ou inválida.' }
 $postgresVersion = & "$PostgresRoot\bin\pg_ctl.exe" --version
 if ($LASTEXITCODE -ne 0 -or $postgresVersion -notmatch 'PostgreSQL\) 17\.') { throw 'Use binários PostgreSQL 17 x64.' }
 foreach ($path in @("$PostgresRoot\bin\pg_ctl.exe", "$TesseractRoot\tesseract.exe")) {
@@ -61,11 +64,7 @@ Get-ChildItem -LiteralPath $PostgresRoot -File | Where-Object { $_.Name -match '
 Copy-Item -Path "$TesseractRoot/*" -Destination "$runtime/tesseract" -Recurse -Force
 Copy-Item -LiteralPath $WebView2Installer -Destination "$runtime/prerequisites/WebView2Setup.exe"
 Copy-Item -LiteralPath $VcRedist -Destination "$runtime/prerequisites/VC_redist.x64.exe"
-if ($DeploymentConfig) {
-    python -c "import json,sys; p=json.load(open(sys.argv[1],encoding='utf-8-sig')); assert not set(p)-{'MAC_GOOGLE_ALLOWED_EMAIL','MAC_GOOGLE_DESKTOP_CLIENT_ID','MAC_GOOGLE_DESKTOP_CLIENT_SECRET','MAC_GOOGLE_BACKUP_FOLDER_ID'}; assert all(isinstance(v,str) and not any(c in v for c in '\r\n\x00') for v in p.values())" $DeploymentConfig
-    if ($LASTEXITCODE -ne 0) { throw 'Configuração pública de distribuição inválida.' }
-    Copy-Item -LiteralPath $DeploymentConfig -Destination "$app/deployment.json"
-}
+Copy-Item -LiteralPath $DeploymentConfig -Destination "$app/deployment.json"
 $files = Get-ChildItem -LiteralPath $runtime -Recurse -File | ForEach-Object {
     @{ file=$_.FullName.Substring($app.Length+1); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
 }
