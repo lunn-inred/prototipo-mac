@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import MagicMock, patch
+import numpy as np
 
 from fastapi.testclient import TestClient
 from backend.mac_api.main import create_app
@@ -41,18 +42,37 @@ class CombinedRegistrationTests(unittest.TestCase):
             raise
 
     def test_success_stores_files_and_measures_with_identical_pixel_counts(self):
-        with patch.object(registration, '_insert_collection', return_value=9) as insert:
+        with patch.object(registration, '_insert_collection', side_effect=lambda cursor, **kw: len(kw['measurements'])) as insert:
             result = registration.register_analysis(**self.values, connection_factory=self.factory)
         self.assertTrue(self.committed)
-        self.assertEqual(result['inserted_measurements'], 9)
+        self.assertEqual(result['inserted_measurements'], 57)
         saved = archive.load_analysis(123, self.values['collected_at'], result['analysis']['id'])
         self.assertEqual(saved['athlete_name'], 'Nome do banco')
         measurements = insert.call_args.kwargs['measurements']
+        self.assertEqual(len(measurements), 57)
+        self.assertEqual(set(measurements), insert.call_args.kwargs['required_measures'])
         for view, suffix in [('front', 'FRENTE'), ('back', 'VERSO')]:
             for side, label in [('left', 'ESQUERDA'), ('right', 'DIREITA')]:
                 expected = saved['metadata']['views'][view]['metrics'][side]['hot_pixels']
                 self.assertEqual(measurements[f'PERNA_{label}_{suffix}'], expected)
             self.assertEqual(measurements[f'SOMA_{suffix}'], sum(saved['metadata']['views'][view]['metrics'][side]['hot_pixels'] for side in ('left', 'right')))
+
+    def test_registration_recomputes_selected_zone_instead_of_trusting_ui_counts(self):
+        for view, zone in (('front', 'cold'), ('back', 'neutral')):
+            self.values['views'][view] = {**self.values['views'][view], 'thermal_zone': zone,
+                                         'metrics': {'right': {'hot_pixels': 999999}}}
+        with patch.object(registration, '_insert_collection', return_value=9) as insert:
+            result = registration.register_analysis(**self.values, connection_factory=self.factory)
+        measurements = insert.call_args.kwargs['measurements']
+        saved = archive.load_analysis(123, self.values['collected_at'], result['analysis']['id'])
+        for view, suffix in (('front', 'FRENTE'), ('back', 'VERSO')):
+            source = self.values['views'][view]
+            values = source['temperatures']
+            selection = values < 31 if view == 'front' else (values >= 31) & (values < 33)
+            self.assertEqual(saved['views'][view]['thermal_zone'], source['thermal_zone'])
+            for side, label in (('right', 'DIREITA'), ('left', 'ESQUERDA')):
+                expected = int(np.count_nonzero(selection & source['segmentation_masks'][side]))
+                self.assertEqual(measurements[f'PERNA_{label}_{suffix}'], expected)
 
     def test_file_failure_rolls_back_database_and_keeps_existing_analyses(self):
         old = archive.save_analysis(**{**self.values, 'collected_at': date(2026, 11, 9)})

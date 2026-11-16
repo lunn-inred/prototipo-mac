@@ -9,6 +9,7 @@ from frontend.streamlit.presentation.thermography_data import (
 )
 
 from frontend.streamlit.components.thermography.forms import render_forms
+from frontend.streamlit.components.thermography.regional_summary import render_regional_summary
 from frontend.streamlit.components.thermography.save_flow import render_pending_save
 from frontend.streamlit.components.thermography.draft_state import reset_after_saved_analysis
 from frontend.streamlit.components.thermography.wizard import render_wizard, navigate
@@ -154,28 +155,6 @@ if all(view_metrics.values()):
 
     with st.container(border=True, key='thermal_collection_summary'):
         st.subheader("Resumo da coleta")
-        summary_columns = st.columns(2)
-        with summary_columns[0]:
-            with st.container(border=True):
-                st.metric(
-                    "Pixels quentes — Frente (duas pernas)",
-                    f"{front_pixels:,} px".replace(",", "."),
-                )
-                st.caption(
-                    f"{front_percentage:.1f}% quentes · área segmentada: "
-                    f"{front_area:,} pixels".replace(",", ".")
-                )
-        with summary_columns[1]:
-            with st.container(border=True):
-                st.metric(
-                    "Pixels quentes — Costas (duas pernas)",
-                    f"{back_pixels:,} px".replace(",", "."),
-                )
-                st.caption(
-                    f"{back_percentage:.1f}% quentes · área segmentada: "
-                    f"{back_area:,} pixels".replace(",", ".")
-                )
-
         st.caption(
             "Edite Jogador, Massa, EVA Dor, Data da coleta e Observações diretamente na tabela. "
             "Frente e Costas são calculados automaticamente."
@@ -267,10 +246,13 @@ if all(view_metrics.values()):
                      notes=prepared_observations, collected_at=prepared_day)
         st.session_state.update(thermography_player=prepared_player_id, thermography_mass=prepared_mass,
             thermography_pain_score=prepared_pain_score, thermography_observations=prepared_observations)
+        regional_ready = render_regional_summary(views, items, reviewed_record=draft.copy())
         st.session_state['thermal_prepared_record'] = dict(athlete_id=prepared_player_id,
             athlete_name=athletes_by_id.get(prepared_player_id, {}).get('nome', ''), mass=prepared_mass,
             pain_score=prepared_pain_score, observations=prepared_observations, collected_at=prepared_day,
             views=views, items=items, pair_signature=pair_signature)
+        if not regional_ready:
+            st.session_state['thermal_prepared_record'] = None
         st.caption('Use Salvar análise abaixo. Se houver dados incompletos, será salvo um rascunho mediante confirmação.')
 
     navigate(6)

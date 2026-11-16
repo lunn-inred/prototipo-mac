@@ -18,19 +18,25 @@ somente uma etapa por vez:
 
 1. Jogador, massa, EVA Dor e observações opcionais.
 2. Upload de frente/costas, prévia e botão para girar 90° para a direita.
-3. Caixas das pernas e barra de cores, com **Redefinir retângulos** em uma linha
+3. Regiões das pernas e barra de cores, com **Ajustar regiões** em uma linha
    alinhada às colunas de **Voltar** e **Continuar**.
 4. Divisão de cada perna em coxa, joelho, canela e pé, com uma prévia anatômica por vista
    e o botão **Redefinir regiões**.
-5. Segmentação automática por GrabCut e correção manual pelo botão **Ajustar área perna**.
-6. Cálculo da termografia: Tmin/Tmax, limiar abaixo da escala e métricas.
+5. Revisão da segmentação automática por watershed e correção manual pelo botão **Ajustar área perna**.
+6. Cálculo da termografia: Tmin/Tmax, seleção da zona térmica e métricas.
    Cada vista apresenta a imagem
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
-   e os pixels quentes.
-7. Resumo da coleta: totais de frente/costas e tabela revisável no mesmo componente.
+   e os pixels da zona selecionada.
+7. Resumo da coleta: tabela revisável de metadados e contagens regionais.
    Inclui a coluna editável **Data da coleta**, além de jogador, massa, EVA e
    observações. **Salvar análise** grava medidas no banco local e arquivos na
    timeline quando todos os dados estão completos.
+   As 48 contagens regionais aparecem em abas Frente/Costas, com uma tabela por
+   perna: linhas Coxa/Joelho/Canela/Pé/Total e colunas Fria/Neutra/Quente, em pixels.
+   A API calcula a prévia com as mesmas regras usadas no registro. Os atalhos
+   permitem voltar às divisões e à segmentação sem perder os metadados editados.
+   Se a prévia falhar, o salvamento completo fica indisponível; permanece possível
+   salvar os dados disponíveis como análise parcial mediante confirmação.
 
 ### Salvar e retomar uma análise incompleta
 
@@ -99,8 +105,9 @@ dados disponíveis; os arquivos completos são substituídos na finalização. R
 exigem reabrir a análise, não uma sobrescrita forçada.
 
 As correções de caixas, máscaras e divisões são feitas em pop-ups. Na divisão
-anatômica, o GrabCut ainda não é executado: os limites são definidos sobre as
-caixas das pernas e mantêm suas coordenadas depois da segmentação. Os canvases
+anatômica, os limites são definidos sobre as caixas derivadas das máscaras
+watershed (ou delimitadas manualmente) e mantêm suas coordenadas depois de
+exclusões pelo pincel. Os canvases
 dos pop-ups são centralizados.
 
 Os diálogos de edição ocupam até 96% da largura da janela, limitados a 1600 px,
@@ -136,12 +143,13 @@ centralizadas e botões que ocupam a largura disponível de suas colunas.
 Na divisão anatômica, aparece somente a prévia com nomes e limites das áreas.
 Na segmentação, a segunda prévia mostra a área completa das pernas sem fundo.
 A filtragem de pixels quentes aparece
-somente na etapa de cálculo, após a definição da escala e do limiar.
+somente na etapa de cálculo, após a definição da escala e da zona térmica.
 
 O botão **Salvar análise**, com a análise completa, registra as medidas no PostgreSQL local e salva as
 imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscara de
 pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
-real com o limiar salvo em cada vista da coleta, sem controles de ajuste na timeline.
+real com a zona térmica (ou o limiar legado) salvo em cada vista da coleta,
+sem controles de ajuste na timeline.
 Ao escolher o jogador, a timeline
 seleciona automaticamente a data mais antiga como **Basal** e a mais recente como
 **Atual**. O botão **Mudar Basal**, abaixo da imagem basal, abre um pop-up com as análises desse jogador;
@@ -161,38 +169,100 @@ contagens e a visualização multicolorida para reutilização; a timeline solic
 `only_new=True`, sem modificar os registros salvos.
 
 Na nova análise, o usuário informa jogador, massa, data da coleta, EVA Dor e,
-opcionalmente, observações. O sistema tenta identificar automaticamente as duas
-caixas R1/R2; quando elas não existem ou estão incorretas, cria regiões iniciais
-que podem ser redesenhadas pelo usuário. A lateralidade é invertida entre frente
+opcionalmente, observações. O sistema segmenta as pernas na imagem inteira por
+watershed, sem ler as caixas R1/R2 impressas. As pernas devem estar verticais,
+com os pés para baixo; use a rotação na etapa de imagens. As caixas exibidas são
+derivadas das máscaras. Se a detecção falhar, o aviso solicita rotação ou
+delimitação das duas pernas em **Ajustar regiões** antes de continuar.
+A lateralidade é invertida entre frente
 e costas e o OCR é aplicado às regiões superior e inferior
 do canto direito para preencher automaticamente Tmax e Tmin. Os campos continuam
 editáveis e usam 20–40 °C como valores iniciais quando o OCR não reconhece uma
 escala válida. Em seguida, o sistema estima a temperatura dos pixels pela barra
-térmica lateral e conta como quentes os pixels a partir de 90% da escala por
-padrão: `Tmin + 0,90 × (Tmax − Tmin)`. O usuário ainda pode ajustar esse limiar
-no bloco **Limiar de pixels quentes**, que reúne seletor de unidade, barra e
-campo numérico à direita. Barra e digitação são sincronizadas nos dois sentidos.
-Em cada imagem, o seletor permite controlar o limiar diretamente pela temperatura
-em °C (modo padrão, à esquerda) ou pela porcentagem da escala. Ao alternar o modo, o sistema preserva o
-limiar equivalente; a análise e os resultados continuam usando a temperatura
-convertida em °C. A porcentagem aceita de 0 a 100 e a temperatura fica limitada
-a Tmin/Tmax. Se a escala mudar no modo °C, preserva-se o valor absoluto quando
-possível, limitando-o aos novos extremos. O preenchimento aceita duas casas decimais.
+térmica lateral. Na etapa de cálculo, cada vista oferece três botões:
+**Zona fria** (T < 31 °C), **Zona neutra** (31 ≤ T < 33 °C) e
+**Zona quente** (T ≥ 33 °C, padrão). Não há slider ou seletor de unidade do
+limiar nesse assistente. As faixas são fixas, sem sobreposição, e não são
+redefinidas por Tmin/Tmax; uma zona fora da escala pode retornar zero pixels.
+A imagem resultante usa o nome da zona selecionada. Contagens e percentuais
+totais e por coxa/joelho/canela/pé usam somente pixels dessa zona dentro das
+máscaras. O denominador continua sendo a área segmentada total de cada região:
+`pixels na zona ÷ pixels segmentados × 100`. O resumo e o registro utilizam
+as mesmas contagens recalculadas no backend.
 
-Dentro de cada região, o GrabCut separa os pixels da perna do fundo. A prévia
-exibe a máscara sobre a imagem e oferece dois ajustes manuais: **Redefinir retângulos**, para redesenhar o retângulo de cada perna, e **Ajustar área perna**,
+A zona é salva por vista nos metadados `thermal_zone` (`cold`, `neutral`, `hot`).
+No **Registrar Análise**, também são gravadas as três zonas simultaneamente,
+independentemente do botão selecionado: 48 contagens inteiras de pixels para
+coxa/joelho/canela/pé, direita/esquerda e frente/costas. Elas seguem os limites anatômicos
+ajustados na análise e somente a máscara segmentada. As quatro regiões permanecem
+separadas, inclusive joelho e pé. Os intervalos de 1 °C
+da planilha são consolidados em fria (T < 31 °C), neutra (31 ≤ T < 33 °C) e quente
+(T ≥ 33 °C), incluindo temperaturas abaixo de 28 ou acima de 36 °C. Não há
+importação dos valores da planilha nem conversão para percentuais.
+
+As medidas seguem o nome `COXA_DIREITA_FRENTE_ZONA_FRIA` (e combinações
+equivalentes). São armazenadas no modelo existente `medida`/`medida_valor`;
+a view `public.vw_termografia_zonas` apresenta uma coluna por combinação,
+identificada por atleta e data. Os totais legados continuam representando a zona
+selecionada na interface. O endpoint antigo de contagens resumidas permanece
+compatível e não inventa medidas regionais sem matrizes e máscaras.
+Antes de usar esse registro, aplique a
+[migração regional](../backend/migrations/README.md). Coletas antigas não são
+alteradas; valores regionais ausentes aparecem como nulos, e não como zero.
+
+Ao atualizar para esse fluxo, reinicie também a API, não somente o Streamlit.
+Se a API roda no Docker, use `docker compose up -d --build --no-deps backend`:
+reiniciar um Python no host não atualiza o código copiado para a imagem.
+Esse comando substitui apenas a API; não restaura o banco nem remove volumes.
+Após atualizar arquivos do desktop, feche e reabra sua janela para recarregar
+os módulos da interface, pois o launcher desativa o monitoramento de arquivos.
+O cliente exige que a resposta confirme a zona pedida; uma API antiga interrompe
+o cálculo com orientação de reinicialização, em vez de exibir contagens por
+limiar como se fossem da zona. Resultados antigos na sessão são recalculados,
+preservando os demais campos do rascunho. A legenda pode ser obtida pelo nome
+da zona confirmada quando o campo de apresentação `zone_label` estiver ausente.
+Chaves técnicas legadas `hot_pixels`, `hot_percentage` e `hot_overlay` permanecem
+nos contratos para compatibilidade, representando a zona selecionada quando
+informada. Análises antigas sem zona continuam usando o limiar salvo. Na timeline,
+a zona basal é a referência para os percentuais e contornos das duas coletas;
+o alinhamento e o mapa de diferenças de temperatura permanecem iguais.
+
+O watershed usa marcadores automáticos da paleta térmica, incluindo os dois
+extremos de vermelho do HSV. Linhas finas claras são suprimidas apenas numa cópia
+de processamento; os valores RGB originais continuam sendo usados nos cálculos.
+O espaço entre as pernas fornece a separação inicial: busca-se um corredor
+contínuo de fundo com regiões térmicas dos dois lados, sem exigir magenta.
+O corredor deve continuar por uma faixa vertical mais longa, reduzindo a confusão
+com pequenas manchas escuras no short.
+Fundos neutros (cinza, preto e branco), azulados e roxos também são aceitos.
+Regiões neutras largas conectadas à borda da imagem são identificadas como fundo;
+regiões brancas quentes isoladas dentro das pernas são preservadas.
+Não há preenchimento global
+de contornos que transforme as caixas impressas em área válida. O método ainda
+depende de contraste/paleta e enquadramento: confira o início das coxas, os pés,
+roupas e textos sobrepostos. A segmentação não recupera temperaturas ocultadas
+por anotações da câmera.
+
+A prévia exibe a máscara sobre a imagem e oferece dois ajustes manuais:
+**Ajustar regiões**, para delimitar explicitamente uma perna e executar watershed
+dentro dessa área, e **Ajustar área perna**,
 com pincel verde para incluir área e vermelho para excluir área. Os controles
 Perna, Pincel e Tamanho do pincel ficam lado a lado no diálogo. Cada ajuste
 recalcula as métricas. A barra térmica vertical também é localizada
-automaticamente e destacada na prévia. Dentro de **Redefinir retângulos**, a opção
+automaticamente e destacada na prévia. Dentro de **Ajustar regiões**, a opção
 **Barra de cores** permite redesenhar sua caixa; a paleta extraída dessa região é a fonte usada
 para converter as cores da imagem em temperaturas aproximadas. Para cada perna
 e para os totais de frente/costas, a tela
-apresenta a quantidade de pixels quentes, a área total segmentada e o percentual
-`pixels quentes ÷ área segmentada × 100`. A área do retângulo não é usada como
+apresenta a quantidade de pixels da zona, a área total segmentada e o percentual
+`pixels na zona ÷ área segmentada × 100`. A área do retângulo não é usada como
 denominador. Ao lado da máscara, uma segunda prévia usa fundo preto e mantém
-visíveis somente os pixels que pertencem às pernas segmentadas e alcançam o
-limiar térmico selecionado.
+visíveis somente os pixels que pertencem às pernas segmentadas e à zona selecionada.
+
+Novas análises usam a versão `thermal-rgb-watershed-v2`. Fundos com cores
+semelhantes às próprias pernas ou pouco contraste ainda podem exigir ajuste
+manual; a mudança não constitui uma identificação universal de qualquer fundo.
+O formato de arquivos permanece o mesmo; análises GrabCut e watershed anteriores conservam máscaras, temperaturas,
+divisões e comparação originais, sem resegmentação automática ao abrir a timeline.
 
 Cada perna também pode ser dividida em coxa, joelho, canela e pé. Na seção
 **Divisão anatômica**, arraste os três limites no pop-up **Redefinir regiões**.
@@ -412,15 +482,28 @@ A operação `compare_temperature_maps` aceita `gamma` opcional e preserva 1
 como padrão para clientes da API; a timeline envia explicitamente o valor do
 controle, incluído na chave de cache de cada comparação.
 
-O limiar salvo no basal continua sendo aplicado às duas coletas para os
-percentuais de área quente. Esses indicadores usam os pixels nativos de cada
-coleta, não os pixels interpolados do mapa; os limiares originais permanecem
+O critério salvo no basal (zona térmica, ou limiar nas análises legadas) é
+aplicado às duas coletas para os percentuais de área selecionada. Esses indicadores
+usam os pixels nativos de cada coleta, não os pixels interpolados do mapa;
+as zonas e os limiares originais permanecem
 nos arquivos salvos, sem descrições auxiliares na tela. O gradiente de diferenças
 não depende desses limiares. Cálculos e
 carregamentos são armazenados em cache por até 60 segundos para cada par.
 
-A timeline apresenta os percentuais de área quente por perna, sem tabela
-regional. A comparação não modifica os arquivos salvos e não exige migração.
+A timeline apresenta os percentuais da zona (ou área quente legada) por perna e
+por coxa, joelho, canela e pé, nas vistas de frente e costas. Cada região mostra
+o percentual atual, o basal e a diferença em pontos percentuais. Regiões sem
+pixels válidos são identificadas sem ocultar as demais. As divisões e métricas
+são as calculadas pelo backend a partir de cada análise salva; não há novo
+alinhamento nem alteração do denominador. A comparação não modifica os arquivos
+salvos e não exige migração.
+Os indicadores aparecem na coluna à direita das imagens em dois cartões compactos,
+um por perna. Cada cartão contém linhas para total, coxa, joelho, canela e pé,
+com colunas fixas de Atual, Basal e Δ p.p. A tipografia é reduzida para exibir
+os números completos, sem o truncamento dos widgets de métricas em colunas
+estreitas. Em painéis muito estreitos, os cartões se empilham para preservar a leitura.
+Os deltas usam cor neutra, sem sugerir avaliação clínica automática de melhora
+ou piora. Uma região sem dados mostra um traço e mantém as outras visíveis.
 Na etapa 7, as duas gravações fazem parte de uma única operação da API. As rotas
 antigas de gravação independente continuam disponíveis por compatibilidade,
 mas não são usadas pelo novo botão. Análises antigas continuam na timeline sem

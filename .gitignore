@@ -7,7 +7,8 @@ __pycache__/
 .ruff_cache/
 
 # Virtual environments
-.venv/
+.venv*/
+
 venv/
 env/
 ENV/
@@ -51,3 +52,4 @@ Thumbs.db
 /data/thermography/
 /data/backups/
 /data/credentials/
+/data/watershed-validation/

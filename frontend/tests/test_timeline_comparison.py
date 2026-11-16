@@ -1,4 +1,5 @@
 from datetime import date
+from html.parser import HTMLParser
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -8,6 +9,30 @@ import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 from frontend.streamlit.components.thermography import timeline
+
+
+def regional_rows(app):
+    class Rows(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.rows, self.row, self.cell = [], None, None
+        def handle_starttag(self, tag, attrs):
+            if tag == 'tr' and dict(attrs).get('data-region'):
+                self.row = [dict(attrs)['data-region']]
+            elif tag in ('td', 'th') and self.row is not None:
+                self.cell = ''
+        def handle_data(self, data):
+            if self.cell is not None:
+                self.cell += data
+        def handle_endtag(self, tag):
+            if tag in ('td', 'th') and self.cell is not None:
+                self.row.append(self.cell); self.cell = None
+            if tag == 'tr' and self.row is not None:
+                self.rows.append(self.row); self.row = None
+    parser = Rows()
+    for element in app.get('html'):
+        parser.feed(element.proto.body)
+    return parser.rows
 
 
 class TimelineComparisonTests(unittest.TestCase):
@@ -62,7 +87,7 @@ class TimelineComparisonTests(unittest.TestCase):
             self.assertEqual(linear['front']['limit'], result['front']['limit'])
             self.assertEqual(linear['back']['limit'], result['back']['limit'])
 
-    def test_timeline_renders_percentages_without_regional_table(self):
+    def test_timeline_renders_total_and_regional_percentages(self):
         root = Path(__file__).resolve().parents[2]
         with patch('frontend.streamlit.presentation.thermography_data.load_thermography_athletes',
                    return_value=[dict(id_atleta=1, nome='Teste')]), \
@@ -88,16 +113,21 @@ class TimelineComparisonTests(unittest.TestCase):
             self.assertEqual(leg_captions, ['Perna direita', 'Perna esquerda',
                                            'Perna esquerda', 'Perna direita'])
             self.assertEqual(len(app.dataframe), 0)
-            self.assertTrue(all(metric.value.endswith('%') for metric in app.metric))
+            rows = regional_rows(app)
+            self.assertEqual(len(rows), 20)
+            for label in ('Coxa', 'Joelho', 'Canela', 'Pé'):
+                metrics = [row for row in rows if row[1] == label]
+                self.assertEqual(len(metrics), 4)
+                self.assertTrue(all(row[2:] == ['100.0%', '0.0%', '+100.0'] for row in metrics))
             removed_texts = ('Limiares originais', 'Atual − basal por pixel',
                              'Escala deste comparativo', 'Contraste não linear',
                              'Mesmo limiar nas duas coletas', 'Análises armazenadas localmente')
             self.assertFalse(any(text in caption.value for caption in app.caption for text in removed_texts))
             self.assertEqual(app.slider(key='timeline_comparison_gamma').value, .5)
-            before = [metric.value for metric in app.metric]
+            before = regional_rows(app)
             app.slider(key='timeline_comparison_gamma').set_value(1.).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
-            self.assertEqual([metric.value for metric in app.metric], before)
+            self.assertEqual(regional_rows(app), before)
             self.assertEqual(app.slider(key='timeline_comparison_gamma').value, 1.)
             app.select_slider(key='thermography_timeline_date_1').set_value(date(2026, 10, 2)).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
@@ -106,3 +136,49 @@ class TimelineComparisonTests(unittest.TestCase):
             app.select_slider(key='thermography_timeline_date_1').set_value(date(2026, 10, 1)).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertFalse(any('Sem variação de temperatura' in message.value for message in app.info))
+
+    def test_empty_region_does_not_hide_other_regional_metrics(self):
+        root = Path(__file__).resolve().parents[2]
+        def comparison_with_empty_knee(*args, **kwargs):
+            response = self.comparison_response(*args, **kwargs)
+            response.update(thermal_zone='neutral', zone_label='Zona neutra')
+            for side in ('right', 'left'):
+                response['summaries'][side]['current']['joelho']['hot_percentage'] = None
+            return response
+        with patch('frontend.streamlit.presentation.thermography_data.load_thermography_athletes',
+                   return_value=[dict(id_atleta=1, nome='Teste')]), \
+             patch.object(timeline, 'list_local_analyses', return_value=self.entries), \
+             patch.object(timeline, 'load_local_analysis', side_effect=lambda entry: self.saved[entry['id']]), \
+             patch.object(timeline, 'compare_temperature_maps', side_effect=comparison_with_empty_knee):
+            app = AppTest.from_file(str(root/'frontend/streamlit/pages/Timeline_Termo.py'), default_timeout=30).run()
+            app.selectbox(key='thermography_timeline_player').set_value(1).run()
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            rows = regional_rows(app)
+            totals = [row for row in rows if row[1] == 'Total']
+            self.assertEqual(len(totals), 4)
+            knees = [row for row in rows if row[1] == 'Joelho']
+            self.assertEqual(len(knees), 4)
+            self.assertTrue(all(row[2] == '—' for row in knees))
+            for label in ('Coxa', 'Canela', 'Pé'):
+                metrics = [row for row in rows if row[1] == label]
+                self.assertTrue(all(row[2] == '100.0%' for row in metrics))
+
+    def test_regional_cards_preserve_each_region_and_show_data_without_total(self):
+        script = '''
+import streamlit as st
+from frontend.streamlit.components.thermography.timeline import _render_regional_comparison
+baseline = {part: {'hot_percentage': value} for part, value in
+            [('total', None), ('coxa', 10.), ('joelho', 20.), ('canela', 30.), ('pe', 40.)]}
+current = {part: {'hot_percentage': value} for part, value in
+           [('total', None), ('coxa', 15.), ('joelho', 12.), ('canela', 30.), ('pe', 50.)]}
+comparison = {'thermal_zone': 'cold', 'zone_label': 'Zona fria', 'summaries':
+              {side: {'baseline': baseline, 'current': current} for side in ('right', 'left')}}
+_render_regional_comparison(comparison, 'front')
+'''
+        app = AppTest.from_string(script).run()
+        self.assertEqual(len(app.exception), 0, list(app.exception))
+        for label, value, delta in (('Coxa', '15.0%', '+5.0'), ('Joelho', '12.0%', '-8.0'),
+                                     ('Canela', '30.0%', '+0.0'), ('Pé', '50.0%', '+10.0')):
+            metrics = [row for row in regional_rows(app) if row[1] == label]
+            self.assertEqual(len(metrics), 2)
+            self.assertTrue(all(row[2] == value and row[4] == delta for row in metrics))

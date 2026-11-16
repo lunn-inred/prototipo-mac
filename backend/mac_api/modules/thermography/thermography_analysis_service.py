@@ -8,8 +8,7 @@ from typing import Any, Literal
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from backend.mac_api.modules.thermography.thermal_analysis import (
-    count_hot_pixels, detect_leg_boxes, extract_temperature_scale,
-    segment_leg_mask, temperature_matrix,
+    extract_temperature_scale, segmented_image,
 )
 
 MAX_IMAGE_SIZE = 20 * 1024 * 1024
@@ -51,7 +50,7 @@ def analyze_thermography_view(
     maximum_temperature: float,
     threshold: float,
 ) -> dict[str, Any]:
-    """Detecta as caixas e calcula os pixels quentes de uma vista."""
+    """Segmenta as pernas por watershed e calcula os pixels quentes."""
     if view not in {"front", "back"}:
         raise ValueError("A vista deve ser 'front' ou 'back'.")
     minimum_temperature = float(minimum_temperature)
@@ -63,31 +62,5 @@ def analyze_thermography_view(
         raise ValueError("O limiar deve estar entre Tmin e Tmax.")
 
     image = load_thermography_image(content)
-    detected_boxes = detect_leg_boxes(image)
-    if len(detected_boxes) != 2:
-        raise ValueError(
-            "Não foi possível identificar exatamente duas caixas R1/R2 "
-            f"({len(detected_boxes)} encontrada(s))."
-        )
-
-    if view == "front":
-        boxes = {"right": detected_boxes[0], "left": detected_boxes[1]}
-    else:
-        boxes = {"left": detected_boxes[0], "right": detected_boxes[1]}
-
-    temperatures = temperature_matrix(
-        image, minimum_temperature, maximum_temperature
-    )
-    metrics: dict[str, dict[str, float | int]] = {}
-    for side, box in boxes.items():
-        mask = segment_leg_mask(image, box)
-        hot_pixels, total_pixels = count_hot_pixels(
-            temperatures, box, threshold, mask
-        )
-        metrics[side] = {
-            "hot_pixels": hot_pixels,
-            "total_pixels": total_pixels,
-            "hot_percentage": hot_pixels / total_pixels * 100,
-            "threshold": threshold,
-        }
-    return {"view": view, "boxes": boxes, "metrics": metrics}
+    result = segmented_image(image, view, minimum_temperature, maximum_temperature, threshold)
+    return {key: result[key] for key in ('view', 'boxes', 'metrics')}

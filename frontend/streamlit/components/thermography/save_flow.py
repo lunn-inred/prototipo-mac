@@ -10,7 +10,7 @@ from .registration import register_prepared_analysis
 
 ITEM_FIELDS = {'minimum_temperature', 'maximum_temperature', 'threshold_percentage', 'threshold_temperature',
                'threshold_mode', 'image_rotation', 'manual_boxes', 'manual_colorbar_box', 'part_settings_v4',
-               'mask_seeds', 'mask_revision', 'saved_analysis', 'saved_analysis_revision'}
+               'mask_seeds', 'mask_revision', 'saved_analysis', 'saved_analysis_revision', 'thermal_zone'}
 
 
 def snapshot_state():
@@ -68,7 +68,8 @@ def _ready_analysis(item, rotation):
             ):
                 return None
             analysis = dict(masks=saved['masks'], temperatures=saved['temperatures'],
-                            boxes=saved['boxes'], colorbar_box=saved.get('colorbar_box'), threshold=threshold)
+                            boxes=saved['boxes'], colorbar_box=saved.get('colorbar_box'), threshold=threshold,
+                            thermal_zone=item.get('thermal_zone'))
         if not all(side in analysis['masks'] and side in analysis['boxes'] for side in ('left', 'right')):
             return None
         if analysis['temperatures'] is None:

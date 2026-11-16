@@ -28,7 +28,7 @@ LOCK = RLock()
 FORMAT = 'mac-thermal-draft-v1'
 ITEM_FIELDS = {'minimum_temperature', 'maximum_temperature', 'threshold_percentage', 'threshold_temperature',
                'threshold_mode', 'image_rotation', 'manual_boxes', 'manual_colorbar_box', 'part_settings_v4',
-               'mask_seeds', 'mask_revision', 'saved_analysis', 'saved_analysis_revision'}
+               'mask_seeds', 'mask_revision', 'saved_analysis', 'saved_analysis_revision', 'thermal_zone'}
 
 
 def directory(identity):
@@ -73,6 +73,7 @@ def validate_state(state):
         if not isinstance(key, str) or len(key) > 100 or key.split(':')[0] not in images or not isinstance(item, dict) or set(item) - ITEM_FIELDS:
             raise ValueError('Ajustes de imagem inválidos no rascunho.')
         image = images[key.split(':')[0]]
+        archive.validate_zone(item.get('thermal_zone'))
         for side, seeds in item.get('mask_seeds', {}).items():
             if side not in ('left', 'right') or not isinstance(seeds, np.ndarray) or seeds.shape != (image.height, image.width) or not np.isin(seeds, (-1, 0, 1)).all():
                 raise ValueError('Correção de máscara inválida no rascunho.')
@@ -186,7 +187,7 @@ def measurements(state, images):
             minimum_temperature=item['minimum_temperature'], maximum_temperature=item['maximum_temperature'],
             default_threshold=item.get('threshold_temperature', item['minimum_temperature'] +
                 item.get('threshold_percentage', 90.) / 100 * (item['maximum_temperature'] - item['minimum_temperature'])),
-            part_settings=item.get('part_settings_v4', {}))
+            part_settings=item.get('part_settings_v4', {}), thermal_zone=item.get('thermal_zone'))
         metrics = archive._validate_view(source)[3]['metrics']
         suffix = 'FRENTE' if view == 'front' else 'VERSO'
         result[f'PERNA_DIREITA_{suffix}'] = metrics['right']['hot_pixels']

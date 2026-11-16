@@ -1,4 +1,4 @@
-"""Análise aproximada de termografias HIKMICRO pseudocoloridas."""
+"""Segmentação watershed e análise aproximada de termografias pseudocoloridas."""
 
 from __future__ import annotations
 
@@ -13,18 +13,35 @@ from PIL import Image, ImageDraw
 from backend.mac_api.core.image_fonts import image_font
 from .comparison_alignment import align_leg_to_baseline, fit_baseline_field
 from scipy.spatial import cKDTree
+from .watershed import segment_pair, segment_region, mask_box, correct_mask, validate_seeds
+from .thermal_zones import selected_pixels, reference_threshold, ZONE_LABELS, validate_zone
 
 
 def image_regions(image, view, image_rotation=0):
+    if min(image.size) < 16:
+        raise ValueError('A imagem é pequena demais para segmentar as pernas.')
+    if view not in ('front', 'back'):
+        raise ValueError("A vista deve ser 'front' ou 'back'.")
     if image_rotation not in (0, 90, 180, 270):
         raise ValueError('Rotação deve ser 0, 90, 180 ou 270 graus.')
     original = image.rotate(-image_rotation, expand=True)
-    detected = detect_leg_boxes(original)
+    warning = None
+    masks = None
+    try:
+        pair = segment_pair(image)
+        sides = ('right', 'left') if view == 'front' else ('left', 'right')
+        masks = dict(zip(sides, pair))
+        boxes = {side: mask_box(mask) for side, mask in masks.items()}
+    except ValueError as error:
+        warning = str(error)
+        # Editable recovery regions, never silently accepted as valid masks.
+        w, h = image.size
+        defaults = [dict(left=int(w*x), top=int(h*.20),
+                         width=max(1, int(w*.40)), height=max(1, int(h*.72)))
+                    for x in (.06, .54)]
+        sides = ('right', 'left') if view == 'front' else ('left', 'right')
+        boxes = dict(zip(sides, defaults))
     width, height = original.size
-    defaults = [dict(left=int(width*.12), top=int(height*top),
-                     width=max(1, int(width*.62)), height=max(1, int(height*.30)))
-                for top in (.28, .60)]
-    detected = [*detected, *defaults[len(detected):]][:2]
     def rotate_box(box):
         x, y, w, h = (box[key] for key in ('left', 'top', 'width', 'height'))
         if image_rotation == 90:
@@ -35,13 +52,12 @@ def image_regions(image, view, image_rotation=0):
             x, y, w, h = height-y-h, x, h, w
         return dict(left=x, top=y, width=w, height=h)
     colorbar, confidence = detect_colorbar_box(original)
-    sides = ('right', 'left') if view == 'front' else ('left', 'right')
-    return dict(boxes=dict(zip(sides, map(rotate_box, detected))),
+    return dict(boxes=boxes, masks=masks, segmentation_warning=warning,
                 colorbar_box=rotate_box(colorbar), confidence=confidence)
 
 
 def segmented_image(image, view, minimum_temperature, maximum_temperature, threshold,
-                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0, saved_analysis=None):
+                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0, saved_analysis=None, thermal_zone=None):
     """Complete analysis, including manual corrections, without storing images."""
     if view not in ('front', 'back'):
         raise ValueError("A vista deve ser 'front' ou 'back'.")
@@ -49,7 +65,15 @@ def segmented_image(image, view, minimum_temperature, maximum_temperature, thres
         raise ValueError('A escala e o limiar devem ser finitos.')
     if maximum_temperature <= minimum_temperature or not minimum_temperature <= threshold <= maximum_temperature:
         raise ValueError('Escala ou limiar térmico inválido.')
-    regions = image_regions(image, view, image_rotation)
+    threshold = reference_threshold(minimum_temperature, maximum_temperature, threshold, thermal_zone)
+    if saved_analysis and set(saved_analysis.get('boxes', {})) == {'right', 'left'}:
+        bar = colorbar_box or saved_analysis.get('colorbar_box')
+        if bar is None:
+            bar = detect_colorbar_box(image)[0]
+        regions = dict(boxes=saved_analysis['boxes'], masks=None, colorbar_box=bar,
+                       confidence=1., segmentation_warning=None)
+    else:
+        regions = image_regions(image, view, image_rotation)
     width, height = image.size
     automatic = regions['boxes']
     boxes = {**automatic, **(manual_boxes or {})}
@@ -75,6 +99,9 @@ def segmented_image(image, view, minimum_temperature, maximum_temperature, thres
     else:
         temperatures = temperature_matrix(image, minimum_temperature, maximum_temperature, colorbar,
                                           image_rotation=image_rotation)
+    if seeds is not None and set(seeds) - {'right', 'left'}:
+        raise ValueError('As correções devem identificar somente as pernas direita e esquerda.')
+    automatic_masks = regions['masks']
     masks = {}
     for side, box in boxes.items():
         saved_mask = saved.get('masks', {}).get(side)
@@ -97,11 +124,26 @@ def segmented_image(image, view, minimum_temperature, maximum_temperature, thres
                     raise ValueError('A inclusão ultrapassa a região da perna.')
                 mask[seed > 0], mask[seed < 0] = True, False
             masks[side] = mask
-        else:
+        elif side in (manual_boxes or {}):
             masks[side] = segment_leg_mask(image, box, (seeds or {}).get(side))
+        elif automatic_masks is not None:
+            masks[side] = correct_mask(automatic_masks[side], (seeds or {}).get(side))
+            boxes[side] = mask_box(masks[side] | automatic_masks[side])
+        else:
+            raise ValueError(regions['segmentation_warning'])
+    # Explicit inclusion transfers ownership; contradictory strokes are rejected.
+    corrections = {side: validate_seeds((seeds or {}).get(side), (height, width)) for side in masks}
+    if all(corrections[side] is not None for side in masks):
+        if np.any((corrections['right'] > 0) & (corrections['left'] > 0)):
+            raise ValueError('O mesmo pixel não pode ser incluído nas duas pernas.')
+    for side, other in (('right', 'left'), ('left', 'right')):
+        if corrections[side] is not None:
+            masks[other][corrections[side] > 0] = False
+    if np.any(masks['right'] & masks['left']):
+        raise ValueError('As regiões segmentadas das pernas se sobrepõem. Ajuste as regiões ou exclua os pixels em comum.')
     metrics = {}
     for side, box in boxes.items():
-        hot, area = count_hot_pixels(temperatures, box, threshold, masks[side])
+        hot, area = count_hot_pixels(temperatures, box, threshold, masks[side], thermal_zone=thermal_zone)
         metrics[side] = {'hot_pixels': hot, 'total_pixels': area, 'hot_percentage': hot / area * 100, 'threshold': threshold}
     overlay = np.array(segmentation_overlay(image, boxes, masks))
     left, top = int(colorbar['left']), int(colorbar['top'])
@@ -109,9 +151,11 @@ def segmented_image(image, view, minimum_temperature, maximum_temperature, thres
     overlay[top:bottom, left:right] = np.array(image.convert('RGB'))[top:bottom, left:right]
     return {'view': view, 'boxes': boxes, 'masks': masks, 'metrics': metrics,
             'overlay': annotate_boxes(Image.fromarray(overlay), {'Barra térmica': colorbar}),
-            'hot_overlay': hot_pixels_overlay(image, temperatures, masks, threshold),
+            'hot_overlay': hot_pixels_overlay(image, temperatures, masks, threshold, thermal_zone=thermal_zone),
+            'thermal_zone': thermal_zone, 'zone_label': ZONE_LABELS.get(thermal_zone, 'Pixels quentes'),
             'automatic_boxes': automatic, 'colorbar_box': colorbar,
             'automatic_colorbar_box': auto_colorbar, 'colorbar_confidence': confidence,
+            'segmentation_warning': regions['segmentation_warning'],
             'temperatures': temperatures, 'threshold': threshold}
 
 
@@ -132,7 +176,7 @@ def timeline_view_at_threshold(source, threshold):
     hot_masks, metrics = {}, {}
     for side in ('right', 'left'):
         mask = source['segmentation_masks'][side].astype(bool)
-        hot = mask & np.isfinite(source['temperatures']) & (source['temperatures'] >= threshold)
+        hot = mask & selected_pixels(source['temperatures'], threshold, source.get('thermal_zone'))
         area = int(np.count_nonzero(mask))
         count = int(np.count_nonzero(hot))
         hot_masks[side] = hot
@@ -402,34 +446,8 @@ def temperature_matrix(
 
 
 def detect_leg_boxes(image: Image.Image) -> list[dict[str, int]]:
-    """Detecta as duas caixas brancas R1/R2 do layout HIKMICRO atual."""
-    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-    _, binary = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
-    binary = cv2.morphologyEx(
-        binary, cv2.MORPH_CLOSE, np.ones((3, 3), dtype=np.uint8)
-    )
-    contours, _ = cv2.findContours(
-        binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
-    height, width = gray.shape
-    boxes: list[dict[str, int]] = []
-    for contour in contours:
-        left, top, box_width, box_height = cv2.boundingRect(contour)
-        area = box_width * box_height
-        aspect_ratio = box_width / box_height if box_height else 0
-        if (
-            area > width * height * 0.05
-            and aspect_ratio > 2.0
-            and box_width > width * 0.3
-            and box_height > height * 0.15
-        ):
-            boxes.append({
-                "left": int(left), "top": int(top),
-                "width": int(box_width), "height": int(box_height),
-            })
-    boxes.sort(key=lambda box: box["top"])
-    return boxes
+    """Derive boxes from watershed masks in an upright image, left to right."""
+    return [mask_box(mask) for mask in segment_pair(image)]
 
 
 def annotate_boxes(
@@ -471,18 +489,19 @@ def count_hot_pixels(
     box: Mapping[str, int | float],
     threshold: float,
     mask: np.ndarray | None = None,
+    *, thermal_zone: str | None = None,
 ) -> tuple[int, int]:
-    """Retorna pixels quentes e área total da perna segmentada."""
+    """Retorna pixels selecionados por zona/limiar e a área segmentada total."""
     region = matrix_region(matrix, box)
     if mask is None:
-        return int(np.count_nonzero(region >= threshold)), int(region.size)
+        return int(np.count_nonzero(selected_pixels(region, threshold, thermal_zone))), int(region.size)
     mask_region = matrix_region(mask, box).astype(bool)
     if mask_region.shape != region.shape:
         raise ValueError("A máscara segmentada não corresponde à região da perna.")
     total = int(np.count_nonzero(mask_region))
     if total == 0:
         raise ValueError("A segmentação não encontrou pixels da perna.")
-    return int(np.count_nonzero((region >= threshold) & mask_region)), total
+    return int(np.count_nonzero(selected_pixels(region, threshold, thermal_zone) & mask_region)), total
 
 
 LEG_PARTS = ("coxa", "joelho", "canela", "pe")
@@ -498,6 +517,7 @@ def leg_part_metrics(
     axis: str = "horizontal",
     foot_at_end: bool = True,
     region_box: Mapping[str, int | float] | None = None,
+    thermal_zone: str | None = None,
 ) -> tuple[dict[str, dict[str, float | int]], tuple[int, int, int]]:
     """Divide a extensão da máscara, da coxa ao pé, em qualquer orientação."""
     if mask.shape != temperature_map.shape:
@@ -527,8 +547,7 @@ def leg_part_metrics(
         low, high = sorted((limits[index], limits[index + 1]))
         region = mask & (position >= low) & (position < high)
         total = int(np.count_nonzero(region))
-        hot = int(np.count_nonzero(region & np.isfinite(temperature_map) &
-                                   (temperature_map >= threshold)))
+        hot = int(np.count_nonzero(region & selected_pixels(temperature_map, threshold, thermal_zone)))
         results[part] = {
             "hot_pixels": hot,
             "total_pixels": total,
@@ -598,7 +617,7 @@ def _difference_colors(values, limit, palette=None, *, gamma=1.0):
     ], dtype=np.uint8), gamma=gamma)
 
 
-def _temperature_region_summary(source, side, threshold):
+def _temperature_region_summary(source, side, threshold, thermal_zone=None):
     """Summarize native pixels, respecting each saved anatomical partition."""
     temperatures = np.asarray(source['temperatures'])
     mask = np.asarray(source['segmentation_masks'][side], dtype=bool)
@@ -626,7 +645,7 @@ def _temperature_region_summary(source, side, threshold):
         values = temperatures[region]
         result[part] = {
             'mean_temperature': float(np.mean(values)) if values.size else None,
-            'hot_percentage': (float(np.count_nonzero(values >= threshold) / values.size * 100)
+            'hot_percentage': (float(np.count_nonzero(selected_pixels(values, threshold, thermal_zone)) / values.size * 100)
                                if values.size and threshold is not None else None),
         }
     return result
@@ -677,6 +696,7 @@ def compare_temperature_maps(baseline, current, canvas_size=(180, 320), *, limit
         if not math.isfinite(limit) or limit <= 0:
             raise ValueError('O limite da escala deve ser positivo e finito.')
     threshold = baseline.get('default_threshold')
+    thermal_zone = validate_zone(baseline.get('thermal_zone'))
     if threshold is not None:
         threshold = float(threshold)
         if not math.isfinite(threshold):
@@ -715,16 +735,17 @@ def compare_temperature_maps(baseline, current, canvas_size=(180, 320), *, limit
         base, actual, mask = aligned[side]
         local_box = dict(left=0, top=0, width=mask.shape[1], height=mask.shape[0])
         for name, source, values in (('baseline', baseline, base), ('current', current, actual)):
-            hot = (mask & np.isfinite(values) & (values >= threshold)
+            hot = (mask & selected_pixels(values, threshold, thermal_zone)
                    if threshold is not None else np.zeros(mask.shape, dtype=bool))
             normalized_hot = normalize_binary_region(hot, local_box, canvas_size)
             contours[side][name] = _hot_contour(normalized_hot) & valid
-            summaries[side][name] = _temperature_region_summary(source, side, threshold)
+            summaries[side][name] = _temperature_region_summary(source, side, threshold, thermal_zone)
         colors[~valid] = 0
         images[side] = Image.fromarray(colors)
     return {'images': images, 'limit': limit, 'unchanged': unchanged,
             'has_overlap': has_overlap, 'max_difference': max_difference,
-            'threshold': threshold, 'contours': contours, 'summaries': summaries,
+            'threshold': threshold, 'thermal_zone': thermal_zone, 'zone_label': ZONE_LABELS.get(thermal_zone, 'Pixels quentes'),
+            'contours': contours, 'summaries': summaries,
             'baseline_masks': baseline_masks, 'valid_masks': valid_masks,
             'alignment': 'anatomical-baseline-v1', 'gamma': gamma,
             'legend': _comparison_legend(limit, palette, gamma=gamma), 'palette': palette}
@@ -765,61 +786,13 @@ def segment_leg_mask(
     seed_mask: np.ndarray | None = None,
     iterations: int = 5,
 ) -> np.ndarray:
-    """Segmenta a perna dentro da caixa com GrabCut e ajustes manuais opcionais.
+    """Segmenta uma região manual por watershed e correções opcionais.
 
     ``seed_mask`` usa ``1`` para inclusão, ``-1`` para exclusão e ``0`` para
     pixels ainda desconhecidos.
     """
-    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-    height, width = rgb.shape[:2]
-    left = max(0, min(width - 1, int(box["left"])))
-    top = max(0, min(height - 1, int(box["top"])))
-    right = max(left + 1, min(width, left + int(box["width"])))
-    bottom = max(top + 1, min(height, top + int(box["height"])))
-    inset = 3
-    left, top = min(right - 1, left + inset), min(bottom - 1, top + inset)
-    right, bottom = max(left + 1, right - inset), max(top + 1, bottom - inset)
-
-    grabcut = np.full((height, width), cv2.GC_BGD, dtype=np.uint8)
-    grabcut[top:bottom, left:right] = cv2.GC_PR_FGD
-    margin = max(2, min(8, (bottom - top) // 12))
-    grabcut[top:top + margin, left:right] = cv2.GC_PR_BGD
-    grabcut[bottom - margin:bottom, left:right] = cv2.GC_PR_BGD
-
-    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
-    patch = lab[top:bottom, left:right]
-    edges = np.concatenate(
-        (patch[:margin].reshape(-1, 3), patch[-margin:].reshape(-1, 3)), axis=0
-    )
-    background = np.median(edges, axis=0)
-    distance = np.linalg.norm(patch - background, axis=2)
-    local = grabcut[top:bottom, left:right]
-    local[distance < 9.0] = cv2.GC_BGD
-    foreground = distance > max(18.0, float(np.percentile(distance, 68)))
-    border = max(5, margin)
-    foreground[:border] = foreground[-border:] = False
-    foreground[:, :border] = foreground[:, -border:] = False
-    local[foreground] = cv2.GC_FGD
-
-    if seed_mask is not None:
-        if seed_mask.shape != (height, width):
-            raise ValueError("A máscara de correção possui dimensões inválidas.")
-        grabcut[seed_mask < 0] = cv2.GC_BGD
-        grabcut[seed_mask > 0] = cv2.GC_FGD
-
-    background_model = np.zeros((1, 65), np.float64)
-    foreground_model = np.zeros((1, 65), np.float64)
-    cv2.grabCut(
-        bgr, grabcut, None, background_model, foreground_model,
-        iterations, cv2.GC_INIT_WITH_MASK,
-    )
-    result = np.isin(grabcut, (cv2.GC_FGD, cv2.GC_PR_FGD)).astype(np.uint8)
-    result[:top] = result[bottom:] = 0
-    result[:, :left] = result[:, right:] = 0
-    result = cv2.morphologyEx(result, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
-    return result.astype(bool)
+    # iterations is retained for compatibility with existing granular clients.
+    return segment_region(image, box, seed_mask)
 
 
 def segmentation_overlay(
@@ -843,13 +816,14 @@ def hot_pixels_overlay(
     temperature_map: np.ndarray,
     masks: Mapping[str, np.ndarray],
     threshold: float,
+    *, thermal_zone: str | None = None,
 ) -> Image.Image:
-    """Mantém visíveis somente os pixels quentes das áreas segmentadas."""
+    """Mantém visíveis os pixels da zona (ou limiar legado) nas máscaras."""
     original = np.asarray(image.convert("RGB"), dtype=np.uint8)
     union = np.zeros(original.shape[:2], dtype=bool)
     for mask in masks.values():
         union |= mask.astype(bool)
-    hot = union & np.isfinite(temperature_map) & (temperature_map >= threshold)
+    hot = union & selected_pixels(temperature_map, threshold, thermal_zone)
     preview = np.zeros_like(original)
     preview[hot] = original[hot]
     return Image.fromarray(preview)

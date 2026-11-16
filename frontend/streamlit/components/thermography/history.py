@@ -58,6 +58,7 @@ def load_into_wizard(entry):
             minimum_temperature=source['minimum_temperature'], maximum_temperature=source['maximum_temperature'],
             threshold_percentage=source['threshold_percentage'], threshold_temperature=source['default_threshold'],
             threshold_mode='Temperatura (°C)', image_rotation=rotation,
+            thermal_zone=source.get('thermal_zone'),
             manual_boxes=deepcopy(source['boxes']), manual_colorbar_box=deepcopy(source.get('colorbar_box')),
             part_settings_v4=settings,
             saved_analysis=dict(masks={side: mask.copy() for side, mask in source['segmentation_masks'].items()},
