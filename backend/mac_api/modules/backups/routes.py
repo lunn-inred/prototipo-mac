@@ -51,6 +51,12 @@ def sync_status(desktop: bool = False):
     return status(desktop=desktop)
 
 
+@router.get('/sync/auto', tags=['Sincronização'])
+def auto_sync_status():
+    from .auto_sync import status
+    return status()
+
+
 @router.post('/sync', status_code=202, tags=['Sincronização'])
 def synchronize(payload: BackupInput):
     return jobs.start('sync', desktop=payload.desktop)

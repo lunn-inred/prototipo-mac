@@ -14,6 +14,10 @@ from backend.mac_api.core.database import database_write_connection
 from .regional_eva import eva_measurements
 
 
+class MissingThermographyMeasuresError(RuntimeError):
+    """O schema local ainda não recebeu as medidas exigidas pela aplicação."""
+
+
 THERMOGRAPHY_GROUP = "termografia"
 IMAGE_MEASURES = frozenset({
     "MASSA",
@@ -182,7 +186,7 @@ def _insert_collection(
     measure_ids = {str(name): int(measure_id) for measure_id, name in cursor.fetchall()}
     missing = sorted(required_measures - set(measure_ids))
     if missing:
-        raise RuntimeError(
+        raise MissingThermographyMeasuresError(
             "Medidas de termografia ausentes no banco: " + ", ".join(missing)
         )
 
@@ -207,7 +211,7 @@ def _insert_collection(
     values = []
     for name, value in measurements.items():
         if name not in measure_ids:
-            raise RuntimeError(f"Medida de termografia não configurada: {name}.")
+            raise MissingThermographyMeasuresError(f"Medida de termografia não configurada: {name}.")
         numeric_value = None if isinstance(value, str) else float(value)
         text_value = value if isinstance(value, str) else None
         values.append(

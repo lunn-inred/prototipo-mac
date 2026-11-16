@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import base64
+from contextlib import asynccontextmanager
 import io
+import logging
+import re
 import secrets
 from datetime import date
 from typing import Annotated, Any
@@ -30,6 +33,7 @@ from backend.mac_api.modules.thermography.thermography_analysis_service import (
 from backend.mac_api.modules.thermography.thermography_service import (
     DuplicateThermographyError,
     LegacyThermographyRecord,
+    MissingThermographyMeasuresError,
     save_image_thermography,
     save_legacy_thermography,
 )
@@ -317,6 +321,53 @@ def legacy_import(payload: LegacyImport) -> dict[str, int]:
     return {"inserted_measurements": save_legacy_thermography(records)}
 
 
+_SYNC_WRITES = (
+    re.compile(r'^POST /api/v1/(?:athletes|gps/import|jumps/collections|jumps/import|thermography|thermography/legacy/import|thermography/analyses|thermography/analyses/register|thermography/drafts)$'),
+    re.compile(r'^(?:PUT|PATCH) /api/v1/athletes/\d+(?:/(?:deactivate|reactivate))?$'),
+    re.compile(r'^(?:PUT|DELETE) /api/v1/jumps/collections/\d+/\d{4}-\d{2}-\d{2}$'),
+    re.compile(r'^PUT /api/v1/thermography/analyses/\d+/\d{4}-\d{2}-\d{2}/[0-9a-fA-F-]+$'),
+)
+
+
+def _is_sync_write(method: str, path: str) -> bool:
+    return any(pattern.fullmatch(f'{method} {path}') for pattern in _SYNC_WRITES)
+
+
+class _SyncWriteMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http' or not _is_sync_write(scope['method'], scope['path']):
+            await self.app(scope, receive, send)
+            return
+        status_code = None
+
+        async def watched_send(message):
+            nonlocal status_code
+            if message['type'] == 'http.response.start':
+                status_code = message['status']
+            await send(message)
+
+        await self.app(scope, receive, watched_send)
+        if status_code is not None and status_code < 300:
+            try:
+                from backend.mac_api.modules.backups.auto_sync import mark_dirty
+                mark_dirty()
+            except Exception as error:
+                logging.getLogger(__name__).error('Registro local salvo; agendamento da sincronização falhou: %s', type(error).__name__)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    from backend.mac_api.modules.backups.auto_sync import start_worker, stop_worker
+    handle = start_worker()
+    try:
+        yield
+    finally:
+        stop_worker(handle)
+
+
 def create_app() -> FastAPI:
     from backend.mac_api.core.database import validate_database_target
     validate_database_target()
@@ -324,7 +375,10 @@ def create_app() -> FastAPI:
         title="MAC Performance API",
         version="1.0.0",
         description="API dos cadastros, medições e análises do protótipo MAC Performance.",
+        lifespan=_lifespan,
     )
+
+    app.add_middleware(_SyncWriteMiddleware)
     from backend.mac_api.modules.google_auth import router as google_auth_router
     app.include_router(google_auth_router)
     origins = cors_origins()
@@ -343,6 +397,12 @@ def create_app() -> FastAPI:
     @app.exception_handler(DuplicateThermographyError)
     async def duplicate_handler(_request: Any, error: DuplicateThermographyError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(error)})
+
+    @app.exception_handler(MissingThermographyMeasuresError)
+    async def missing_thermal_measures_handler(_request: Any, _error: MissingThermographyMeasuresError) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail":
+            'O banco local de termografia está desatualizado. Aplique as migrações de zonas e EVA regional '
+            'após criar um backup e coordenar a atualização do Drive.'})
 
     @app.exception_handler(ValueError)
     async def validation_handler(_request: Any, error: ValueError) -> JSONResponse:

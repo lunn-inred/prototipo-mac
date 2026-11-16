@@ -56,7 +56,7 @@ expõe as 16 medidas por atleta/data; o mural usa o máximo da última coleta.
 `regional_eva: null` identifica análises antigas sem avaliação regional: não é
 convertido em zero nem preenchido com o antigo EVA geral. O EVA geral anterior
 é removido pela migração e permanece recuperável somente no backup prévio.
-O laboratório continua independente e não grava dados. Veja [mapa corporal](body-muscles.md).
+O laboratório independente não aparece no menu e não grava dados. Veja [mapa corporal](body-muscles.md).
 
 ### Salvar e retomar uma análise incompleta
 

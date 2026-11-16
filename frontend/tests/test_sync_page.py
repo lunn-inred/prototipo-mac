@@ -11,7 +11,8 @@ class SyncPageTests(unittest.TestCase):
     def test_start_is_single_request_and_disabled_while_running(self):
         job = dict(id='sync', kind='sync', status='running', message='Comparando')
         with patch.object(backups, 'synchronize', return_value=job) as start, \
-             patch.object(backups, 'job_status', return_value=job):
+             patch.object(backups, 'job_status', return_value=job), \
+             patch.object(backups, 'auto_sync_status', return_value={'state': 'syncing', 'revision': None}):
             app = AppTest.from_file(str(PAGE)).run()
             app.button(key='sync_start').click().run()
             self.assertFalse(app.exception)
@@ -23,13 +24,16 @@ class SyncPageTests(unittest.TestCase):
         app.session_state['thermal_draft'] = dict(player=1, notes='Não perder')
         app.session_state['sync_job'] = dict(id='sync', kind='sync', status='running', message='Comparando')
         completed = dict(id='sync', kind='sync', status='completed', message='Concluída', result={})
-        with patch.object(backups, 'job_status', return_value=completed):
+        with patch.object(backups, 'job_status', return_value=completed), \
+             patch.object(backups, 'auto_sync_status', return_value={'state': 'idle', 'revision': 'one'}):
             app.run()
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state['thermal_draft']['notes'], 'Não perder')
         self.assertTrue(app.success)
         app.session_state['sync_job'] = dict(id='other', kind='sync', status='failed', message='Conflito')
-        app.run()
+        with patch.object(backups, 'auto_sync_status', return_value={'state': 'error', 'revision': 'one',
+                                                                    'last_error': 'Falha automática'}):
+            app.run()
         self.assertFalse(app.exception)
         self.assertFalse(app.button(key='sync_start').disabled)
         self.assertEqual(app.error[0].value, 'Conflito')

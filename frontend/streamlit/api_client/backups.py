@@ -39,5 +39,9 @@ def sync_status():
     return _request('GET', '/api/v1/backups/sync/status', params={'desktop': _desktop()})
 
 
+def auto_sync_status():
+    return _request('GET', '/api/v1/backups/sync/auto')
+
+
 def synchronize():
     return _request('POST', '/api/v1/backups/sync', json={'desktop': _desktop()})

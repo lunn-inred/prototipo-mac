@@ -76,6 +76,7 @@ Com a API em execução:
 | `POST /api/v1/backups/restore` | Baixa e restaura o banco local com reconciliação das análises | Sim, exige confirmação |
 | `GET /api/v1/backups/jobs/{id}` | Progresso/resultado da operação em segundo plano | Não |
 | `GET /api/v1/backups/sync/status?desktop=false` | Estado do índice compartilhado e detecção de ramificação | Não |
+| `GET /api/v1/backups/sync/auto` | Pendência, erro, última conclusão e revisão da sincronização automática | Não |
 | `POST /api/v1/backups/sync` | Mescla banco local e Drive, com um ZIP por análise | Sim, banco local/arquivos/Drive |
 
 Uploads usam `multipart/form-data`; os demais corpos usam JSON. Os esquemas,
@@ -89,8 +90,10 @@ Os formatos de imagens/matrizes e as operações permitidas estão em
 A navegação utiliza agora **Sincronização**. `POST /api/v1/backups/sync` recebe
 `{"desktop": false}` e responde `202` com uma tarefa de tipo `sync`, acompanhada
 em `GET /api/v1/backups/jobs/{id}`. Após sucesso, o resultado informa `revision`,
-`analyses`, `uploaded`, `downloaded` e `recovery_copy`. Conflitos e estrutura
-incompatível aparecem como tarefa `failed`, sem escolha automática de vencedor.
+`analyses`, `uploaded`, `downloaded` e `recovery_copy`. Conflitos de registros e
+estrutura incompatível aparecem como tarefa `failed`; análises térmicas da mesma
+coleta usam a última versão salva. A API inicia a mesma tarefa automaticamente
+após gravações locais e ao detectar uma nova revisão no Drive.
 Não executa DDL nem restaura o banco inteiro. Regras e limites:
 [Sincronização](synchronization.md). Os contratos abaixo são legados de recuperação.
 

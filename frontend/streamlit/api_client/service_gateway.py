@@ -61,7 +61,7 @@ def _request(method: str, path: str, **kwargs: Any) -> Any:
         raise ApiClientError('Não foi possível comunicar com a API.') from error
     return None if response.status_code == 204 else response.json()
 
-@st.cache_data(ttl=60, max_entries=64, show_spinner=False)
+@st.cache_data(ttl=10, max_entries=64, show_spinner=False)
 def _reference_get(base_url: str, access_key: str | None, path: str, session: str | None = None) -> Any:
     # URL e credencial participam da chave para não compartilhar dados entre APIs/usuários.
     return _request('GET', path)

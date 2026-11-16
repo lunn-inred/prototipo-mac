@@ -1,8 +1,10 @@
 """Dois computadores simulados, somente mac_test e Drive em memória."""
-from datetime import date
+from datetime import date, datetime, timedelta
 from copy import deepcopy
+import json
 import os
 from pathlib import Path
+import shutil
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -129,6 +131,74 @@ class SyncPostgresTests(unittest.TestCase):
         self.assertEqual(sum(e['entry']['properties']['role'] == 'analysis' for e in self.drive.files.values()), zip_count)
         self.assertEqual(self.execute('SELECT count(*) FROM public.atleta'), [(2,)])
         self.assertEqual(self.execute('SELECT massa,eva_dor FROM public.vw_medida_termografia'), [(75., 0.)])
+
+    def test_last_local_save_wins_when_both_computers_replace_same_collection(self):
+        athlete = self.athlete()
+        day = date(2026, 11, 1)
+        register_analysis(athlete_id=athlete, athlete_name='Teste', collected_at=day,
+                          mass=75., regional_eva={}, views=example_views())
+        sync.synchronize()
+        self.activate('B')
+        sync.synchronize()
+        shutil.rmtree(next(iter(bundle.index_analyses(Path(os.environ['MAC_ANALYSES_DIR'])).values()))['path'])
+        remote = register_analysis(athlete_id=athlete, athlete_name='Teste', collected_at=day,
+                                   mass=78., regional_eva={}, views=example_views(), overwrite=True)
+        sync.synchronize()
+        head = sync._head(self.drive)
+        index = json.loads(self.drive.files[head['id']]['content'])
+        self.assertEqual(set(index['analyses']), {str(remote['analysis']['id'])})
+        self.activate('A')
+        shutil.rmtree(next(iter(bundle.index_analyses(Path(os.environ['MAC_ANALYSES_DIR'])).values()))['path'])
+        local = register_analysis(athlete_id=athlete, athlete_name='Teste', collected_at=day,
+                                  mass=71., regional_eva={}, views=example_views(), overwrite=True)
+        self.assertNotEqual(local['analysis']['id'], remote['analysis']['id'])
+        sync.synchronize()
+        entries = bundle.index_analyses(Path(os.environ['MAC_ANALYSES_DIR']))
+        self.assertEqual(set(entries), {str(local['analysis']['id'])})
+        self.assertEqual(self.execute('SELECT massa FROM public.vw_medida_termografia'), [(71.,)])
+
+    def test_last_drive_save_wins_when_both_computers_replace_same_collection(self):
+        athlete = self.athlete()
+        day = date(2026, 11, 1)
+        register_analysis(athlete_id=athlete, athlete_name='Teste', collected_at=day,
+                          mass=75., regional_eva={}, views=example_views())
+        sync.synchronize()
+        self.activate('B')
+        sync.synchronize()
+        self.activate('A')
+        shutil.rmtree(next(iter(bundle.index_analyses(Path(os.environ['MAC_ANALYSES_DIR'])).values()))['path'])
+        local = register_analysis(athlete_id=athlete, athlete_name='Teste', collected_at=day,
+                                  mass=71., regional_eva={}, views=example_views(), overwrite=True)
+        self.activate('B')
+        shutil.rmtree(next(iter(bundle.index_analyses(Path(os.environ['MAC_ANALYSES_DIR'])).values()))['path'])
+        remote = register_analysis(athlete_id=athlete, athlete_name='Teste', collected_at=day,
+                                   mass=78., regional_eva={}, views=example_views(), overwrite=True)
+        sync.synchronize()
+        self.activate('A')
+        self.assertNotEqual(local['analysis']['id'], remote['analysis']['id'])
+        sync.synchronize()
+        entries = bundle.index_analyses(Path(os.environ['MAC_ANALYSES_DIR']))
+        self.assertEqual(set(entries), {str(remote['analysis']['id'])})
+        self.assertEqual(self.execute('SELECT massa FROM public.vw_medida_termografia'), [(78.,)])
+
+    def test_existing_duplicate_local_analysis_is_reduced_to_latest_before_staging(self):
+        athlete = self.athlete()
+        register_analysis(athlete_id=athlete, athlete_name='Teste', collected_at=date(2026, 11, 1),
+                          mass=75., regional_eva={}, views=example_views())
+        sync.synchronize()
+        root = Path(os.environ['MAC_ANALYSES_DIR'])
+        original = next(iter(bundle.index_analyses(root).values()))
+        newer_id = str(uuid4())
+        newer_path = original['path'].parent / f'analise_{newer_id}'
+        shutil.copytree(original['path'], newer_path)
+        metadata_file = newer_path / 'metadados.json'
+        metadata = json.loads(metadata_file.read_text(encoding='utf-8'))
+        metadata['analysis_id'] = newer_id
+        metadata['created_at'] = (datetime.fromisoformat(metadata['created_at']) + timedelta(seconds=1)).isoformat()
+        metadata_file.write_text(json.dumps(metadata), encoding='utf-8')
+        result = sync.synchronize()
+        self.assertEqual(set(bundle.index_analyses(root)), {newer_id})
+        self.assertEqual(result['analyses'], 1)
 
     def test_conflicting_edits_and_numeric_id_collisions_do_not_publish_or_replace_local_data(self):
         athlete = self.athlete()

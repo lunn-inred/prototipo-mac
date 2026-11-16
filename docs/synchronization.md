@@ -4,11 +4,24 @@
 
 ## Uso
 
-Na página **Sincronização**, salve suas alterações e clique em **Sincronizar
-dados**. A mesma operação envia as alterações locais e recebe as compartilhadas:
-cadastros, GPS, saltos, medidas térmicas e arquivos de análises completas/parciais.
-Não é uma restauração integral do banco nem sincronização automática em segundo
-plano. Alterações ainda apenas na interface não são enviadas nem descartadas.
+Após cada gravação local bem-sucedida, a API marca a sincronização como pendente.
+Ela agrupa gravações feitas em até 5 segundos e envia as mudanças em segundo
+plano. Enquanto estiver aberta, também consulta o índice do Drive a cada 20
+segundos e recebe novas versões. Após o login, cria ou recebe o índice
+compartilhado automaticamente na primeira sincronização. A página **Sincronização** mostra o estado e
+mantém **Sincronizar dados** para uma tentativa manual. A mesma operação envia e
+recebe cadastros, GPS, saltos, medidas térmicas e arquivos de análises
+completas/parciais. Alterações ainda apenas na interface não são enviadas nem
+descartadas.
+
+O sinal pendente fica em `MAC_BACKUPS_DIR/auto-sync-state.json` e sobrevive ao
+reinício da API. Falhas mantêm o sinal e são tentadas novamente com espera
+crescente até cinco minutos. `MAC_AUTO_SYNC_ENABLED=0` desativa o trabalhador;
+o botão manual continua disponível. O Drive não precisa de webhook ou domínio
+público para esta consulta periódica. A atualização entre computadores depende
+da rede, do tamanho dos arquivos e da execução das duas APIs; não há garantia de
+tempo real. Ao abrir ou interagir com outra página, consultas em cache podem
+demorar até 10 segundos para refletir os dados recebidos.
 
 Use a mesma pasta e a mesma conta Google autorizada em todas as instalações.
 Mantenha `MAC_GOOGLE_BACKUP_FOLDER_ID` no `.env`: o nome da variável foi preservado
@@ -17,18 +30,19 @@ Não compartilhe tokens, sessões nem `data/credentials/`.
 
 Na primeira sincronização, a pasta existente será renomeada pelo ID para
 **Analises MAC**. Não será criada outra pasta nem serão removidos os backups
-antigos. O login continua apenas validando o acesso; renomear/enviar exige a ação
-explícita de sincronizar. Pode ser necessário autorizar novamente a pasta se o
+antigos. O login continua apenas validando o acesso; após ele, a rotina automática
+pode renomear a pasta e enviar o primeiro índice. Pode ser necessário autorizar novamente a pasta se o
 Google não permitir renomeá-la. O ID permanece o mesmo.
 
 ## Formato no Drive
 
 O EVA regional integra os dados do banco e os metadados dos ZIPs completos ou
-parciais. A migração `20261116_thermography_regional_eva.sql` deve ser aplicada
-em todos os computadores. Um índice publicado com as views anteriores será
-recusado por incompatibilidade de estrutura: não há migração automática nem
-DDL via sincronização. Coordene a transição, preservando os índices/backups
-antigos; uma nova pasta de sincronização evita misturar os dois contratos.
+parciais. As migrações `20261115_thermography_regional_zones.sql` e
+`20261116_thermography_regional_eva.sql` devem ser aplicadas em todos os
+computadores. Um índice publicado com as views anteriores é recusado pela
+sincronização normal. A transição explícita desta instalação exige que o índice
+do Drive ainda seja exatamente o último estado comum e que a mudança local de
+estrutura corresponda às duas migrações. Não há DDL via sincronização.
 
 ```text
 Analises MAC/
@@ -73,11 +87,20 @@ estado comum, estado local e índice atual do Drive.
 | Mesma alteração nos dois lados | Mantém uma versão |
 | Exclusão de registro já sincronizado e outro lado inalterado | Propaga a exclusão |
 | Registro novo, ainda não sincronizado | Preserva e compartilha |
-| Alterações diferentes no mesmo registro/análise | Recusa para revisão |
+| Alterações diferentes no mesmo registro, fora da coleta térmica duplicada | Recusa para revisão |
 | Exclusão de um lado e edição do outro | Recusa para revisão |
+| Análises locais e do Drive para o mesmo jogador/data | Mantém os arquivos e medidas térmicas da análise salva por último; em empate de horário, usa a do Drive |
 
-Não se escolhe vencedor pelo relógio do computador. A comparação de SQL é por
-registro completo, não por coluna. Datas da coleta não decidem revisões.
+Se um lado já tiver várias análises para a mesma coleta, a mesma seleção reduz
+o conjunto a uma única versão antes de preparar os arquivos. O horário de
+salvamento (`created_at`) da análise define a prioridade, não a
+data da coleta. Os relógios dos computadores precisam estar corretos. Se duas
+versões diferentes tiverem o mesmo horário, a do Drive prevalece automaticamente.
+A versão local substituída fica na cópia preventiva; versões anteriores do Drive
+permanecem no histórico de objetos imutáveis. Outros conflitos nos registros do
+banco ainda bloqueiam a operação. A comparação de SQL é por registro completo,
+não por coluna. A escolha por horário vale apenas para os arquivos e medidas
+térmicas da coleta duplicada; GPS e saltos seguem a mesclagem normal.
 
 As tabelas precisam ter chave primária. **Não há remapeamento automático de IDs
 numéricos**: duas instalações que criarem registros diferentes com a mesma chave
@@ -86,8 +109,8 @@ equipe com a mesma base e sincronizar antes/depois de cadastrar/importar dados.
 Isso reduz, mas não elimina colisões offline. Identidades globais com UUID e
 resolução interativa são evoluções futuras; esta versão para na detecção.
 
-Use um computador por vez para publicar. O índice é reconferido antes e depois
-da publicação. Se duas máquinas publicarem sobre o mesmo pai ao mesmo tempo,
+O índice é reconferido antes e depois da publicação. Se duas máquinas publicarem
+sobre o mesmo pai ao mesmo tempo, inclusive pela rotina automática,
 o histórico terá dois destinos e a sincronização será bloqueada para revisão.
 O Drive não é um banco transacional; não há trava distribuída nem resolução
 automática dessas ramificações. Preserve as duas cópias e peça revisão técnica,
@@ -106,11 +129,13 @@ Migrações são arquivos versionados distribuídos pelo aplicativo em
 `backend/migrations/`; sua aplicação continua explícita, conforme o guia dessa
 pasta. Atualizar apenas a view em uma máquina não atualiza as demais.
 
-Nesta primeira versão, uma mudança de estrutura após iniciar a sincronização
-também exige migração planejada dos índices/estados comuns; somente aplicar SQL
-nos computadores não converte o índice antigo. Esse upgrade não é automático.
-Finalize as sincronizações pendentes antes de uma alteração de estrutura e
-planeje a conversão com a equipe. Não apague `sync-state.json` para contornar
+Esta migração de termografia tem um caminho de publicação explícito, descrito
+em [Migrações](../backend/migrations/README.md). Ele publica uma nova revisão
+com o esquema local migrado, preservando o histórico do Drive. Não é executado
+pela rotina automática. Finalize as sincronizações pendentes e coordene todos
+os computadores antes da mudança. Um segundo computador ainda com o estado
+comum antigo não pode adotar automaticamente o novo índice: requer revisão da
+base e atualização coordenada. Não apague `sync-state.json` para contornar
 incompatibilidade, pois isso perde o histórico necessário às exclusões/conflitos.
 Os limites de estrutura suportada são os mesmos do [backup lógico](backups.md).
 
@@ -119,6 +144,8 @@ Os limites de estrutura suportada são os mesmos do [backup lógico](backups.md)
 - Exige banco local, login Google e chave da API. Nunca usa Supabase como fallback.
 - A aplicação temporariamente bloqueia as rotas de dados durante a operação.
   Use uma única API por banco/diretório e não execute scripts de escrita externos.
+  O bloqueio também ocorre na sincronização automática; salvamentos feitos
+  nesse intervalo devem ser repetidos após a operação concluir.
 - SQL é aplicado com INSERT/UPDATE/DELETE dos registros alterados, **sem TRUNCATE**,
   respeitando vínculos e reajustando sequências para não reutilizar IDs antigos.
 - Antes de alterar o SQL local, gera um ZIP preventivo completo em

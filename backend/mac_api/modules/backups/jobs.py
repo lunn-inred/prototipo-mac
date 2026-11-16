@@ -50,6 +50,12 @@ def _run(identity, operation):
             detail = _failure_detail(error, job['kind'], job['message'])
             job.update(status='failed', message=detail, error_type=type(error).__name__)
     else:
+        if _jobs[identity]['kind'] == 'sync':
+            from .auto_sync import record_success
+            try:
+                record_success(_jobs[identity].get('_sync_generation'))
+            except Exception as error:
+                logging.getLogger(__name__).error('Sincronização concluída; atualização do estado automático falhou: %s', type(error).__name__)
         with _lock:
             _jobs[identity].update(status='completed', message=result['message'], result=result)
 
@@ -69,6 +75,8 @@ def start(kind, *, desktop=False, file_id=None, expected_sha256=None):
             operation = lambda progress: service.restore_backup(file_id, expected_sha256, desktop=desktop, progress=progress)
         elif kind == 'sync':
             from .synchronization import synchronize
+            from .auto_sync import generation
+            _jobs[identity]['_sync_generation'] = generation()
             operation = lambda progress: synchronize(desktop=desktop, progress=progress)
         else:
             _jobs.pop(identity)
@@ -81,4 +89,4 @@ def status(identity):
     with _lock:
         if identity not in _jobs:
             raise HTTPException(404, 'Operação não encontrada. Se a API reiniciou, confira os dados e as cópias locais antes de repetir.')
-        return dict(_jobs[identity])
+        return {key: value for key, value in _jobs[identity].items() if not key.startswith('_')}

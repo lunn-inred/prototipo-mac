@@ -100,6 +100,29 @@ def merge_database(base, local, remote):
     return result
 
 
+def prefer_thermal_pairs(target, source, pairs):
+    """No snapshot alvo, usa as medidas térmicas do snapshot vencedor."""
+    if not pairs:
+        return target
+
+    def selected(snapshot):
+        groups = {row['id_grupo_medida'] for row in snapshot['tables']['grupo_medida'].values()
+                  if row['nome'].strip().lower() == 'termografia'}
+        measures = {row['id_medida'] for row in snapshot['tables']['medida'].values()
+                    if row['id_grupo_medida'] in groups}
+        return {identity: row for identity, row in snapshot['tables']['medida_valor'].items()
+                if row['id_medida'] in measures and row['id_atleta'] is not None
+                and row['data'] is not None and (int(row['id_atleta']), row['data'][:10]) in pairs}
+
+    target_selected, source_selected = selected(target), selected(source)
+    retained = {identity: row for identity, row in target['tables']['medida_valor'].items()
+                if identity not in target_selected}
+    if set(retained) & set(source_selected):
+        raise ValueError('IDs de medidas térmicas colidem com outros registros. Revise antes de sincronizar.')
+    retained.update(source_selected)
+    return {**target, 'tables': {**target['tables'], 'medida_valor': retained}}
+
+
 def apply(cursor, local, merged):
     """INSERT/UPDATE/DELETE somente dos registros alterados; sem TRUNCATE."""
     state = local['schema']

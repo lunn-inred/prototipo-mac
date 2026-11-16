@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from backend.mac_api.core.wire import encode, decode
 from . import analysis_archive
 from .analysis_registration import register_analysis, replace_analysis, AnalysisConflictError, AnalysisChangedError
-from .thermography_service import DuplicateThermographyError
+from .thermography_service import DuplicateThermographyError, MissingThermographyMeasuresError
 from psycopg2 import Error as DatabaseError
 from . import drafts
 from .regional_eva import normalize_regional_eva
@@ -91,6 +91,8 @@ def update(athlete_id: int, collected_at: date, analysis_id: UUID, payload: Upda
         raise HTTPException(status_code=409, detail={'code': 'analysis_changed', 'message': str(error)}) from error
     except (KeyError, TypeError) as error:
         raise ValueError('Dados da análise inválidos.') from error
+    except MissingThermographyMeasuresError:
+        raise
     except (OSError, DatabaseError, RuntimeError) as error:
         raise HTTPException(status_code=503, detail='Não foi possível salvar as alterações. Confira banco e arquivos antes de reenviar.') from error
 
@@ -106,6 +108,8 @@ def register(payload: RegisteredAnalysisInput):
             'message': 'Uma análise do atleta já foi realizada nessa data. Deseja sobrescrevê-la?'}) from error
     except (KeyError, TypeError) as error:
         raise ValueError('Dados da análise inválidos.') from error
+    except MissingThermographyMeasuresError:
+        raise
     except (OSError, DatabaseError, RuntimeError) as error:
         raise HTTPException(status_code=503, detail='Não foi possível concluir o registro da análise. Confira o banco local e as permissões de MAC_ANALYSES_DIR antes de tentar novamente.') from error
 

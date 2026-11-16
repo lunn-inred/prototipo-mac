@@ -22,6 +22,7 @@ de Secrets. Credenciais do banco e OCR pertencem ao ambiente da API.
 | `MAC_API_TIMEOUT_SECONDS` | Streamlit | Timeout de chamadas longas, padrão 300 s |
 | `MAC_ANALYSES_DIR` | API | Arquivo local de análises; padrão `./data/thermography` |
 | `MAC_BACKUPS_DIR` | API | Pacotes locais, cópias preventivas e diário de recuperação; padrão `./data/backups` |
+| `MAC_AUTO_SYNC_ENABLED` | API | Sincronização automática com Google configurado; padrão `1`, use `0` para desativar |
 | `MAC_BACKUP_MAX_BYTES` | API | Limite do ZIP enviado/baixado; padrão 10737418240 (10 GiB) |
 | `MAC_BACKUP_MAX_EXTRACTED_BYTES` | API | Limite descompactado; padrão 21474836480 (20 GiB) |
 | `MAC_GOOGLE_CLIENT_ID` | Ambos | Ativa o login Google quando preenchido |
@@ -128,7 +129,9 @@ fechado. A primeira autorização pede `openid`, `email`, `profile` e
 `drive.file`, valida a pasta de backup configurada e salva o token de renovação
 e o ID validado no arquivo privado em `data/credentials/`. O arquivo não entra
 no Git nem na imagem Docker. O envio e a restauração manuais ficam na página
-**Sincronização**, descrita no [guia de sincronização](synchronization.md). Não há agendamento automático.
+**Sincronização**, descrita no [guia de sincronização](synchronization.md).
+Com Google configurado, a API também sincroniza após gravações locais e consulta
+o Drive periodicamente enquanto estiver em execução.
 
 ### Pasta única da equipe
 

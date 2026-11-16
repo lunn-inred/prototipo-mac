@@ -47,7 +47,6 @@ else:
                 icon="🗓️",
             ),
             st.Page(PAGE_ROOT / 'Sincronizacao.py', title='Sincronização', icon='☁️'),
-            st.Page(PAGE_ROOT / 'Mapa_Corporal_Lab.py', title='Mapa corporal (experimental)', icon='🧍'),
         ]
     )
     render_logout()

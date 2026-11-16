@@ -4,8 +4,8 @@
 
 ## Exploração
 
-Abra **Mapa corporal (experimental)** no menu após o login normal do aplicativo.
-Para testar somente a página, sem API, banco ou autorização Google:
+A página experimental não aparece mais no menu do aplicativo; o componente já está
+integrado à Termografia. Para testar somente a página, sem API, banco ou autorização Google:
 
 ```bash
 python -m streamlit run frontend/streamlit/pages/Mapa_Corporal_Lab.py

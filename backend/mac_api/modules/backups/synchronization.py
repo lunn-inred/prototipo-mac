@@ -1,12 +1,13 @@
 """Drive como transporte: objetos imutáveis e publicação do índice por último.
 
-Conflitos, inclusive publicação concorrente, bloqueiam em vez de escolher dados
-pelo horário local. A aplicação SQL é incremental e usa a estrutura já instalada.
+Conflitos de registros e publicação concorrente bloqueiam a operação. Quando
+análises ocupam o mesmo jogador/data, prevalece o último salvamento da análise.
+A aplicação SQL é incremental e usa a estrutura já instalada.
 """
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 from tempfile import TemporaryDirectory, mkdtemp
 from uuid import UUID, uuid4
@@ -57,6 +58,25 @@ def _identity(entry):
     return entry['properties']['commit'] if entry else None
 
 
+def _validate_schema_transition(baseline, remote, head, local):
+    """Aceita a migração local planejada somente sobre o último estado comum."""
+    if (not baseline or not remote or _identity(head) != baseline['revision']
+            or remote['database'] != baseline['database']
+            or {key: entry['value'] for key, entry in remote['analyses'].items()} != baseline['analyses']
+            or local['schema_version'] == baseline['database']['schema_version']
+            or local['keys'] != baseline['database']['keys']
+            or set(local['tables']) != set(baseline['database']['tables'])):
+        raise ValueError('Transição de schema recusada: o Drive mudou ou a base local não corresponde ao histórico comum.')
+    old_schema, new_schema = baseline['database']['schema'], local['schema']
+    old_views = {entry[0] for entry in old_schema['views']}
+    new_views = {entry[0] for entry in new_schema['views']}
+    if (any(old_schema[key] != new_schema[key] for key in old_schema if key != 'views')
+            or {'vw_termografia_zonas', 'vw_termografia_eva_regional'} & old_views
+            or not {'vw_termografia_zonas', 'vw_termografia_eva_regional'} <= new_views
+            or old_views | {'vw_termografia_zonas', 'vw_termografia_eva_regional'} != new_views):
+        raise ValueError('Transição de schema recusada: as views não correspondem às migrações de termografia previstas.')
+
+
 def _scope(drive):
     config = service.local_config()
     return sync_data.fingerprint([drive.folder, {k: str(config.get(k, '')) for k in ('host', 'port', 'dbname', 'user')}])
@@ -75,6 +95,46 @@ def _baseline(path, scope):
 def _analysis_value(entry):
     return dict(content=sync_data.fingerprint(entry['hashes']), relative=entry['relative'].as_posix(),
                 revision=entry['revision'].isoformat())
+
+
+def _resolve_analysis_pairs(local_files, remote_values):
+    """Escolhe uma análise por jogador/data, inclusive se um lado já tem duplicatas."""
+    candidates = {}
+    for identity, entry in local_files.items():
+        if not entry.get('is_draft'):
+            candidates.setdefault(entry['pair'], []).append(
+                (entry['revision'], 0, identity, _analysis_value(entry)))
+    for identity, value in remote_values.items():
+        if identity.startswith('draft:'):
+            continue
+        parts = PurePosixPath(value['relative']).parts
+        if (len(parts) != 3 or not parts[0].startswith('atleta_')
+                or parts[2] != f'analise_{identity}'):
+            raise ValueError('Caminho de análise inválido no índice do Drive.')
+        pair = (int(parts[0].removeprefix('atleta_')), date.fromisoformat(parts[1]).isoformat())
+        candidates.setdefault(pair, []).append((bundle.revision(value['revision']), 1, identity, value))
+
+    here = {identity: _analysis_value(entry) for identity, entry in local_files.items()}
+    there = remote_values.copy()
+    local_pairs, drive_pairs = set(), set()
+    for pair, versions in candidates.items():
+        if len(versions) < 2:
+            continue
+        winner = max(versions)
+        if all((identity, value) == (winner[2], winner[3]) for _, _, identity, value in versions):
+            continue
+        for _, _, identity, _ in versions:
+            here.pop(identity, None)
+            there.pop(identity, None)
+        here[winner[2]] = winner[3]
+        there[winner[2]] = winner[3]
+        if winner[1] == 0:
+            if any(source == 1 for _, source, _, _ in versions):
+                local_pairs.add(pair)
+        else:
+            if any(source == 0 for _, source, _, _ in versions):
+                drive_pairs.add(pair)
+    return here, there, local_pairs, drive_pairs
 
 
 def _load_remote(drive, head, work):
@@ -158,7 +218,7 @@ def _publish(drive, head, merged, winners, local, remote, work, installation):
     return commit, uploaded
 
 
-def synchronize(*, desktop=False, progress=lambda text: None):
+def synchronize(*, desktop=False, schema_transition=False, progress=lambda text: None):
     service._assert_ready()
     base_path = service.backups_directory() / 'sync-state.json'
     journal = service.backups_directory() / 'restore-pending.json'
@@ -188,12 +248,20 @@ def synchronize(*, desktop=False, progress=lambda text: None):
                     with connection.cursor() as cursor:
                         service._lock(cursor)
                         local = sync_data.capture(cursor)
-                        merged = sync_data.merge_database(baseline['database'] if baseline else None,
-                            local, remote['database']) if remote else local
                         local_files = bundle.index_analyses(root)
-                        here = {k: _analysis_value(e) for k, e in local_files.items()}
                         there = {k: e['value'] for k, e in remote['analyses'].items()} if remote else {}
-                        winners = sync_data.merge(baseline['analyses'] if baseline else {}, here, there,
+                        here, comparison_remote_files, local_pairs, drive_pairs = _resolve_analysis_pairs(local_files, there)
+                        if schema_transition:
+                            _validate_schema_transition(baseline, remote, head, local)
+                            merged = local
+                        else:
+                            comparison = sync_data.prefer_thermal_pairs(
+                                local, remote['database'], drive_pairs) if remote else local
+                            remote_database = sync_data.prefer_thermal_pairs(
+                                remote['database'], local, local_pairs) if remote else None
+                            merged = sync_data.merge_database(baseline['database'] if baseline else None,
+                                comparison, remote_database) if remote else local
+                        winners = sync_data.merge(baseline['analyses'] if baseline else {}, here, comparison_remote_files,
                                                   scope='análises')
                         progress('Preparando somente as análises novas ou alteradas do Drive.')
                         staged, downloaded = _prepare_files(drive, winners, local_files,

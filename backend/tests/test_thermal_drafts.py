@@ -15,6 +15,7 @@ from backend.mac_api.main import create_app
 from backend.mac_api.core.wire import encode, decode
 from backend.mac_api.modules.thermography import drafts, analysis_archive as archive
 from backend.mac_api.modules.thermography.analysis_registration import AnalysisChangedError
+from backend.mac_api.modules.thermography.thermography_service import MissingThermographyMeasuresError
 from backend.mac_api.modules.backups import bundle
 from backend.tests.test_analysis_archive import example_views
 
@@ -54,6 +55,13 @@ class ThermalDraftTests(unittest.TestCase):
         env.start(); self.addCleanup(env.stop)
         self.client = TestClient(create_app())
         self.headers = {'X-API-Key': 'draft-test'}
+
+    def test_missing_regional_measures_returns_actionable_error(self):
+        with patch.object(drafts, 'save', side_effect=MissingThermographyMeasuresError('Medidas ausentes')):
+            response = self.client.post('/api/v1/thermography/drafts', headers=self.headers,
+                                        json={'state': encode(empty_state())})
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('migrações de zonas e EVA regional', response.json()['detail'])
 
     def test_empty_draft_roundtrip_survives_new_client_without_database_writes(self):
         with patch('psycopg2.connect', side_effect=AssertionError('Não usar banco sem atleta')):

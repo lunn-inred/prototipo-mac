@@ -18,11 +18,12 @@ essas medidas. Execute no banco **local** antes de iniciar a API atualizada:
 
 ```powershell
 Get-Content backend/migrations/20261115_thermography_regional_zones.sql -Raw -Encoding UTF8 | docker compose exec -T db-dev sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-docker compose up -d --build --no-deps backend
 ```
 
 O comando usa as credenciais já configuradas no contêiner. O Docker e o serviço
 `db-dev` precisam estar em execução. Não use esse procedimento em banco remoto.
+Se também for aplicar o EVA regional, mantenha a API parada até concluir ambas
+as migrações e a transição do índice do Drive.
 
 ## EVA regional (20261116)
 
@@ -40,7 +41,6 @@ Após a migração, inicie API/frontend atualizados. É transacional e idempoten
 docker compose stop backend
 docker compose exec -T db-dev sh -c 'PGOPTIONS="-c default_transaction_read_only=on" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --no-owner --no-acl' > data/backups/pre-regional-eva.dump
 docker compose exec -T db-dev sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backend/migrations/20261116_thermography_regional_eva.sql
-docker compose up -d --build backend frontend
 ```
 
 Use um nome novo para cada backup: não sobrescreva uma cópia prévia. A migração
@@ -48,6 +48,21 @@ anterior de zonas regionais deve estar aplicada. A aplicação não migra ao ini
 O backup anterior exige a versão antiga do schema/código para restauração;
 não o restaure sobre o banco em uso. Teste primeiro numa instância descartável.
 Todos os computadores da equipe devem aplicar a migração: a sincronização
-recusa schemas/views incompatíveis e não executa DDL. Um índice Drive criado
-com a estrutura anterior requer uma transição coordenada (ou uma nova pasta
-compartilhada), sem apagar backups ou índices existentes.
+normal recusa schemas/views incompatíveis e não executa DDL. Se o Drive já tem
+um índice antigo, pare a API e confirme que não há alterações pendentes em
+outros computadores. Após aplicar **ambas** as migrações no primeiro computador,
+reconstrua a imagem da API e publique o novo esquema antes de reiniciar a API:
+
+```bash
+docker compose build backend
+docker compose run --rm --no-deps -T -e MAC_AUTO_SYNC_ENABLED=0 backend python -c 'from backend.mac_api.modules.backups.synchronization import synchronize; print(synchronize(schema_transition=True))'
+docker compose up -d --no-deps --wait backend
+docker compose up -d --build --no-deps frontend
+```
+
+Esse comando exige que o índice atual do Drive ainda seja exatamente o último
+estado comum da instalação. Ele preserva o histórico e recusa divergências ou
+outras mudanças de estrutura. Execute **uma vez**, apenas no computador que
+publicará a migração. Os demais computadores precisam de revisão da base e
+atualização coordenada antes de voltar a sincronizar: aplicar os arquivos SQL
+sozinho não atualiza o estado comum antigo. Preserve todos os backups e índices.

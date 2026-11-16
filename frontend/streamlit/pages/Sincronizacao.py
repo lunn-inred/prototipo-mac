@@ -1,4 +1,4 @@
-"""Sincronização explícita; arquivos, conflitos e banco são tratados pela API."""
+"""Estado da sincronização automática e opção manual para intervenções."""
 import streamlit as st
 from frontend.streamlit.api_client import backups
 
@@ -9,6 +9,26 @@ st.write('Compartilhe jogadores, GPS, saltos e análises térmicas entre os comp
 
 @st.fragment(run_every='2s')
 def render_sync():
+    try:
+        automatic = backups.auto_sync_status()
+    except ValueError as error:
+        st.warning(f'Não foi possível consultar a sincronização automática: {error}')
+        automatic = None
+    if automatic:
+        revision = automatic.get('revision')
+        previous = st.session_state.get('sync_seen_revision')
+        if previous and revision and previous != revision:
+            st.cache_data.clear()
+        st.session_state['sync_seen_revision'] = revision
+        labels = {'idle': 'Dados sincronizados' if automatic.get('last_success') else 'Aguardando alterações',
+                  'pending': 'Alterações aguardando envio',
+                  'syncing': 'Sincronização em andamento', 'error': 'Sincronização automática pendente',
+                  'disabled': 'Sincronização automática desativada'}
+        st.write(f'**Estado automático:** {labels.get(automatic["state"], automatic["state"])}')
+        if automatic.get('last_error'):
+            st.warning(automatic['last_error'])
+        if automatic.get('last_success'):
+            st.caption(f'Última sincronização concluída: {automatic["last_success"]}')
     job = st.session_state.get('sync_job')
     if job and job['status'] in ('queued', 'running'):
         try:
@@ -32,7 +52,7 @@ def render_sync():
         st.info(job['message'])
     elif job['status'] == 'failed':
         st.error(job['message'])
-        st.caption('Conflitos não escolhem um vencedor automaticamente. Preserve as cópias para revisão.')
+        st.caption('Conflitos de registros ainda exigem revisão. Preserve as cópias locais e do Drive.')
     else:
         if st.session_state.get('sync_handled') != job['id']:
             st.cache_data.clear()
@@ -45,7 +65,8 @@ def render_sync():
 
 with st.container(border=True):
     st.subheader('Sincronizar com a equipe')
-    st.write('A operação envia as alterações locais e recebe as alterações compartilhadas. Apenas análises novas ou alteradas precisam de transferência de ZIP.')
+    st.write('Após salvar, as alterações locais são enviadas em segundo plano. Este botão permite iniciar uma sincronização manual quando necessário.')
+    st.caption('Se duas análises ocuparem o mesmo jogador e data, prevalece a salva por último. Em empate de horário, prevalece a do Drive. Confira o relógio dos dois computadores; uma cópia preventiva local é criada antes da substituição.')
     st.warning('Salve suas alterações antes de sincronizar. Use um computador por vez para publicar; alterações concorrentes no mesmo registro exigem revisão.')
     render_sync()
 
