@@ -12,6 +12,10 @@ o cadastro ou suas medições. Novos cadastros recebem `ativo` por padrão.
 O status é exibido no mural; jogadores inativos continuam disponíveis para
 consulta ao histórico. Não há mais endpoint de exclusão de jogadores.
 
+O EVA exibido é o maior dos 16 valores regionais da última coleta térmica,
+calculado pela view. Não existe medida geral `EVA_DOR`. Uma última coleta sem
+avaliação regional exibe **Sem EVA**, sem herdar o valor de coletas anteriores.
+
 O mural é dividido em **Ativos** e, logo abaixo, **Inativos**, com os mesmos
 cards. Os filtros e a ordenação se aplicam às duas seções. Desativar ou reativar
 um jogador o move para a seção correspondente, sem alterar suas medições.

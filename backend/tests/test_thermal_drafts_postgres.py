@@ -26,6 +26,9 @@ class ThermalDraftPostgresTests(unittest.TestCase):
     restore = fixture.BackupPostgresTests.restore
 
     def setUp(self):
+        map_patch = patch('frontend.streamlit.components.thermography.wizard.body_muscles_map',
+                          return_value={'active': None, 'bodyState': {}})
+        map_patch.start(); self.addCleanup(map_patch.stop)
         fixture.BackupPostgresTests.setUp(self)
         environment = patch.dict(os.environ, MAC_API_KEY='draft-pg', MAC_GOOGLE_CLIENT_ID='')
         environment.start(); self.addCleanup(environment.stop)
@@ -38,7 +41,7 @@ class ThermalDraftPostgresTests(unittest.TestCase):
         return decode(response.json())
 
     def payload(self, athlete, draft, **extra):
-        return dict(athlete_id=athlete, athlete_name='Teste', collected_at='2026-11-20', mass=80., pain_score=0,
+        return dict(athlete_id=athlete, athlete_name='Teste', collected_at='2026-11-20', mass=80., regional_eva={},
                     observations='', views=encode(example_views()), draft_id=draft['id'], draft_revision=draft['created_at'], **extra)
 
     def test_empty_draft_promotes_to_complete_using_summary_date_and_same_uuid(self):
@@ -59,7 +62,7 @@ class ThermalDraftPostgresTests(unittest.TestCase):
         athlete = self.athlete()
         original, _ = self.register(athlete)
         state = empty_state()
-        state['draft'].update(player=athlete, mass=None, pain=0)
+        state['draft'].update(player=athlete, mass=None, regional_eva={})
         state['source'] = {key: original[key] for key in ('id','athlete_id','collected_at','created_at')}
         state['source']['collected_at'] = state['source']['collected_at'].isoformat()
         draft = self.save_draft(state)
@@ -110,7 +113,7 @@ class ThermalDraftPostgresTests(unittest.TestCase):
     def test_backup_restore_preserves_local_draft_athlete_and_partial_measures(self):
         backup = self.backup()
         athlete = self.athlete('Atleta do rascunho')
-        state = empty_state(); state['draft'].update(player=athlete, mass=72.5, pain=0)
+        state = empty_state(); state['draft'].update(player=athlete, mass=72.5, regional_eva={})
         draft = self.save_draft(state)
         result = self.restore(backup['local_copy'])
         self.assertEqual(result['preserved_local'], 1)
@@ -119,7 +122,7 @@ class ThermalDraftPostgresTests(unittest.TestCase):
             cursor.execute('SELECT nome FROM public.atleta WHERE id_atleta=%s', (athlete,))
             self.assertEqual(cursor.fetchone()[0], 'Atleta do rascunho')
             cursor.execute('SELECT count(*) FROM public.medida_valor')
-            self.assertEqual(cursor.fetchone()[0], 3)
+            self.assertEqual(cursor.fetchone()[0], 18)
             cursor.execute('SELECT massa,eva_dor,observacoes FROM public.vw_medida_termografia WHERE id_atleta=%s', (athlete,))
             self.assertEqual(cursor.fetchone(), (72.5, 0, 'Início'))
         # A revisão lógica continua válida após remapeamento dos IDs SQL no restore.
@@ -137,7 +140,7 @@ class ThermalDraftPostgresTests(unittest.TestCase):
         state = empty_state(); state['draft'].update(player=athlete, mass=73.5, pain=0)
         entry = self.save_draft(state)
         self.assertEqual(self.partial_rows(athlete), [
-            ('EVA_DOR', 0, None, date(2026,11,1)), ('MASSA', 73.5, None, date(2026,11,1)),
+            ('MASSA', 73.5, None, date(2026,11,1)),
             ('OBSERVACOES', None, 'Início', date(2026,11,1))])
         state['draft'].update(mass=74., pain=None, notes='', collected_at='2026-11-02')
         changed = self.save_draft(state, draft_id=entry['id'], expected_revision=entry['created_at'])
@@ -183,7 +186,7 @@ class ThermalDraftPostgresTests(unittest.TestCase):
         response = self.client.post('/api/v1/thermography/analyses/register', headers=self.headers, json=self.payload(athlete, entry))
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(decode(response.json())['analysis']['id'], entry['id'])
-        self.assertEqual(len(self.partial_rows(athlete)), 8)
+        self.assertEqual(len(self.partial_rows(athlete)), 71)
 
     def test_publication_and_transaction_failure_preserve_sql_and_previous_draft(self):
         athlete = self.athlete()
@@ -241,11 +244,12 @@ render_pending_save()
             app = AppTest.from_string(script).run()
             app.selectbox(key='thermography_player').set_value(athlete)
             app.number_input(key='thermography_mass').set_value(73.5).run()
-            self.assertTrue(app.button(key='thermal_next').disabled)
+            self.assertFalse(app.button(key='thermal_next').disabled)
             app.button(key='thermal_save_analysis').click().run()
             app.button(key='thermal_save_confirm').click().run()
             self.assertFalse(app.exception)
-            self.assertEqual([row[:3] for row in self.partial_rows(athlete)], [('MASSA', 73.5, None)])
+            self.assertEqual([row[:3] for row in self.partial_rows(athlete) if not row[0].startswith('EVA_')], [('MASSA', 73.5, None)])
+            self.assertEqual(len([row for row in self.partial_rows(athlete) if row[0].startswith('EVA_')]), 16)
             entry = drafts.list_saved(athlete)[0]
             identity = entry['id']
             self.assertNotIn('thermal_saved_draft', app.session_state)
@@ -267,7 +271,7 @@ render_pending_save()
             self.assertEqual(drafts.list_saved(athlete)[0]['id'], identity)
             self.assertNotIn('thermal_saved_draft', app.session_state)
             self.assertEqual(app.session_state['thermal_step'], 0)
-            self.assertEqual([row[:3] for row in self.partial_rows(athlete)], [('MASSA', 75., None)])
+            self.assertEqual([row[:3] for row in self.partial_rows(athlete) if not row[0].startswith('EVA_')], [('MASSA', 75., None)])
 
     def test_moved_partial_edit_backup_does_not_resurrect_original_sql(self):
         athlete = self.athlete()
@@ -292,7 +296,7 @@ render_pending_save()
         with database_write_connection() as connection, connection.cursor() as cursor:
             cursor.execute('DELETE FROM public.medida_valor WHERE id_atleta=%s', (athlete,))
         self.restore(backup['local_copy'])
-        self.assertEqual(len(self.partial_rows(athlete)), 3)
+        self.assertEqual(len(self.partial_rows(athlete)), 2)
         state['draft']['mass'] = 77.
         self.save_draft(state, draft_id=saved['id'], expected_revision=saved['created_at'])
         self.assertEqual(next(row[1] for row in self.partial_rows(athlete) if row[0]=='MASSA'), 77.)

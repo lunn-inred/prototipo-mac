@@ -23,6 +23,7 @@ from .thermography_service import current_sao_paulo_date
 from .thermography_service import _insert_collection
 from . import collection_state
 from .analysis_previews import build_thumbnails, legacy_thumbnail
+from .regional_eva import normalize_regional_eva, eva_measurements, maximum_eva
 
 LOCK = RLock()
 FORMAT = 'mac-thermal-draft-v1'
@@ -41,7 +42,7 @@ def validate_state(state):
     if type(state.get('step')) is not int or not 0 <= state['step'] <= 6:
         raise ValueError('Etapa do rascunho inválida.')
     draft = state.get('draft')
-    if not isinstance(draft, dict) or set(draft) - {'player', 'mass', 'pain', 'notes', 'collected_at'}:
+    if not isinstance(draft, dict) or set(draft) - {'player', 'mass', 'pain', 'notes', 'collected_at', 'regional_eva'}:
         raise ValueError('Dados da coleta inválidos.')
     if draft.get('player') is not None and (type(draft['player']) is not int or draft['player'] < 1):
         raise ValueError('Jogador inválido.')
@@ -49,8 +50,8 @@ def validate_state(state):
         raise ValueError('Massa inválida.')
     if draft.get('mass') is not None:
         draft['mass'] = float(draft['mass'])
-    if draft.get('pain') is not None and (type(draft['pain']) is not int or not 0 <= draft['pain'] <= 10):
-        raise ValueError('EVA Dor inválida.')
+    draft['regional_eva'] = normalize_regional_eva(draft.get('regional_eva'))
+    draft['pain'] = maximum_eva(draft['regional_eva'])
     if not isinstance(draft.get('notes', ''), str) or len(draft.get('notes', '')) > 10000:
         raise ValueError('Observações inválidas.')
     if draft.get('collected_at') is not None:
@@ -119,6 +120,7 @@ def summary(identity):
         sequence=int(datetime.fromisoformat(payload['created_at']).timestamp()*1_000_000),
         thumbnail=legacy_thumbnail(thumbnails), thumbnails=thumbnails,
         mass=state['draft'].get('mass'), pain_score=state['draft'].get('pain'), observations=state['draft'].get('notes', ''),
+        regional_eva=state['draft'].get('regional_eva'),
         sql_pair=payload.get('sql_pair'), sql_revision=payload.get('sql_revision'), source=state.get('source'))
 
 
@@ -165,8 +167,7 @@ def measurements(state, images):
     result = {}
     if data.get('mass') is not None:
         result['MASSA'] = data['mass']
-    if data.get('pain') is not None:
-        result['EVA_DOR'] = data['pain']
+    result.update(eva_measurements(data.get('regional_eva')))
     if data.get('notes', '').strip():
         result['OBSERVACOES'] = data['notes'].strip()
     for key, item in state.get('items', {}).items():

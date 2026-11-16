@@ -18,6 +18,9 @@ from frontend.streamlit.components.thermography import history
 
 class AnalysisHistoryTests(unittest.TestCase):
     def setUp(self):
+        map_patch = patch('frontend.streamlit.components.thermography.wizard.body_muscles_map',
+                          return_value={'active': None, 'bodyState': {}})
+        map_patch.start(); self.addCleanup(map_patch.stop)
         st.cache_data.clear()
         self.addCleanup(st.cache_data.clear)
         self.directory = TemporaryDirectory(prefix='mac-history-')
@@ -28,7 +31,7 @@ class AnalysisHistoryTests(unittest.TestCase):
         for value in views.values():
             value['colorbar_box'] = dict(left=7, top=0, width=1, height=12)
         self.saved = archive.save_analysis(athlete_id=1, athlete_name='Teste', collected_at=date(2026, 11, 1),
-            mass=75., pain_score=0, observations='Anterior', views=views)
+            mass=75., regional_eva={'front-thigh-right': 5}, observations='Anterior', views=views)
         self.loaded = archive.load_analysis(1, date(2026, 11, 1), self.saved['id'])
 
     def test_restore_preserves_rotation_masks_temperatures_and_widgets(self):
@@ -37,12 +40,13 @@ class AnalysisHistoryTests(unittest.TestCase):
         with patch.object(history.st, 'session_state', state):
             history.load_into_wizard(self.loaded)
         self.assertEqual(state['thermal_step'], 0)
-        self.assertEqual(state['thermal_draft']['pain'], 0)
+        self.assertIsNone(state['thermal_draft']['pain'])
+        self.assertEqual(state['thermal_draft']['regional_eva']['front-thigh-right'], 5)
         self.assertEqual(state['thermal_draft']['notes'], 'Anterior')
         self.assertEqual(state['thermal_edit_source']['id'], self.saved['id'])
         self.assertEqual(state['thermography_mass'], 75.)
         self.assertEqual(state['thermography_player'], 1)
-        self.assertEqual(state['thermography_pain_score'], 0)
+        self.assertIsNone(state['thermography_pain_score'])
         self.assertEqual(state['thermography_observations'], 'Anterior')
         self.assertNotIn('thermography_front_upload_0', state)
         self.assertEqual(state['thermal_upload_generation'], 1)
@@ -73,7 +77,7 @@ if not st.session_state.get('thermal_edit_source'):
             self.assertIn('**Frente**\n![Frente](data:image/png;base64,', card.label)
             self.assertIn('**Costas**\n![Costas](data:image/png;base64,', card.label)
             self.assertIn('**01/11/2026**', card.label)
-            self.assertIn('Massa: 75.0 kg · EVA: 0', card.label)
+            self.assertIn('Massa: 75.0 kg · EVA: 5', card.label)
             self.assertFalse(any(button.label == 'Selecionar análise' for button in app.button))
             app.button(key=f'analysis_select_{self.saved["id"]}').click().run()
             self.assertEqual(len(app.exception), 0, list(app.exception))

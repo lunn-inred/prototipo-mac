@@ -104,7 +104,7 @@ class SyncPostgresTests(unittest.TestCase):
     def test_two_computers_share_database_and_zip_then_merge_independent_changes(self):
         athlete = self.athlete()
         registered = register_analysis(athlete_id=athlete, athlete_name='Teste', collected_at=date(2026,11,1),
-            mass=75., pain_score=0, views=example_views())
+            mass=75., regional_eva={}, views=example_views())
         first = sync.synchronize()
         self.assertEqual(first['uploaded'], 1)
         self.assertEqual(self.drive.name, 'Analises MAC')
@@ -212,7 +212,7 @@ class SyncPostgresTests(unittest.TestCase):
         from backend.mac_api.modules.thermography import drafts
         athlete = self.athlete()
         state = empty_state()
-        state['draft'].update(player=athlete, mass=72., pain=0)
+        state['draft'].update(player=athlete, mass=72., regional_eva={})
         saved = drafts.save(state)
         sync.synchronize()
         self.activate('B')

@@ -25,7 +25,7 @@ class ThermalWizardTests(unittest.TestCase):
         st.cache_data.clear()
         self.addCleanup(st.cache_data.clear)
 
-    def test_first_step_uses_grouped_leg_map_without_recording_regional_eva(self):
+    def test_first_step_copies_regional_eva_to_saved_state(self):
         from frontend.streamlit.components.thermography.save_flow import snapshot_state
         app = AppTest.from_string('''
 from frontend.streamlit.components.thermography.wizard import render_wizard
@@ -44,6 +44,7 @@ render_wizard({1: {'id_atleta': 1, 'nome': 'Teste'}})
         self.assertFalse(app.button(key='thermal_next').disabled)
         regional = {'active': 'front-thigh-right', 'bodyState': {'front-thigh-right': {'intensity': 6, 'selected': True}}}
         app.session_state['thermal_eva_map_state'] = regional
+        self.eva_map.return_value = regional
         app.button(key='thermal_next').click().run()
         app.button(key='thermal_previous').click().run()
         self.assertEqual(app.session_state['thermal_eva_map_state'], regional)
@@ -54,6 +55,7 @@ render_wizard({1: {'id_atleta': 1, 'nome': 'Teste'}})
             payload = snapshot_state()
         self.assertNotIn('thermal_eva_map_state', payload)
         self.assertNotIn('bodyState', payload['draft'])
+        self.assertEqual(payload['draft']['regional_eva'], {'front-thigh-right': 6})
 
     def test_cropped_strokes_are_positioned_in_original_image(self):
         from frontend.streamlit.components.thermography.editor import _canvas_seeds
@@ -290,7 +292,7 @@ render_wizard({1: {'id_atleta': 1, 'nome': 'Teste'}})
             for _ in range(6):
                 app.button(key='thermal_previous').click().run()
             self.assertEqual(app.number_input(key='thermography_mass').value, 75.0)
-            self.assertEqual(app.session_state['thermal_draft'].get('pain'), 0)
+            self.assertIsNone(app.session_state['thermal_draft'].get('pain'))
             self.assertEqual(app.selectbox(key='thermography_player').value, 1)
             for _ in range(6):
                 app.button(key='thermal_next').click().run()

@@ -41,7 +41,7 @@ class ThermographyServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "EVA"):
             image_measurements(
                 mass=72,
-                pain_score=11,
+                regional_eva={'front-thigh-right': 11},
                 front_right=1,
                 front_left=1,
                 back_right=1,
@@ -68,9 +68,9 @@ class ThermographyServiceTests(unittest.TestCase):
             connection_factory=connection_factory(cursor),
         )
 
-        self.assertEqual(inserted, 9)
+        self.assertEqual(inserted, 8)
         values = cursor.executemany.call_args.args[1]
-        self.assertEqual(len(values), 9)
+        self.assertEqual(len(values), 8)
         self.assertTrue(all(value[0] == 7 for value in values))
         self.assertTrue(all(value[1] is None for value in values))
         self.assertEqual(len({value[5] for value in values}), 1)

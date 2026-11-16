@@ -51,7 +51,7 @@ class LocalPostgresTests(unittest.TestCase):
                            mass=75., pain_score=0, observations='Teste', views=encode(example_views()))
             saved = self.client.post('/api/v1/thermography/analyses/register', json=payload, headers=self.headers)
             self.assertEqual(saved.status_code, 201, saved.text)
-            self.assertEqual(decode(saved.json())['inserted_measurements'], 57)
+            self.assertEqual(decode(saved.json())['inserted_measurements'], 56)
             with database_write_connection() as database, database.cursor() as cursor:
                 cursor.execute('SELECT coxa_direita_frente_zona_fria, coxa_direita_frente_zona_neutra, '
                                'coxa_direita_frente_zona_quente FROM public.vw_termografia_zonas '

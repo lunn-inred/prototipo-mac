@@ -8,7 +8,7 @@ from frontend.streamlit.components.thermography.timeline import views_for_storag
 
 
 def register_prepared_analysis(*, athlete_id, athlete_name, collected_at, mass,
-                               pain_score, observations, views, items, pair_signature, overwrite=False, sync_widgets=True):
+                               pain_score=None, regional_eva=None, observations, views, items, pair_signature, overwrite=False, sync_widgets=True):
     source = st.session_state.get('thermal_edit_source')
     draft = st.session_state.get('thermal_saved_draft')
     save = save_analysis_changes if source or overwrite or draft else register_analysis
@@ -17,12 +17,12 @@ def register_prepared_analysis(*, athlete_id, athlete_name, collected_at, mass,
         extra['draft'] = draft
     result = save(
         athlete_id, athlete_name, collected_at, views_for_storage(views, items),
-        mass=mass, pain_score=pain_score, observations=observations, **extra,
+        mass=mass, pain_score=None, regional_eva=regional_eva, observations=observations, **extra,
     )
     remember_timeline_entry(result['analysis'])
-    st.session_state.setdefault('thermal_draft', {}).update(player=athlete_id, mass=float(mass), pain=int(pain_score), notes=observations, collected_at=collected_at)
+    st.session_state.setdefault('thermal_draft', {}).update(player=athlete_id, mass=float(mass), pain=None, regional_eva=regional_eva, notes=observations, collected_at=collected_at)
     updates = {'thermography_player': athlete_id, 'thermography_mass': float(mass),
-               'thermography_pain_score': int(pain_score), 'thermography_observations': observations}
+               'thermography_pain_score': None, 'thermography_observations': observations}
     if sync_widgets:
         st.session_state.update(updates)
         st.session_state.pop(f'thermography_record_editor_{pair_signature}', None)

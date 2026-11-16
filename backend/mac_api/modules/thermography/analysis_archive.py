@@ -106,7 +106,10 @@ def _validate_view(source):
     return image, temperatures.astype(np.float32), masks, metadata
 
 
-def save_analysis(*, athlete_id, athlete_name, collected_at, views, mass=None, pain_score=None, observations='', analysis_id=None):
+def save_analysis(*, athlete_id, athlete_name, collected_at, views, mass=None, pain_score=None, regional_eva=None, observations='', analysis_id=None):
+    from .regional_eva import normalize_regional_eva, maximum_eva
+    regional_eva = normalize_regional_eva(regional_eva)
+    pain_score = maximum_eva(regional_eva)
     if not str(athlete_name).strip() or set(views) != {'front', 'back'}:
         raise ValueError('Informe o jogador e as duas vistas da análise.')
     if mass is not None and (not math.isfinite(float(mass)) or float(mass) <= 0):
@@ -124,7 +127,7 @@ def save_analysis(*, athlete_id, athlete_name, collected_at, views, mass=None, p
     metadata = dict(format_version=FORMAT_VERSION, algorithm_version=ANALYSIS_VERSION,
                     analysis_id=analysis_id, athlete_id=int(athlete_id), athlete_name=str(athlete_name).strip(),
                     collected_at=collected_at.isoformat(), created_at=datetime.now(timezone.utc).isoformat(),
-                    mass=None if mass is None else float(mass), pain_score=pain_score,
+                    mass=None if mass is None else float(mass), pain_score=pain_score, regional_eva=regional_eva,
                     observations=str(observations or ''), views={})
     try:
         for view, (image, temperatures, masks, info) in validated.items():
@@ -195,6 +198,7 @@ def _metadata(directory):
 
 
 def _summary(directory, metadata):
+    from .regional_eva import maximum_eva
     thumbnails = {}
     for view, folder in (('front', 'frente'), ('back', 'verso')):
         with Image.open(_safe_path(directory / folder / 'original.png')) as image:
@@ -204,7 +208,8 @@ def _summary(directory, metadata):
                 athlete_id=metadata['athlete_id'], athlete_name=metadata['athlete_name'],
                 collected_at=date.fromisoformat(metadata['collected_at']), created_at=metadata['created_at'],
                 sequence=int(created.timestamp()*1_000_000), thumbnail=legacy_thumbnail(thumbnails), thumbnails=thumbnails,
-                mass=metadata['mass'], pain_score=metadata['pain_score'], observations=metadata['observations'])
+                mass=metadata['mass'], pain_score=maximum_eva(metadata.get('regional_eva')),
+                regional_eva=metadata.get('regional_eva'), observations=metadata['observations'])
 
 
 def list_analyses(athlete_id):

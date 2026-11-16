@@ -11,12 +11,12 @@ from zoneinfo import ZoneInfo
 from psycopg2.extensions import connection
 
 from backend.mac_api.core.database import database_write_connection
+from .regional_eva import eva_measurements
 
 
 THERMOGRAPHY_GROUP = "termografia"
 IMAGE_MEASURES = frozenset({
     "MASSA",
-    "EVA_DOR",
     "OBSERVACOES",
     "PERNA_DIREITA_FRENTE",
     "PERNA_DIREITA_VERSO",
@@ -27,7 +27,6 @@ IMAGE_MEASURES = frozenset({
 })
 LEGACY_MEASURES = frozenset({
     "MASSA",
-    "EVA_DOR",
     "OBSERVACOES",
     "SOMA_FRENTE",
     "SOMA_VERSO",
@@ -109,7 +108,8 @@ def _optional_text(value: object) -> str | None:
 def image_measurements(
     *,
     mass: object,
-    pain_score: object,
+    pain_score: object = None,
+    regional_eva: dict | None = None,
     front_right: object,
     front_left: object,
     back_right: object,
@@ -123,7 +123,6 @@ def image_measurements(
     left_back = _pixel_count(back_left, "Perna esquerda — costas")
     result: dict[str, float | int | str] = {
         "MASSA": _positive_number(mass, "Massa"),
-        "EVA_DOR": _pain_score(pain_score),
         "PERNA_DIREITA_FRENTE": right_front,
         "PERNA_DIREITA_VERSO": right_back,
         "PERNA_ESQUERDA_FRENTE": left_front,
@@ -132,6 +131,7 @@ def image_measurements(
         "SOMA_VERSO": right_back + left_back,
     }
     text = _optional_text(observations)
+    result.update(eva_measurements(regional_eva))
     if text is not None:
         result["OBSERVACOES"] = text
     return result
@@ -141,7 +141,6 @@ def legacy_measurements(record: LegacyThermographyRecord) -> dict[str, float | i
     """Valida uma linha legada, que possui somente as somas por vista."""
     result: dict[str, float | int | str] = {
         "MASSA": _positive_number(record.mass, "Massa"),
-        "EVA_DOR": _pain_score(record.pain_score),
         "SOMA_FRENTE": _pixel_count(record.front, "Frente"),
         "SOMA_VERSO": _pixel_count(record.back, "Costas"),
     }
@@ -230,7 +229,8 @@ def save_image_thermography(
     athlete_id: int,
     collected_at: date | datetime | None = None,
     mass: object,
-    pain_score: object,
+    pain_score: object = None,
+    regional_eva: dict | None = None,
     front_right: object,
     front_left: object,
     back_right: object,
@@ -242,6 +242,7 @@ def save_image_thermography(
     measurements = image_measurements(
         mass=mass,
         pain_score=pain_score,
+        regional_eva=regional_eva,
         front_right=front_right,
         front_left=front_left,
         back_right=back_right,
@@ -254,7 +255,7 @@ def save_image_thermography(
             athlete_id=athlete_id,
             collected_at=collected_at,
             measurements=measurements,
-            required_measures=IMAGE_MEASURES,
+            required_measures=IMAGE_MEASURES | eva_measurements(regional_eva).keys(),
         )
 
 

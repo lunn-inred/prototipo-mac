@@ -24,6 +24,7 @@ class CombinedRegistrationTests(unittest.TestCase):
         env.start(); self.addCleanup(env.stop)
         self.values = dict(athlete_id=123, athlete_name='Nome vindo da interface',
                            collected_at=date(2026, 11, 10), mass=75., pain_score=2,
+                           regional_eva={'front-thigh-right': 6},
                            observations='Teste', views=example_views())
         self.database = MagicMock()
         self.database.cursor.return_value.__enter__.return_value.fetchone.return_value = ('Nome do banco',)
@@ -45,11 +46,16 @@ class CombinedRegistrationTests(unittest.TestCase):
         with patch.object(registration, '_insert_collection', side_effect=lambda cursor, **kw: len(kw['measurements'])) as insert:
             result = registration.register_analysis(**self.values, connection_factory=self.factory)
         self.assertTrue(self.committed)
-        self.assertEqual(result['inserted_measurements'], 57)
+        self.assertEqual(result['inserted_measurements'], 72)
         saved = archive.load_analysis(123, self.values['collected_at'], result['analysis']['id'])
         self.assertEqual(saved['athlete_name'], 'Nome do banco')
         measurements = insert.call_args.kwargs['measurements']
-        self.assertEqual(len(measurements), 57)
+        self.assertEqual(len(measurements), 72)
+        self.assertNotIn('EVA_DOR', measurements)
+        self.assertEqual(measurements['EVA_COXA_DIREITA_FRENTE'], 6)
+        self.assertEqual(measurements['EVA_PE_ESQUERDA_VERSO'], 0)
+        self.assertEqual(saved['regional_eva']['front-thigh-right'], 6)
+        self.assertEqual(saved['pain_score'], 6)
         self.assertEqual(set(measurements), insert.call_args.kwargs['required_measures'])
         for view, suffix in [('front', 'FRENTE'), ('back', 'VERSO')]:
             for side, label in [('left', 'ESQUERDA'), ('right', 'DIREITA')]:
@@ -123,7 +129,7 @@ class CombinedRegistrationTests(unittest.TestCase):
             response = client.post('/api/v1/thermography/analyses/register', json=payload, headers=headers)
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(decode(response.json())['inserted_measurements'], 9)
-        for field in ('mass', 'pain_score'):
+        for field in ('mass',):
             invalid = {**payload}; invalid.pop(field)
             self.assertEqual(client.post('/api/v1/thermography/analyses/register', json=invalid, headers=headers).status_code, 422)
 

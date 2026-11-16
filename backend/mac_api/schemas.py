@@ -26,7 +26,8 @@ class ThermographyInput(BaseModel):
     athlete_id: int
     collected_at: date | datetime | None = None
     mass: float
-    pain_score: int
+    pain_score: int | None = None
+    regional_eva: dict[str, Any] | None = None
     front_right: int
     front_left: int
     back_right: int
@@ -39,7 +40,7 @@ class LegacyRow(BaseModel):
     athlete_id: int
     collected_at: date | datetime
     mass: float
-    pain_score: int
+    pain_score: int | None = None
     front: int
     back: int
     observations: str | None = None

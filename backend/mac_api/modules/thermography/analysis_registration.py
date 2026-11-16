@@ -7,6 +7,7 @@ from . import analysis_archive as archive
 from . import collection_state
 from .thermography_service import IMAGE_MEASURES, _insert_collection, image_measurements
 from .regional_zones import REGIONAL_ZONE_MEASURES, regional_zone_measurements
+from .regional_eva import eva_measurements, normalize_regional_eva
 
 
 class AnalysisConflictError(ValueError):
@@ -17,12 +18,12 @@ class AnalysisChangedError(ValueError):
     pass
 
 
-def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_score,
+def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_score=None, regional_eva=None,
                       observations='', views, connection_factory=None, overwrite=False, analysis_id=None, partial_pair=None, partial_revision=None):
     if overwrite or partial_pair:
         return replace_analysis(source=None, athlete_id=athlete_id, athlete_name=athlete_name,
                                 collected_at=collected_at, mass=mass, pain_score=pain_score,
-                                observations=observations, views=views, overwrite=overwrite,
+                                observations=observations, views=views, overwrite=overwrite, regional_eva=regional_eva,
                                 connection_factory=connection_factory, analysis_id=analysis_id,
                                 partial_pair=partial_pair, partial_revision=partial_revision)
     if setting('MAC_DB_TARGET', 'local') != 'local':
@@ -39,6 +40,8 @@ def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_scor
         back_right=metrics['back']['right']['hot_pixels'], back_left=metrics['back']['left']['hot_pixels'],
     )
     measurements.update(regional_zone_measurements(validated))
+    regional_eva = normalize_regional_eva(regional_eva)
+    measurements.update(eva_measurements(regional_eva))
     entry = None
     try:
         with (connection_factory or database_write_connection)() as database, database.cursor() as cursor:
@@ -49,13 +52,13 @@ def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_scor
                 raise AnalysisConflictError('Uma análise do atleta já foi realizada nessa data. Deseja sobrescrevê-la?')
             inserted = _insert_collection(cursor, athlete_id=athlete_id, collected_at=collected_at,
                                           measurements=measurements,
-                                          required_measures=IMAGE_MEASURES | REGIONAL_ZONE_MEASURES)
+                                          required_measures=IMAGE_MEASURES | REGIONAL_ZONE_MEASURES | eva_measurements(regional_eva).keys())
             # A linha do atleta já foi bloqueada/validada por _insert_collection.
             cursor.execute('SELECT nome FROM public.atleta WHERE id_atleta = %s', (athlete_id,))
             name = cursor.fetchone()[0]
             entry = archive.save_analysis(
                 athlete_id=athlete_id, athlete_name=name or f'Atleta {athlete_id}',
-                collected_at=collected_at, mass=float(mass), pain_score=int(pain_score),
+                collected_at=collected_at, mass=float(mass), regional_eva=regional_eva,
                 observations=observations, views=views, **({'analysis_id': analysis_id} if analysis_id else {}),
             )
         # O context manager acima só retorna depois do commit.
@@ -70,18 +73,22 @@ def register_analysis(*, athlete_id, athlete_name, collected_at, mass, pain_scor
         raise
 
 
-def replace_analysis(*, source, athlete_id, athlete_name, collected_at, mass, pain_score,
+def replace_analysis(*, source, athlete_id, athlete_name, collected_at, mass, pain_score=None, regional_eva=None,
                      observations='', views, overwrite=False, expected_revision=None, connection_factory=None, analysis_id=None,
                      partial_pair=None, partial_revision=None):
     if setting('MAC_DB_TARGET', 'local') != 'local':
         raise ValueError('Salvar análise exige o banco local configurado.')
     if set(views) != {'front', 'back'}:
         raise ValueError('Informe as imagens de frente e costas.')
-    metrics = {view: archive._validate_view(value)[3]['metrics'] for view, value in views.items()}
+    validated = {view: archive._validate_view(value) for view, value in views.items()}
+    metrics = {view: value[3]['metrics'] for view, value in validated.items()}
     measurements = image_measurements(
         mass=mass, pain_score=pain_score, observations=observations,
         front_right=metrics['front']['right']['hot_pixels'], front_left=metrics['front']['left']['hot_pixels'],
         back_right=metrics['back']['right']['hot_pixels'], back_left=metrics['back']['left']['hot_pixels'])
+    regional_eva = normalize_regional_eva(regional_eva)
+    measurements.update(eva_measurements(regional_eva))
+    measurements.update(regional_zone_measurements(validated))
     entry, staged = None, []
     target_pair = (int(athlete_id), collected_at)
     source_pair = (int(source['athlete_id']), source['collected_at']) if source else None
@@ -118,12 +125,12 @@ def replace_analysis(*, source, athlete_id, athlete_name, collected_at, mass, pa
             replaced = ([original] if original else []) + others
             staged = archive.stage_replacements(replaced)
             inserted = _insert_collection(cursor, athlete_id=athlete_id, collected_at=collected_at,
-                                          measurements=measurements, required_measures=IMAGE_MEASURES)
+                                          measurements=measurements, required_measures=IMAGE_MEASURES | REGIONAL_ZONE_MEASURES | eva_measurements(regional_eva).keys())
             cursor.execute('SELECT nome FROM public.atleta WHERE id_atleta=%s', (athlete_id,))
             name = cursor.fetchone()[0]
             analysis_id = original['id'] if original else analysis_id or (others[-1]['id'] if others else None)
             entry = archive.save_analysis(athlete_id=athlete_id, athlete_name=name or f'Atleta {athlete_id}',
-                collected_at=collected_at, mass=float(mass), pain_score=int(pain_score), observations=observations,
+                collected_at=collected_at, mass=float(mass), regional_eva=regional_eva, observations=observations,
                 views=views, analysis_id=analysis_id)
     except Exception:
         try:

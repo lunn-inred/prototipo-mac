@@ -9,6 +9,8 @@ from .analysis_registration import register_analysis, replace_analysis, Analysis
 from .thermography_service import DuplicateThermographyError
 from psycopg2 import Error as DatabaseError
 from . import drafts
+from .regional_eva import normalize_regional_eva
+from pydantic import field_validator
 import logging
 
 router = APIRouter()
@@ -20,13 +22,18 @@ class LocalAnalysisInput(BaseModel):
     collected_at: date
     mass: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     pain_score: int | None = Field(default=None, ge=0, le=10)
+    regional_eva: dict[str, Any] | None = None
+
+    @field_validator('regional_eva')
+    @classmethod
+    def validate_regional_eva(cls, value):
+        return normalize_regional_eva(value)
     observations: str = Field(default='', max_length=10000)
     views: dict[str, Any]
 
 
 class RegisteredAnalysisInput(LocalAnalysisInput):
     mass: float = Field(gt=0, allow_inf_nan=False)
-    pain_score: int = Field(ge=0, le=10)
     overwrite: bool = False
     draft_id: UUID | None = None
     draft_revision: str | None = None

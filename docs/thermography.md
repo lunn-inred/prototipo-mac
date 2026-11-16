@@ -27,7 +27,7 @@ somente uma etapa por vez:
    Cada vista apresenta a imagem
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
    e os pixels da zona selecionada.
-7. Resumo da coleta: campos individuais de jogador, massa, EVA e **Data da coleta**
+7. Resumo da coleta: campos individuais de jogador, massa e **Data da coleta**
    lado a lado, com observações abaixo e tabelas de contagens regionais.
    A data é editável nessa etapa, sem popup. **Salvar análise** grava medidas no banco local e arquivos na
    timeline quando todos os dados estão completos.
@@ -38,20 +38,25 @@ somente uma etapa por vez:
    Se a prévia falhar, o salvamento completo fica indisponível; permanece possível
    salvar os dados disponíveis como análise parcial mediante confirmação.
 
-### Mapa de EVA na primeira etapa (integração visual)
+### EVA regional na primeira etapa
 
 Logo abaixo de jogador/massa e antes das observações, o mapa apresenta frente e
 costas, somente as pernas e os 16 grupos personalizados. Os números permanecem
 visíveis, com uma região selecionada por vez. O campo único de EVA foi removido
 dessa primeira etapa; basta preencher jogador e massa para avançar.
 
-Os valores regionais ficam em estado de sessão separado, preservado ao voltar
-às etapas e limpo ao iniciar/reabrir outra análise ou após salvar. **Ainda não
-entram no registro, nas análises parciais salvas ou no Drive.** Não se calcula
-automaticamente um EVA geral a partir deles. Valores gerais legados são
-preservados, mas o resumo também não oferece mais edição do EVA geral. A
-persistência regional ainda será definida; sem EVA legado, o salvamento segue
-o fluxo de análise incompleta existente. Veja [mapa corporal](body-muscles.md).
+Os 16 valores são gravados no banco e nos arquivos da análise, inclusive em
+salvamentos parciais, e restaurados no diagrama ao reabrir. Regiões não preenchidas
+em uma avaliação nova recebem zero. A API valida inteiros de 0 a 10 e IDs conhecidos.
+Os IDs seguem `front/back` + `thigh/knee/lower-leg/foot` + `left/right`.
+No grupo `termografia`, as medidas seguem `EVA_{COXA|JOELHO|CANELA|PE}_{ESQUERDA|DIREITA}_{FRENTE|VERSO}`.
+Não há medida `EVA_DOR`: a coluna `eva_dor` da view `vw_medida_termografia`
+calcula o maior valor regional daquela coleta. A view `vw_termografia_eva_regional`
+expõe as 16 medidas por atleta/data; o mural usa o máximo da última coleta.
+`regional_eva: null` identifica análises antigas sem avaliação regional: não é
+convertido em zero nem preenchido com o antigo EVA geral. O EVA geral anterior
+é removido pela migração e permanece recuperável somente no backup prévio.
+O laboratório continua independente e não grava dados. Veja [mapa corporal](body-muscles.md).
 
 ### Salvar e retomar uma análise incompleta
 
@@ -72,8 +77,9 @@ o salvamento parcial. O backend continua recalculando as contagens ao registrar.
 Com jogador selecionado, confirmar
 grava no PostgreSQL local as medidas disponíveis e mantém o estado de edição
 nos arquivos locais. Campos ausentes não recebem zeros nem valores fictícios:
-uma massa não informada não gera a medida `MASSA`; EVA igual a zero é um dado
-válido e é gravado. Observações preenchidas também são registradas. As contagens
+uma massa não informada não gera a medida `MASSA`. A avaliação regional nova é a
+exceção explícita: regiões omitidas no mapa recebem zero; avaliações antigas
+ausentes continuam nulas. Observações preenchidas também são registradas. As contagens
 das imagens já calculadas são recalculadas no backend sobre máscaras e
 temperaturas; vistas ainda sem cálculo não recebem contagens inventadas.
 Cancelar ou fechar o diálogo não grava nada.
@@ -298,7 +304,7 @@ com área zero indica que ela não está visível na máscara. Essas métricas s
 salvas nos metadados locais, mas não são enviadas ao banco.
 
 Ao confirmar o registro, uma única transação grava em `public.medida_valor` as
-medidas `MASSA`, `EVA_DOR`, `PERNA_DIREITA_FRENTE`,
+medidas `MASSA`, as 16 medidas `EVA_*` quando avaliadas, `PERNA_DIREITA_FRENTE`,
 `PERNA_ESQUERDA_FRENTE`, `PERNA_DIREITA_VERSO`,
 `PERNA_ESQUERDA_VERSO`, `SOMA_FRENTE`, `SOMA_VERSO` e, quando preenchida,
 `OBSERVACOES`. Todas recebem o mesmo jogador e timestamp. Se já houver uma coleta
@@ -369,7 +375,8 @@ automaticamente o extrator local com OpenCV e Tesseract e informa o fallback na
 tela. O nome reconhecido é preservado para conferência e a coluna Jogador aceita
 somente cadastros existentes, sugeridos pelas mesmas regras de correspondência
 de nome usadas no GPS. Após revisão, as fichas podem ser gravadas em lote usando
-`MASSA`, `EVA_DOR`, `SOMA_FRENTE`, `SOMA_VERSO` e `OBSERVACOES`; as quatro
+`MASSA`, `SOMA_FRENTE`, `SOMA_VERSO` e `OBSERVACOES`. O EVA geral do formulário
+pode ser reconhecido para conferência, mas não é gravado nem distribuído pelas regiões; as quatro
 medidas individuais das pernas permanecem ausentes porque o documento original
 não possui essa separação. O lote é atômico: qualquer erro impede todas as
 inserções daquele envio.
@@ -567,7 +574,7 @@ preservadas para manter compatibilidade com o banco e as análises já salvas.
 
 ## Registro unificado
 
-Jogador, massa e EVA Dor são obrigatórios; observações continuam opcionais. A data
+Jogador e massa são obrigatórios; observações continuam opcionais. O EVA usa o diagrama regional, não um campo geral. A data
 confirmada vale tanto para as medidas quanto para os arquivos da timeline. A API
 usa o nome do cadastro do atleta e recalcula os pixels quentes de cada perna com
 as matrizes térmicas e máscaras recebidas, na mesma precisão do arquivo salvo.

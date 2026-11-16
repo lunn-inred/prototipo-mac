@@ -60,7 +60,8 @@ class PersistentTimelineTests(unittest.TestCase):
             import json
             metadata = json.loads(files[0].read_text())
             self.assertEqual(metadata['athlete_name'], 'João')
-            self.assertEqual(metadata['pain_score'], 0)
+            self.assertIsNone(metadata['pain_score'])
+            self.assertIsNone(metadata['regional_eva'])
             self.assertEqual(metadata['analysis_id'], state['thermography_timeline_ti'])
 
     def test_fresh_session_loads_saved_images_and_compares_basal_current(self):

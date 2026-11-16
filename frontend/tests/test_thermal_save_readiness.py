@@ -46,7 +46,7 @@ class ThermalSaveReadinessTests(unittest.TestCase):
                 values = self.values(step)
                 self.assertIsNotNone(values)
                 self.assertEqual(values['athlete_id'], 1)
-                self.assertEqual(values['pain_score'], 0)
+                self.assertIsNone(values['pain_score'])
                 self.assertEqual(set(values['views']), {'front','back'})
 
     def test_current_metadata_is_used_instead_of_old_calculation(self):
@@ -54,7 +54,7 @@ class ThermalSaveReadinessTests(unittest.TestCase):
         self.state['thermal_draft'].update(mass=82., pain=0, notes='Atual', collected_at=date(2026,11,2))
         values = self.values(1)
         self.assertEqual((values['mass'], values['pain_score'], values['observations'], values['collected_at']),
-                         (82., 0, 'Atual', date(2026,11,2)))
+                         (82., None, 'Atual', date(2026,11,2)))
 
     def test_reused_saved_views_still_satisfy_backend_storage_contract(self):
         from frontend.streamlit.components.thermography.timeline import views_for_storage
@@ -111,7 +111,7 @@ render_pending_save()
             self.assertFalse(app.exception)
             register.assert_called_once()
             partial.assert_not_called()
-            self.assertEqual(register.call_args.kwargs['pain_score'], 0)
+            self.assertIsNone(register.call_args.kwargs['pain_score'])
             self.assertFalse(app.warning)
             self.assertFalse(any(button.key == 'thermal_save_confirm' for button in app.button))
             self.assertEqual(app.toast[0].value, 'Análise salva. Você poderá visualizá-la em Ver análises anteriores.')

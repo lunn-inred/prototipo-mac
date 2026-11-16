@@ -119,7 +119,7 @@ render_pending_save()
                 self.assertEqual(app.session_state['thermal_saved_draft']['id'], entry['id'])
                 app.run()
                 self.assertEqual(app.number_input(key='thermography_mass').value, draft['mass'])
-                self.assertEqual(app.session_state['thermal_draft'].get('pain'), draft['pain'])
+                self.assertIsNone(app.session_state['thermal_draft'].get('pain'))
 
     def test_single_image_is_saved_before_uploading_the_other_view(self):
         buffer = io.BytesIO(); Image.new('RGB', (8, 12), 'red').save(buffer, format='PNG')
@@ -214,7 +214,7 @@ render_pending_save()
         self.assertEqual(app.session_state['thermal_step'], 0)
         self.assertEqual(app.session_state['thermal_uploads']['front'], upload)
         self.assertEqual(app.number_input(key='thermography_mass').value, 75.)
-        self.assertEqual(app.session_state['thermal_draft'].get('pain'), 2)
+        self.assertIsNone(app.session_state['thermal_draft'].get('pain'))
         self.assertEqual(app.text_area(key='thermography_observations').value, 'Não perder')
         self.assertEqual(app.toast[0].value, 'Selecione um jogador antes de salvar a análise.')
 

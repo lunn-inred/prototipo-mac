@@ -20,7 +20,7 @@ from backend.tests.test_analysis_archive import example_views
 
 
 def empty_state():
-    return dict(step=0, draft=dict(player=None, mass=None, pain=None, notes='Início', collected_at='2026-11-01'),
+    return dict(step=0, draft=dict(player=None, mass=None, pain=None, regional_eva=None, notes='Início', collected_at='2026-11-01'),
                 uploads={}, items={}, source=None)
 
 

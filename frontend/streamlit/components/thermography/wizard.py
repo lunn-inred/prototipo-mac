@@ -212,16 +212,21 @@ def render_wizard(athletes_by_id):
                                    step=0.1, key='thermography_mass')
         st.markdown('<h3 style="font-size:16px;line-height:1.4;margin:0;padding:0">EVA por região</h3>',
                     unsafe_allow_html=True,
-                    help='Selecione uma região para informar a intensidade. Os valores ficam somente na sessão e ainda não são registrados na análise.')
-        body_muscles_map(
+                    help='Selecione uma região para informar a intensidade de 0 a 10.')
+        if 'thermal_eva_map_state' not in st.session_state:
+            values = draft.get('regional_eva') or {}
+            st.session_state['thermal_eva_map_state'] = dict(active=None, bodyState={
+                identifier: dict(intensity=value, selected=False) for identifier, value in values.items()})
+        eva_state = body_muscles_map(
             key=f'thermal_eva_map_{st.session_state.get("thermal_upload_generation", 0)}',
             state_key='thermal_eva_map_state', view='BOTH',
             custom_grouping=True, legs_only=True, compact=True,
         )
-        # Não inferir o EVA geral das regiões nesta etapa exclusivamente visual.
-        pain = draft.get('pain')
-        # Esta chave não é mais um widget nesta etapa. Atualizá-la impede que
-        # um estado antigo/vazio sobrescreva o EVA legado ao voltar ao resumo.
+        values = {identifier: value['intensity'] for identifier, value in eva_state['bodyState'].items()}
+        if values or 'regional_eva' not in draft:
+            draft['regional_eva'] = values
+        pain = None
+        # Não reutilizar o antigo campo geral ao reabrir sessões anteriores.
         st.session_state['thermography_pain_score'] = pain
         notes = st.text_area('Observações', value='', key='thermography_observations')
         draft.update(player=player, mass=mass, pain=pain, notes=notes)

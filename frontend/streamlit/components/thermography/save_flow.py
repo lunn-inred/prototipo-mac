@@ -109,7 +109,7 @@ def _complete_values(step):
     players = st.session_state.get('thermal_available_players', {})
     player = draft.get('player')
     return dict(athlete_id=player, athlete_name=players.get(player, {}).get('nome', ''), mass=draft.get('mass'),
-        pain_score=draft.get('pain'), observations=draft.get('notes', ''), collected_at=draft.get('collected_at'),
+        pain_score=None, regional_eva=draft.get('regional_eva'), observations=draft.get('notes', ''), collected_at=draft.get('collected_at'),
         views=views, items=items, pair_signature=signature)
 
 
@@ -207,7 +207,7 @@ def render_save_button(step):
         player = values.get('athlete_id') if values is not None else st.session_state.get('thermal_draft', {}).get('player')
         if not _require_player(player):
             st.rerun()
-        complete = values and values.get('athlete_id') and values.get('mass') is not None and values.get('pain_score') is not None and values.get('collected_at')
+        complete = values and values.get('athlete_id') and values.get('mass') is not None and values.get('collected_at')
         if complete:
             if _attempt(dict(kind='complete', values=values)):
                 st.rerun()

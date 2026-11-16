@@ -47,10 +47,16 @@ def player_dashboard_data() -> dict[str, list[dict[str, Any]]]:
     athletes = list_athletes()
     from backend.mac_api.modules.athletes.athlete_matching import unique_matching_athlete_id
     measurements = []
+    # Uma coleta recente sem EVA não deve herdar dor de uma coleta anterior.
+    latest_thermal = {}
+    for record in thermography_history():
+        key = record.get('id_atleta') or record.get('jogador')
+        if key not in latest_thermal or record['data_coleta'] > latest_thermal[key]['data_coleta']:
+            latest_thermal[key] = record
     sources = (
         (jump_records(), 'maior_cmj', 'maior_cmj', 'atleta'),
         (gps_records(), 'distance_km', 'distance (km)', 'atleta'),
-        (thermography_history(), 'eva_dor', 'eva_dor', 'jogador'),
+        (list(latest_thermal.values()), 'eva_dor', 'eva_dor', 'jogador'),
     )
     for records, column, metric, name_column in sources:
         for record in records:

@@ -5,6 +5,14 @@
 
 ## Suíte automatizada
 
+`backend.tests.test_regional_eva` cobre as 16 medidas, lateralidade/vistas,
+valores inteiros 0–10, zero para regiões omitidas e ausência de conversão do EVA
+geral antigo. Com `MAC_TEST_DB_ENABLED=1` e as variáveis de `mac_test` abaixo,
+valida migração idempotente, remoção do EVA antigo, views, registro completo e
+parcial, edição, rollback SQL/arquivos e máximo da última coleta no mural.
+As fixtures de imagem e os arquivos de análise são temporários. A suíte de
+backup/sincronização também verifica a conservação dos valores regionais.
+
 Zonas térmicas e assistente:
 
 ```bash

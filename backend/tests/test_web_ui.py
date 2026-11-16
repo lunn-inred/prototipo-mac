@@ -20,6 +20,9 @@ from backend.mac_api.core.database import database_config, database_write_connec
 @unittest.skipUnless(os.getenv('MAC_TEST_DB_ENABLED') == '1', 'PostgreSQL local não habilitado')
 class WebUiIntegrationTests(unittest.TestCase):
     def setUp(self):
+        map_patch = patch('frontend.streamlit.components.thermography.wizard.body_muscles_map',
+                          return_value={'active': None, 'bodyState': {}})
+        map_patch.start(); self.addCleanup(map_patch.stop)
         import streamlit as st
         st.cache_data.clear()
         self.addCleanup(st.cache_data.clear)
@@ -108,8 +111,8 @@ class WebUiIntegrationTests(unittest.TestCase):
     def test_thermal_uploads_render_masks_parts_and_pair_summary(self):
         image = Image.new('RGB', (320, 200), (15, 15, 15))
         draw = ImageDraw.Draw(image)
-        draw.ellipse((45, 62, 215, 102), fill=(230, 55, 25))
-        draw.ellipse((45, 125, 215, 162), fill=(240, 70, 25))
+        draw.ellipse((62, 20, 102, 180), fill=(230, 55, 25))
+        draw.ellipse((125, 20, 162, 180), fill=(240, 70, 25))
         for y in range(20, 180):
             draw.line((280, y, 294, y), fill=(255-y, y, 40))
         buffer = io.BytesIO(); image.save(buffer, format='PNG')
@@ -123,7 +126,6 @@ class WebUiIntegrationTests(unittest.TestCase):
             athletes = self.client.get('/api/v1/athletes', headers={'X-API-Key': os.environ['MAC_API_KEY']}).json()
             app.selectbox(key='thermography_player').set_value(athletes[0]['id_atleta'])
             app.number_input(key='thermography_mass').set_value(75.0)
-            app.number_input(key='thermography_pain_score').set_value(0)
             app.run()
             for _ in range(6):
                 app.button(key='thermal_next').click().run()

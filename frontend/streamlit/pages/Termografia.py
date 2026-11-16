@@ -169,7 +169,7 @@ if all(view_metrics.values()):
         with columns[2]:
             prepared_day = st.date_input('Data da coleta *', value=draft.get('collected_at'),
                 format='DD/MM/YYYY', key='thermal_summary_date')
-        # Preservar o EVA legado sem criar valores a partir do mapa visual.
+        # Campo interno de compatibilidade; a persistência usa regional_eva.
         prepared_pain_score = pain_score
         prepared_observations = st.text_area('Observações', value=observations,
                                               key='thermography_observations').strip()
@@ -203,7 +203,7 @@ if all(view_metrics.values()):
         regional_ready = render_regional_summary(views, items, reviewed_record=draft.copy())
         st.session_state['thermal_prepared_record'] = dict(athlete_id=prepared_player_id,
             athlete_name=athletes_by_id.get(prepared_player_id, {}).get('nome', ''), mass=prepared_mass,
-            pain_score=prepared_pain_score, observations=prepared_observations, collected_at=prepared_day,
+            pain_score=None, regional_eva=draft.get('regional_eva'), observations=prepared_observations, collected_at=prepared_day,
             views=views, items=items, pair_signature=pair_signature)
         if not regional_ready:
             st.session_state['thermal_prepared_record'] = None

@@ -32,8 +32,8 @@ não uma escala clínica aprovada para o projeto.
 
 O mesmo componente aparece na primeira etapa de **Termografia**, entre
 jogador/massa e observações, com modo personalizado e Somente Pernas fixos e os
-números sempre visíveis. O estado é independente do laboratório e não é enviado
-ao banco nem incluído no salvamento térmico; esta integração é apenas visual.
+números sempre visíveis. O estado é independente do laboratório; na termografia,
+os 16 valores são incluídos no salvamento completo/parcial e restaurados ao reabrir.
 Na termografia, o modo compacto limita a altura do mapa entre 220 e 340 px,
 adaptando-se à altura da janela; o título usa fonte de 16 px e a orientação fica na ajuda.
 O painel de intensidade apresenta uma legenda numerada de 0 a 10, gerada diretamente
@@ -83,8 +83,8 @@ por média/máximo nem os descarta. **Limpar exploração** limpa ambos os modos
   Não exige Node.js nem internet no computador do usuário para renderizar o mapa;
   o login e os demais serviços do aplicativo mantêm suas dependências normais.
 
-A paleta própria e a persistência regional de EVA ainda não foram implementadas.
-Este laboratório não modifica o campo EVA existente nem o backend.
+A paleta clínica própria ainda não foi definida. Este laboratório não grava no
+backend; a página de termografia utiliza o mesmo componente para o registro regional.
 
 ## Licença e atribuição
 

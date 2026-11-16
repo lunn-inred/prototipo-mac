@@ -232,8 +232,14 @@ reescrito para gerar as prévias.
 ### Registro único de análise
 
 O botão **Salvar análise**, quando completa, usa `POST /api/v1/thermography/analyses/register`.
-O corpo tem o mesmo formato de `analyses`, mas `mass` e `pain_score` são
-obrigatórios; EVA zero é válido. `observations` é opcional. `athlete_name` deve
+O corpo tem o mesmo formato de `analyses`, mas `mass` é obrigatório.
+`regional_eva` contém IDs do diagrama e intensidades inteiras entre 0 e 10,
+por exemplo `{"front-thigh-right": 6, "back-foot-left": 2}`. Um objeto informado
+completa as outras regiões com zero; `null` significa avaliação ausente/antiga.
+Os 16 valores são armazenados como medidas `EVA_*` e nos arquivos locais.
+`pain_score` é um campo de compatibilidade sem efeito na gravação: não cria
+`EVA_DOR` e não preenche regiões. Nas respostas, representa o máximo regional
+calculado (ou `null`), não o EVA geral legado. `observations` é opcional. `athlete_name` deve
 ser enviado, mas o nome persistido é o do cadastro SQL. A data informada é usada
 no banco e no arquivo. As contagens não são recebidas como fonte de verdade:
 o backend calcula os pixels sobre máscaras e temperaturas de cada vista.
@@ -253,7 +259,7 @@ rota antiga de medidas e a rota unificada para a mesma coleta: isso gera conflit
 `POST /api/v1/thermography/drafts` recebe `state`, `draft_id` e
 `expected_revision` opcionais, mais `overwrite` (padrão `false`). `state` usa o
 transporte de matrizes existente e contém `step` (0–6), `draft` (`player`,
-`mass`, `pain`, `notes`, `collected_at`), `uploads` por `front`/`back` (nome,
+`mass`, `regional_eva`, `notes`, `collected_at`; `pain` legado é ignorado), `uploads` por `front`/`back` (nome,
 conteúdo original em base64 e rotação), `items` com os ajustes de cada imagem e
 `source` opcional com a identidade/revisão da análise completa em edição.
 Campos de coleta podem ser nulos. Não aceita pickle nem objetos executáveis.
@@ -262,8 +268,9 @@ A resposta contém o resumo com `id`, `created_at` (revisão) e `is_draft: true`
 Para atualizar, envie o ID e a revisão recebidos. `GET .../drafts/{draft_id}`
 retorna também `state`. Exige chave da API e destino local; valida o atleta
 selecionado e insere as medidas disponíveis nas tabelas existentes. Não exige
-massa, EVA ou ambas as imagens para salvar; omite medidas ausentes, preservando
-EVA zero. Contagens disponíveis na etapa de cálculo são recalculadas no backend.
+massa ou ambas as imagens para salvar; `state.draft.regional_eva` usa o mesmo
+contrato regional (mapa informado completa omissões com zero; ausente/null não
+cria avaliação). Contagens disponíveis na etapa de cálculo são recalculadas no backend.
 Novos salvamentos substituem as medidas da mesma coleta; mudanças de jogador/data
 movem os dados, sem duplicar. Por compatibilidade, esta rota ainda aceita um
 rascunho sem atleta somente em arquivos, sem conexão SQL; a interface, porém,

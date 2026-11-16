@@ -48,7 +48,7 @@ class BackupPostgresTests(unittest.TestCase):
 
     def register(self, athlete, day=date(2026, 11, 1), mass=75):
         values = dict(athlete_id=athlete, athlete_name='Interface', collected_at=day,
-                      mass=mass, pain_score=0, observations='Linha 1\nLinha 2, acento é', views=example_views())
+                      mass=mass, regional_eva={}, observations='Linha 1\nLinha 2, acento é', views=example_views())
         return register_analysis(**values)['analysis'], values
 
     def backup(self):
@@ -78,7 +78,7 @@ class BackupPostgresTests(unittest.TestCase):
             cursor.execute('INSERT INTO public.medida_valor(id_atleta,id_medida,valor,data) VALUES(%s,%s,30,%s)', (first, jump_measure, date(2026, 11, 1)))
         backup = self.backup()
         newer = replace_analysis(source=dict(athlete_id=first, collected_at=old['collected_at'], analysis_id=old['id']),
-            expected_revision=old['created_at'], **{**values, 'mass': 90, 'pain_score': 5})['analysis']
+            expected_revision=old['created_at'], **{**values, 'mass': 90, 'regional_eva': {'front-thigh-left': 5}})['analysis']
         local_only_id = self.athlete('Somente local')
         local_only, _ = self.register(local_only_id, mass=81)
         # Esta coleta só existe no backup depois de simular remoção local.

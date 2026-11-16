@@ -23,6 +23,13 @@ Google não permitir renomeá-la. O ID permanece o mesmo.
 
 ## Formato no Drive
 
+O EVA regional integra os dados do banco e os metadados dos ZIPs completos ou
+parciais. A migração `20261116_thermography_regional_eva.sql` deve ser aplicada
+em todos os computadores. Um índice publicado com as views anteriores será
+recusado por incompatibilidade de estrutura: não há migração automática nem
+DDL via sincronização. Coordene a transição, preservando os índices/backups
+antigos; uma nova pasta de sincronização evita misturar os dois contratos.
+
 ```text
 Analises MAC/
   analise-<uuid>-<hash>.zip

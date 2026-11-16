@@ -27,7 +27,7 @@ def load_into_wizard(entry):
         draft = dict(state['draft'])
         draft['collected_at'] = date.fromisoformat(draft['collected_at']) if draft.get('collected_at') else None
         step = min(state['step'], 5)
-        if any(draft.get(field) is None for field in ('player', 'mass', 'pain')):
+        if any(draft.get(field) is None for field in ('player', 'mass')):
             step = 0
         elif set(uploads) != {'front', 'back'}:
             step = min(step, 1)
@@ -69,7 +69,7 @@ def load_into_wizard(entry):
     st.session_state['thermal_uploads'] = uploads
     st.session_state['thermography_items'] = items
     st.session_state['thermal_draft'] = dict(player=entry['athlete_id'], mass=entry['mass'],
-                                            pain=entry['pain_score'], notes=entry['observations'], collected_at=entry['collected_at'])
+                                            pain=None, regional_eva=entry.get('regional_eva'), notes=entry['observations'], collected_at=entry['collected_at'])
     set_metadata_widgets(st.session_state['thermal_draft'])
     st.session_state['thermal_edit_source'] = {key: entry[key] for key in ('athlete_id', 'collected_at', 'id', 'created_at')}
     st.session_state['thermal_step'] = 0
