@@ -144,7 +144,7 @@ e cancelamento, compatibilidade da API com rascunhos antigos sem atleta,
 bloqueio na interface por toast quando falta jogador, retorno à primeira etapa
 sem perda de dados/imagens, upload de uma única vista, retomada em
 outra sessão, preservação de matrizes/ajustes e revisão desatualizada. O teste do
-assistente verifica que a coluna editável de data é enviada ao salvar, sem
+assistente verifica que o campo editável de data do resumo é enviado ao salvar, sem
 diálogo de data. Após sucesso completo ou parcial, verificam campos/imagens
 limpos, retorno à primeira etapa e toast de confirmação exibido uma única vez;
 falhas e cancelamentos mantêm o preenchimento. Usam diretórios temporários e

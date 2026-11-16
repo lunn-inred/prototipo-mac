@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import Any
-import pandas as pd
 import streamlit as st
 from frontend.streamlit.api_client.thermal_client import summarize_pair
 from frontend.streamlit.presentation.thermography_data import (
@@ -155,82 +154,39 @@ if all(view_metrics.values()):
 
     with st.container(border=True, key='thermal_collection_summary'):
         st.subheader("Resumo da coleta")
-        st.caption(
-            "Edite Jogador, Massa, EVA Dor, Data da coleta e Observações diretamente na tabela. "
-            "Frente e Costas são calculados automaticamente."
-        )
-        prepared_frame = pd.DataFrame([record])[['Jogador', 'Data da coleta', 'Massa', 'EVA Dor', 'Frente', 'Verso', 'Observações']]
-        prepared_frame["Jogador"] = prepared_frame["Jogador"].astype("string")
-        prepared_frame["Massa"] = pd.to_numeric(
-            prepared_frame["Massa"], errors="coerce"
-        ).astype("Float64")
-        prepared_frame["EVA Dor"] = pd.to_numeric(
-            prepared_frame["EVA Dor"], errors="coerce"
-        ).astype("Int64")
-        prepared_frame["Frente"] = prepared_frame["Frente"].astype("Int64")
-        prepared_frame["Verso"] = prepared_frame["Verso"].astype("Int64")
-        prepared_frame["Observações"] = (
-            prepared_frame["Observações"].fillna("").astype("string")
-        )
-        prepared_frame['Data da coleta'] = pd.to_datetime(prepared_frame['Data da coleta']).dt.date
-        edited_prepared_frame = st.data_editor(
-            prepared_frame,
-            width="stretch",
-            hide_index=True,
-            num_rows="fixed",
-            disabled=["Frente", "Verso"],
-            column_config={
-                'Data da coleta': st.column_config.DateColumn(format='DD/MM/YYYY', required=True),
-                "Jogador": st.column_config.SelectboxColumn(
-                    options=sorted(athlete_id_by_editor_label),
-                    required=True,
-                ),
-                "Massa": st.column_config.NumberColumn(
-                    min_value=0.1,
-                    step=0.1,
-                    format="%.1f kg",
-                    required=True,
-                ),
-                "EVA Dor": st.column_config.NumberColumn(
-                    min_value=0,
-                    max_value=10,
-                    step=1,
-                    format="%d",
-                    required=True,
-                ),
-                "Frente": st.column_config.NumberColumn(format="%d"),
-                "Verso": st.column_config.NumberColumn("Costas", format="%d"),
-                "Observações": st.column_config.TextColumn(
-                    width="large",
-                    default="",
-                ),
-            },
-            key=f"thermography_record_editor_{pair_signature}",
-        )
-        prepared_record = edited_prepared_frame.iloc[0].to_dict()
-        prepared_player_id = athlete_id_by_editor_label.get(
-            prepared_record.get("Jogador")
-        )
-        prepared_mass = prepared_record.get("Massa")
-        prepared_pain_score = prepared_record.get("EVA Dor")
-        prepared_day = prepared_record.get('Data da coleta')
-        prepared_day = pd.to_datetime(prepared_day).date() if prepared_day is not None and not pd.isna(prepared_day) else None
-        prepared_mass = None if prepared_mass is None or pd.isna(prepared_mass) else float(prepared_mass)
-        prepared_pain_score = None if prepared_pain_score is None or pd.isna(prepared_pain_score) else int(prepared_pain_score)
-        prepared_observations = prepared_record.get("Observações")
-        if prepared_observations is None or pd.isna(prepared_observations):
-            prepared_observations = ""
-        else:
-            prepared_observations = str(prepared_observations).strip()
+        columns = st.columns([2, 1, 1, 1.4])
+        ids = list(athletes_by_id)
+        with columns[0]:
+            prepared_player_id = st.selectbox(
+                'Jogador *', ids,
+                index=ids.index(selected_player_id) if selected_player_id in ids else None,
+                format_func=lambda value: athlete_label(athletes_by_id[value]),
+                key='thermography_player',
+            )
+        with columns[1]:
+            prepared_mass = st.number_input('Massa (kg) *', min_value=0.1,
+                value=mass, step=0.1, key='thermography_mass')
+        with columns[2]:
+            prepared_pain_score = st.number_input('EVA Dor *', min_value=0, max_value=10,
+                value=pain_score, step=1, key='thermography_pain_score')
+        with columns[3]:
+            prepared_day = st.date_input('Data da coleta *', value=draft.get('collected_at'),
+                format='DD/MM/YYYY', key='thermal_summary_date')
+        prepared_observations = st.text_area('Observações', value=observations,
+                                              key='thermography_observations').strip()
+        record.update(Jogador=editor_label_by_athlete_id.get(prepared_player_id),
+                      Massa=prepared_mass, **{'EVA Dor': prepared_pain_score,
+                                             'Observações': prepared_observations,
+                                             'Data da coleta': prepared_day})
 
         missing_fields = []
         if prepared_day is None:
             missing_fields.append('Data da coleta')
         if prepared_player_id is None:
             missing_fields.append("Jogador")
-        if prepared_mass is None or pd.isna(prepared_mass):
+        if prepared_mass is None:
             missing_fields.append("Massa")
-        if prepared_pain_score is None or pd.isna(prepared_pain_score):
+        if prepared_pain_score is None:
             missing_fields.append("EVA Dor")
 
         if missing_fields:
@@ -244,8 +200,6 @@ if all(view_metrics.values()):
 
         draft.update(player=prepared_player_id, mass=prepared_mass, pain=prepared_pain_score,
                      notes=prepared_observations, collected_at=prepared_day)
-        st.session_state.update(thermography_player=prepared_player_id, thermography_mass=prepared_mass,
-            thermography_pain_score=prepared_pain_score, thermography_observations=prepared_observations)
         regional_ready = render_regional_summary(views, items, reviewed_record=draft.copy())
         st.session_state['thermal_prepared_record'] = dict(athlete_id=prepared_player_id,
             athlete_name=athletes_by_id.get(prepared_player_id, {}).get('nome', ''), mass=prepared_mass,

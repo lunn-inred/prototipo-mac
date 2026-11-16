@@ -27,9 +27,9 @@ somente uma etapa por vez:
    Cada vista apresenta a imagem
    com divisões e nomes das áreas anatômicas, as pernas segmentadas sem fundo
    e os pixels da zona selecionada.
-7. Resumo da coleta: tabela revisável de metadados e contagens regionais.
-   Inclui a coluna editável **Data da coleta**, além de jogador, massa, EVA e
-   observações. **Salvar análise** grava medidas no banco local e arquivos na
+7. Resumo da coleta: campos individuais de jogador, massa, EVA e **Data da coleta**
+   lado a lado, com observações abaixo e tabelas de contagens regionais.
+   A data é editável nessa etapa, sem popup. **Salvar análise** grava medidas no banco local e arquivos na
    timeline quando todos os dados estão completos.
    As 48 contagens regionais aparecem em abas Frente/Costas, com uma tabela por
    perna: linhas Coxa/Joelho/Canela/Pé/Total e colunas Fria/Neutra/Quente, em pixels.

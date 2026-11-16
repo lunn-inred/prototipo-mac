@@ -81,7 +81,7 @@ def _ready_analysis(item, rotation):
 
 def _complete_values(step):
     if step == 6:
-        # A tabela desta etapa é a fonte atual dos campos editáveis, inclusive nulos.
+        # Os campos do resumo são a fonte atual dos metadados, inclusive nulos.
         return st.session_state.get('thermal_prepared_record')
     from .wizard import rotated_view
     uploads = st.session_state.get('thermal_uploads', {})

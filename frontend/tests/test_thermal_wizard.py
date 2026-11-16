@@ -229,8 +229,9 @@ class ThermalWizardTests(unittest.TestCase):
             self.assertLess(labels.index('Voltar'), labels.index('Iniciar outra análise'))
             self.assertFalse(any(widget.key and widget.key.startswith('wizard_tmin_') for widget in app.number_input))
             self.assertFalse(app.button(key='thermal_save_analysis').disabled)
-            self.assertFalse(app.date_input)
-            self.assertTrue(any('Data da coleta' in frame.value.columns for frame in app.dataframe))
+            self.assertEqual(len(app.date_input), 1)
+            self.assertIsNotNone(app.date_input(key='thermal_summary_date').value)
+            self.assertFalse(any('Jogador' in frame.value.columns for frame in app.dataframe))
             self.assertIn('Frente', [tab.label for tab in app.tabs])
             self.assertIn('Costas', [tab.label for tab in app.tabs])
             regional_tables = [table.value for table in app.dataframe
@@ -254,14 +255,11 @@ class ThermalWizardTests(unittest.TestCase):
             self.assertEqual(app.selectbox(key='thermography_player').value, 1)
             for _ in range(6):
                 app.button(key='thermal_next').click().run()
-            # A edição da coluna define a data enviada, sem janela de data.
-            def edit_collection_date(frame, **kwargs):
-                edited = frame.copy()
-                edited.loc[0, 'Data da coleta'] = date(2026, 11, 21)
-                return edited
-            with patch('streamlit.data_editor', side_effect=edit_collection_date), \
-                 patch('frontend.streamlit.components.thermography.save_flow.register_prepared_analysis', return_value={}) as save:
-                app.run()
+            # Os campos individuais atualizam os dados enviados, sem popup de data.
+            app.number_input(key='thermography_mass').set_value(76.5).run()
+            app.text_area(key='thermography_observations').set_value('Revisado no resumo').run()
+            app.date_input(key='thermal_summary_date').set_value(date(2026, 11, 21)).run()
+            with patch('frontend.streamlit.components.thermography.save_flow.register_prepared_analysis', return_value={}) as save:
                 self.assertEqual(app.session_state['thermal_prepared_record']['collected_at'], date(2026, 11, 21))
                 # Voltar à segmentação não torna incompletos os cálculos já válidos.
                 app.button(key='thermal_previous').click().run()
@@ -271,6 +269,8 @@ class ThermalWizardTests(unittest.TestCase):
                 self.assertFalse(app.exception)
                 self.assertFalse(any(button.key == 'thermal_save_confirm' for button in app.button))
                 self.assertEqual(save.call_args.kwargs['collected_at'], date(2026, 11, 21))
+                self.assertEqual(save.call_args.kwargs['mass'], 76.5)
+                self.assertEqual(save.call_args.kwargs['observations'], 'Revisado no resumo')
                 self.assertFalse(app.date_input)
             self.assertEqual(app.session_state['thermal_step'], 0)
             self.assertEqual(app.title[0].value, 'Termografia - Nova análise térmica')
