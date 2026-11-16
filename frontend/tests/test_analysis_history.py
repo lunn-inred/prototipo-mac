@@ -84,6 +84,53 @@ if not st.session_state.get('thermal_edit_source'):
             self.assertEqual(app.session_state['thermal_edit_source']['id'], self.saved['id'])
             load.assert_called_once()
 
+    def test_loaded_analysis_keeps_metadata_after_next_and_back(self):
+        state = {}
+        with patch.object(history.st, 'session_state', state):
+            history.load_into_wizard(self.loaded)
+        script = '''
+from frontend.streamlit.components.thermography.wizard import render_wizard
+render_wizard({1: {'id_atleta': 1, 'nome': 'Teste', 'posicao': 'Meia'}})
+'''
+        app = AppTest.from_string(script, default_timeout=30)
+        for key, value in state.items():
+            app.session_state[key] = value
+        app.session_state['thermography_player'] = None
+        app.session_state['thermography_mass'] = None
+        app.session_state['thermography_observations'] = ''
+        app.run()
+        self.assertEqual(app.selectbox(key='thermography_player').value, 1)
+        self.assertEqual(app.number_input(key='thermography_mass').value, 75.)
+        self.assertEqual(app.text_area(key='thermography_observations').value, 'Anterior')
+        app.number_input(key='thermography_mass').set_value(78.).run()
+        app.text_area(key='thermography_observations').set_value('Editado').run()
+        app.button(key='thermal_next').click().run()
+        # O WebView pode devolver chaves antigas após desmontar os widgets.
+        app.session_state['thermography_player'] = None
+        app.session_state['thermography_mass'] = None
+        app.session_state['thermography_observations'] = ''
+        app.button(key='thermal_previous').click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.selectbox(key='thermography_player').value, 1)
+        self.assertEqual(app.number_input(key='thermography_mass').value, 78.)
+        self.assertEqual(app.text_area(key='thermography_observations').value, 'Editado')
+
+    def test_history_callback_replaces_visible_first_step_widgets(self):
+        script = '''
+import streamlit as st
+from frontend.streamlit.components.thermography.wizard import render_wizard
+from frontend.streamlit.components.thermography.history import _select_analysis
+render_wizard({1: {'id_atleta': 1, 'nome': 'Teste', 'posicao': 'Meia'}})
+st.button('Abrir análise', on_click=_select_analysis, args=({'id': 'saved'},))
+'''
+        with patch.object(history, 'load_local_analysis', return_value=self.loaded):
+            app = AppTest.from_string(script, default_timeout=30).run()
+            next(button for button in app.button if button.label == 'Abrir análise').click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.selectbox(key='thermography_player').value, 1)
+        self.assertEqual(app.number_input(key='thermography_mass').value, 75.)
+        self.assertEqual(app.text_area(key='thermography_observations').value, 'Anterior')
+
     def test_browser_clears_previous_cards_before_requesting_analyses(self):
         script = '''
 from frontend.streamlit.components.thermography.history import show_history
@@ -220,3 +267,10 @@ show_history({1: {'id_atleta': 1, 'nome': 'Teste'}})
                 source = self.loaded['views'][key.split(':')[0]]
                 np.testing.assert_array_equal(item['analysis']['masks']['left'], source['segmentation_masks']['left'])
                 np.testing.assert_array_equal(item['analysis']['temperatures'], source['temperatures'])
+            for _ in range(5):
+                app.button(key='thermal_previous').click().run()
+                self.assertEqual(len(app.exception), 0, list(app.exception))
+            self.assertEqual(app.session_state['thermal_step'], 0)
+            self.assertEqual(app.session_state['thermography_player'], 1)
+            self.assertEqual(app.session_state['thermography_mass'], 75.)
+            self.assertEqual(app.session_state['thermography_observations'], 'Anterior')

@@ -139,14 +139,19 @@ def _render_regional_comparison(comparison, view_key):
     </style><div class="regional-panel"><div class="regional-grid">'''+''.join(cards)+'</div></div>')
 
 
+def _synchronize_gamma(view_key):
+    value = st.session_state[f'timeline_comparison_gamma_{view_key}']
+    st.session_state['timeline_gamma_value'] = value
+    other = 'back' if view_key == 'front' else 'front'
+    st.session_state[f'timeline_comparison_gamma_{other}'] = value
+
+
 def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
     st.markdown('#### Comparação Basal × Atual')
-    gamma = st.slider(
-        'Contraste das cores (gamma)', min_value=0.2, max_value=1.0,
-        value=0.5, step=0.05, key='timeline_comparison_gamma',
-        help='Valores menores destacam diferenças pequenas. 1 mantém o contraste linear. '
-             'Não altera temperaturas, limiares ou métricas e também pode realçar ruído.',
-    )
+    gamma = st.session_state.setdefault('timeline_gamma_value',
+        st.session_state.get('timeline_comparison_gamma', 0.5))
+    for view_key in ('front', 'back'):
+        st.session_state.setdefault(f'timeline_comparison_gamma_{view_key}', gamma)
     try:
         with st.spinner('Preparando comparação térmica…'):
             comparisons = _cached_comparison(t0, ti, gamma=gamma)
@@ -154,10 +159,6 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
     except ValueError as error:
         st.error(f'Não foi possível carregar a comparação: {error}')
         return
-    st.caption(
-        'A coleta atual é alinhada por coxa, joelho, canela e pé na segmentação basal. '
-        'O encaixe é aproximado e depende das divisões e máscaras revisadas pelo usuário.'
-    )
     tabs = st.tabs(['Frente', 'Costas'])
     for tab, view_key in zip(tabs, ('front', 'back')):
         with tab:
@@ -189,6 +190,13 @@ def _render_comparison(t0: dict[str, Any], ti: dict[str, Any]) -> None:
                     with column:
                         st.image(comparison['images'][side], caption=label, width='stretch')
                 st.image(comparison['legend'], width='stretch')
+                st.slider(
+                    'Ajuste de contraste (gama)', min_value=0.2, max_value=1.0,
+                    step=0.05, key=f'timeline_comparison_gamma_{view_key}',
+                    width='stretch', on_change=_synchronize_gamma, args=(view_key,),
+                    help='Valores menores destacam diferenças pequenas. 1 mantém o contraste linear. '
+                         'Não altera temperaturas, limiares ou métricas e também pode realçar ruído.',
+                )
             with metrics_column, st.container(key=f'timeline_metrics_{view_key}'):
                 st.html(f'''<style>
                 .st-key-timeline_metrics_{view_key} [data-testid="stMetricValue"] {{

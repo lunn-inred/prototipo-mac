@@ -162,8 +162,12 @@ def restart_analysis():
 
 
 def navigate(step, valid=True):
+    if step in (1, 2, 3, 4, 6):
+        st.html('<div style="height: 1.25rem" aria-hidden="true"></div>')
     left, right = st.columns(2, gap='large')
     if left.button('Voltar', disabled=step == 0, key='thermal_previous', width='stretch'):
+        if step == 1:
+            st.session_state['thermal_restore_metadata_widgets'] = True
         st.session_state['thermal_step'] = step - 1
         st.rerun()
     if step < len(STEPS)-1 and right.button('Continuar', type='primary',
@@ -196,7 +200,7 @@ def render_wizard(athletes_by_id):
             navigate(step)
         return calculation
     if step == 0:
-        set_metadata_widgets(draft, overwrite=False)
+        set_metadata_widgets(draft, overwrite=st.session_state.pop('thermal_restore_metadata_widgets', False))
         columns = st.columns(2)
         ids = list(athletes_by_id)
         with columns[0]:
@@ -315,7 +319,6 @@ def render_wizard(athletes_by_id):
                     valid = False
                     continue
                 if step == 2:
-                    st.caption('Confira as regiões encontradas e a barra de cores. As pernas devem estar com os pés para baixo.')
                     centered_preview(preview, caption='Área das pernas', max_width=700, max_height=400)
                     box_actions[view] = (key, image, automatic, colorbar)
                 else:

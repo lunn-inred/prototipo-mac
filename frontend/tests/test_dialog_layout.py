@@ -30,8 +30,9 @@ class DialogLayoutTests(unittest.TestCase):
         self.assertEqual(dialog_canvas_limits('parts', toolbar=False), (290, 85))
 
     @patch('frontend.streamlit.components.thermography.dialog_layout._measure_component')
-    def test_first_open_waits_for_browser_instead_of_small_fallback(self, component):
+    def test_first_open_still_draws_when_browser_does_not_report_size(self, component):
         render = Mock(side_effect=[{'size': None}, {'size': {'width': 3000, 'height': 1800}}])
         component.return_value = render
-        self.assertIsNone(dialog_canvas_limits('initial'))
+        self.assertEqual(dialog_canvas_limits('initial', toolbar=False), (600, 320))
+        self.assertIsNone(render.call_args_list[0].kwargs['data']['reported'])
         self.assertEqual(dialog_canvas_limits('large'), (1400, 650))

@@ -207,7 +207,6 @@ def player_card(
 
 
 st.title("Mural do Elenco")
-st.caption("Última medida ± desvio padrão no período selecionado.")
 
 if message := st.session_state.pop("athlete_crud_message", None):
     st.success(message)

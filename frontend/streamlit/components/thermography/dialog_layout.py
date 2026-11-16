@@ -12,8 +12,9 @@ export default function({parentElement, setStateValue, data}) {
         const dialog = document.querySelector('[data-testid="stDialog"] [role="dialog"]');
         const root = parentElement.getRootNode();
         const host = root.host || parentElement;
-        const top = host.getBoundingClientRect().top;
-        if (!dialog || dialog.clientWidth <= 0 || top <= 0) return;
+        const hostTop = host.getBoundingClientRect().top;
+        // Em alguns WebViews o host de altura zero reporta top=0.
+        const top = hostTop > 0 ? hostTop : Math.floor(view.innerHeight * .3);
         const available = Math.max(40, view.innerHeight - top - data.reserve);
         const totalWidth = Math.max(160, (dialog?.clientWidth || view.innerWidth * .9) - 96);
         const size = {width: Math.floor((totalWidth - (data.columns - 1) * 24) / data.columns),
@@ -32,15 +33,15 @@ export default function({parentElement, setStateValue, data}) {
         }
     }
     function schedule() {clearTimeout(timer); timer = setTimeout(measure, 120);}
-    const observer = new ResizeObserver(schedule);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
     const dialog = document.querySelector('[data-testid="stDialog"] [role="dialog"]');
-    if (dialog) {observer.observe(dialog); if (dialog.parentElement) observer.observe(dialog.parentElement);}
-    observer.observe(parentElement.getRootNode().host || parentElement);
+    if (dialog && observer) {observer.observe(dialog); if (dialog.parentElement) observer.observe(dialog.parentElement);}
+    if (observer) observer.observe(parentElement.getRootNode().host || parentElement);
     view.addEventListener('resize', schedule);
     // Também cobre montagem tardia: não desistir após um timeout fixo.
     const poll = setInterval(measure, 100);
     schedule();
-    return () => {clearTimeout(timer); clearInterval(poll); observer.disconnect(); view.removeEventListener('resize', schedule);};
+    return () => {clearTimeout(timer); clearInterval(poll); observer?.disconnect(); view.removeEventListener('resize', schedule);};
 }
 '''
 
@@ -60,6 +61,6 @@ def dialog_canvas_limits(key, *, columns=1, toolbar=True):
     if size:
         cache[key] = size
     else:
-        st.caption('Ajustando o editor ao tamanho da janela…')
-        return None
+        # Mantém o editor utilizável mesmo quando o WebView não informa o tamanho.
+        size = {'width': 600 if columns == 1 else 360, 'height': 320 if not toolbar else 260}
     return max(40, min(int(size['width']), 1400)), max(40, min(int(size['height']), 650))

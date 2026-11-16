@@ -123,12 +123,19 @@ class TimelineComparisonTests(unittest.TestCase):
                              'Escala deste comparativo', 'Contraste não linear',
                              'Mesmo limiar nas duas coletas', 'Análises armazenadas localmente')
             self.assertFalse(any(text in caption.value for caption in app.caption for text in removed_texts))
-            self.assertEqual(app.slider(key='timeline_comparison_gamma').value, .5)
+            self.assertEqual(app.slider(key='timeline_comparison_gamma_front').value, .5)
+            self.assertEqual(app.slider(key='timeline_comparison_gamma_back').value, .5)
+            self.assertEqual([slider.label for slider in app.slider],
+                             ['Ajuste de contraste (gama)'] * 2)
             before = regional_rows(app)
-            app.slider(key='timeline_comparison_gamma').set_value(1.).run()
+            app.slider(key='timeline_comparison_gamma_front').set_value(1.).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertEqual(regional_rows(app), before)
-            self.assertEqual(app.slider(key='timeline_comparison_gamma').value, 1.)
+            self.assertEqual(app.slider(key='timeline_comparison_gamma_front').value, 1.)
+            self.assertEqual(app.slider(key='timeline_comparison_gamma_back').value, 1.)
+            app.slider(key='timeline_comparison_gamma_back').set_value(.65).run()
+            self.assertEqual(app.slider(key='timeline_comparison_gamma_front').value, .65)
+            self.assertEqual(app.session_state['timeline_gamma_value'], .65)
             app.select_slider(key='thermography_timeline_date_1').set_value(date(2026, 10, 2)).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertIn('##### Atual (02/10/2026)', [text.value for text in app.markdown])
@@ -136,6 +143,7 @@ class TimelineComparisonTests(unittest.TestCase):
             app.select_slider(key='thermography_timeline_date_1').set_value(date(2026, 10, 1)).run()
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertFalse(any('Sem variação de temperatura' in message.value for message in app.info))
+            self.assertFalse(any('A coleta atual é alinhada' in message.value for message in app.caption))
 
     def test_empty_region_does_not_hide_other_regional_metrics(self):
         root = Path(__file__).resolve().parents[2]

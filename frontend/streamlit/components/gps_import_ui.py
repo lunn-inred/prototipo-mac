@@ -69,10 +69,6 @@ def render_gps_import() -> None:
     with st.container(border=True):
         st.subheader("Adicionar relatórios GPS")
         show_clear_message('gps')
-        st.caption(
-            "Envie um ou vários PDFs. As duas últimas páginas de cada arquivo "
-            "serão analisadas sem gravar dados no banco nesta etapa."
-        )
 
         try:
             athletes = load_athletes()

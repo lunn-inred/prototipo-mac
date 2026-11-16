@@ -137,8 +137,9 @@ e a posição do editor, reservando espaço para controles, toolbar e botões.
 O canvas reduz ou amplia sua prévia para caber nessa área, sem scroll do diálogo;
 a medição é repetida após a montagem/transição da janela, e a última dimensão
 válida é preservada para evitar reabrir com uma prévia pequena. Na primeira
-abertura, o editor aguarda uma medição estável; não desenha uma prévia provisória
-menor. A medição continua disponível mesmo quando a montagem do navegador é tardia.
+abertura, o editor usa um tamanho compacto provisório se a medição ainda não
+chegou, evitando deixar o pop-up vazio em WebViews. Assim que recebe uma medida
+estável, ajusta o canvas à janela; a medição também cobre montagem tardia.
 Os botões têm
 uma margem inferior reservada. **Concluir** é a ação destacada; aplicar,
 restaurar e confirmar registros são ações secundárias. As barras cinzas do canvas
@@ -343,7 +344,9 @@ rascunho em andamento, mas não modifica o registro salvo até a confirmação f
 Ao abrir uma análise completa ou parcial, jogador, massa, EVA e observações são
 sincronizados explicitamente com os campos da primeira etapa. Isso substitui os
 valores vazios deixados pelo último salvamento ou os de outro atleta, sem alterar
-o arquivo salvo; campos ausentes continuam vazios e EVA zero é preservado.
+o arquivo salvo; campos ausentes continuam vazios e EVA zero é preservado. Ao
+avançar e voltar à primeira etapa, os campos são restaurados do rascunho em
+edição, inclusive alterações feitas após abrir a análise.
 
 As imagens, rotações, caixas, divisões anatômicas, máscaras corrigidas,
 temperaturas e limiares são restaurados. Avançar pelas etapas sem modificações
@@ -486,8 +489,10 @@ da operação da API permanece disponível, mas a timeline não o envia. A escal
 
 ### Contraste visual com gamma
 
-A timeline inicia com **gamma 0,5**. O controle **Contraste das cores (gamma)**
-permite ajustar de 0,2 a 1: valores menores afastam diferenças pequenas da cor
+A timeline inicia com **gamma 0,5**. O controle **Ajuste de contraste (gama)**
+fica abaixo da paleta do mapa comparativo em cada aba; os dois controles mantêm
+o mesmo valor. Permite ajustar de 0,2 a 1: valores menores afastam diferenças
+pequenas da cor
 central; 1 restaura o mapeamento linear. O backend aplica a curva simétrica
 `sign(ΔT) × (abs(ΔT) / limite)^gamma` somente na busca da cor na paleta. Zero,
 o sinal e os extremos permanecem nas mesmas posições de referência. A legenda

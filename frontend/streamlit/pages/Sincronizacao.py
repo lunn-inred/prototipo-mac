@@ -4,7 +4,6 @@ from frontend.streamlit.api_client import backups
 
 st.set_page_config(page_title='MAC Performance | Sincronização', page_icon='☁️', layout='wide')
 st.title('Sincronização')
-st.write('Compartilhe jogadores, GPS, saltos e análises térmicas entre os computadores pela pasta Analises MAC no Google Drive.')
 
 
 @st.fragment(run_every='2s')
@@ -64,13 +63,6 @@ def render_sync():
 
 
 with st.container(border=True):
-    st.subheader('Sincronizar com a equipe')
-    st.write('Após salvar, as alterações locais são enviadas em segundo plano. Este botão permite iniciar uma sincronização manual quando necessário.')
-    st.caption('Se duas análises ocuparem o mesmo jogador e data, prevalece a salva por último. Em empate de horário, prevalece a do Drive. Confira o relógio dos dois computadores; uma cópia preventiva local é criada antes da substituição.')
-    st.warning('Salve suas alterações antes de sincronizar. Use um computador por vez para publicar; alterações concorrentes no mesmo registro exigem revisão.')
+    st.subheader('Sincronizar dados com a equipe')
+    st.warning('Salve suas alterações antes de sincronizar')
     render_sync()
-
-with st.expander('Como funciona'):
-    st.write('Cada análise possui seu próprio ZIP. Um índice separado guarda revisões, hashes e os dados do banco. Os registros são mesclados, sem substituir o banco inteiro.')
-    st.write('Diferenças na estrutura do banco bloqueiam a operação: atualize o aplicativo e aplique as migrações locais compatíveis. Nenhuma tabela ou view é copiada automaticamente do Drive.')
-    st.write('A pasta é localizada pelo ID já configurado e será renomeada para Analises MAC na sincronização. Backups antigos não são apagados nem importados automaticamente.')

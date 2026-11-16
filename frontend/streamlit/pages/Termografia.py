@@ -85,8 +85,6 @@ st.html('''
 
 
 st.title('Termografia - Editar análise térmica' if st.session_state.get('thermal_edit_source') or st.session_state.get('thermal_saved_draft') else 'Termografia - Nova análise térmica')
-if source := st.session_state.get('thermal_edit_source'):
-    st.caption(f'Editando análise de {source["collected_at"]:%d/%m/%Y}. As alterações só serão gravadas ao salvar.')
 
 flash_message = st.session_state.pop("thermography_flash", None)
 if flash_message:

@@ -38,6 +38,7 @@ def load_into_wizard(entry):
         st.session_state.update(thermal_uploads=uploads, thermography_items=items,
             thermal_draft=draft, thermal_step=step,
             thermal_saved_draft={key: entry[key] for key in ('id', 'created_at')})
+        st.session_state['thermal_restore_metadata_widgets'] = True
         set_metadata_widgets(draft)
         if source:
             st.session_state['thermal_edit_source'] = source
@@ -70,6 +71,7 @@ def load_into_wizard(entry):
     st.session_state['thermography_items'] = items
     st.session_state['thermal_draft'] = dict(player=entry['athlete_id'], mass=entry['mass'],
                                             pain=None, regional_eva=entry.get('regional_eva'), notes=entry['observations'], collected_at=entry['collected_at'])
+    st.session_state['thermal_restore_metadata_widgets'] = True
     set_metadata_widgets(st.session_state['thermal_draft'])
     st.session_state['thermal_edit_source'] = {key: entry[key] for key in ('athlete_id', 'collected_at', 'id', 'created_at')}
     st.session_state['thermal_step'] = 0
