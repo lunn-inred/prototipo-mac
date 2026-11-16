@@ -207,7 +207,6 @@ if all(view_metrics.values()):
             views=views, items=items, pair_signature=pair_signature)
         if not regional_ready:
             st.session_state['thermal_prepared_record'] = None
-        st.caption('Use Salvar análise abaixo. Se houver dados incompletos, será salvo um rascunho mediante confirmação.')
 
     navigate(6)
     render_pending_save()

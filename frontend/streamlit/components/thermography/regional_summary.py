@@ -25,28 +25,26 @@ def regional_frame(measurements, view, side):
 
 
 def render_regional_summary(views, items, reviewed_record=None):
-    st.markdown('#### Pixels por região e zona')
-    st.caption('Fria < 31 °C · Neutra de 31 a < 33 °C · Quente ≥ 33 °C. As três zonas serão registradas.')
     try:
         with st.spinner('Preparando as contagens por região…'):
             measurements = _preview(views_for_storage(views, items))
     except Exception:
         st.error('Não foi possível conferir as contagens por região. Confira se a API está atualizada e tente novamente.')
         return False
-    for tab, view in zip(st.tabs(['Frente', 'Costas']), ('FRENTE', 'VERSO')):
-        with tab:
-            for column, side, label in zip(st.columns(2), ('ESQUERDA', 'DIREITA'), ('Perna esquerda', 'Perna direita')):
-                with column:
-                    with st.container(border=True):
-                        st.markdown(f'**{label}**')
-                        st.dataframe(
-                            regional_frame(measurements, view, side), hide_index=True,
-                            width='stretch', height=213,
-                            column_config={name: st.column_config.NumberColumn(
-                                name, format='%d', help='Contagem de pixels segmentados nesta zona.')
-                                for name in ('Fria', 'Neutra', 'Quente')},
-                        )
-    st.caption('Contagens calculadas pelas imagens. Para corrigir os valores, ajuste as divisões ou a segmentação.')
+    with st.expander('Contagem de pixels por região', expanded=False):
+        for tab, view in zip(st.tabs(['Frente', 'Costas']), ('FRENTE', 'VERSO')):
+            with tab:
+                for column, side, label in zip(st.columns(2), ('ESQUERDA', 'DIREITA'), ('Perna esquerda', 'Perna direita')):
+                    with column:
+                        with st.container(border=True):
+                            st.markdown(f'**{label}**')
+                            st.dataframe(
+                                regional_frame(measurements, view, side), hide_index=True,
+                                width='stretch', height=213,
+                                column_config={name: st.column_config.NumberColumn(
+                                    name, format='%d', help='Contagem de pixels segmentados nesta zona.')
+                                    for name in ('Fria', 'Neutra', 'Quente')},
+                            )
     for column, label, step, key in zip(
         st.columns(2), ('Ajustar divisões anatômicas', 'Ajustar segmentação'),
         (3, 4), ('regional_edit_parts', 'regional_edit_masks'),
