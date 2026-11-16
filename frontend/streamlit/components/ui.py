@@ -114,6 +114,23 @@ def apply_global_style(*, show_sidebar_logo: bool = True) -> None:
             border-right: 1px solid #172033;
         }
 
+        [data-testid="stSidebar"] [data-testid="stSidebarHeader"] {
+            position: relative;
+            justify-content: center;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stSidebarLogo"] {
+            transform: scale(1.32);
+            transform-origin: center;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] {
+            position: absolute;
+            inset-inline-end: 1.25rem;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
         [data-testid="stSidebar"] [data-testid="stSidebarContent"] {
             padding-top: 0.75rem;
             display: flex;

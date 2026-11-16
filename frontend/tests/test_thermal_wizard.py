@@ -1,4 +1,5 @@
 import io
+from datetime import date
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -122,7 +123,7 @@ class ThermalWizardTests(unittest.TestCase):
                 if step == 1:
                     labels = [button.label for button in app.button]
                     self.assertEqual(labels.count('Girar 90° para a direita'), 2)
-                    self.assertEqual(labels[-2:], ['Voltar', 'Continuar'])
+                    self.assertEqual(labels[-4:], ['Voltar', 'Continuar', 'Ver análises anteriores', 'Salvar análise'])
                     self.assertIn('Imagem de costas', upload_labels)
                     self.assertNotIn('Imagem de verso', upload_labels)
                     key = next(button.key for button in app.button if button.key and button.key.startswith('thermal_rotation_front_'))
@@ -135,7 +136,7 @@ class ThermalWizardTests(unittest.TestCase):
                     labels = [button.label for button in app.button]
                     self.assertEqual(labels.count('Ajustar regiões'), 2)
                     self.assertNotIn('Corrigir Áreas', labels)
-                    self.assertEqual(labels[-2:], ['Voltar', 'Continuar'])
+                    self.assertEqual(labels[-4:], ['Voltar', 'Continuar', 'Ver análises anteriores', 'Salvar análise'])
                     self.assertIn('#### Costas', [text.value for text in app.markdown])
                 if step == 3:
                     self.assertEqual([button.label for button in app.button].count('Redefinir regiões'), 2)
@@ -224,10 +225,12 @@ class ThermalWizardTests(unittest.TestCase):
             labels = [button.label for button in app.button]
             self.assertNotIn('Adicionar à timeline', labels)
             self.assertNotIn('Registrar coleta no banco', labels)
-            self.assertLess(labels.index('Registrar Análise'), labels.index('Voltar'))
+            self.assertNotIn('Registrar Análise', labels)
             self.assertLess(labels.index('Voltar'), labels.index('Iniciar outra análise'))
             self.assertFalse(any(widget.key and widget.key.startswith('wizard_tmin_') for widget in app.number_input))
-            self.assertFalse(app.button(key='register_thermography_analysis').disabled)
+            self.assertFalse(app.button(key='thermal_save_analysis').disabled)
+            self.assertFalse(app.date_input)
+            self.assertTrue(any('Data da coleta' in frame.value.columns for frame in app.dataframe))
             self.assertIn('Frente', [tab.label for tab in app.tabs])
             self.assertIn('Costas', [tab.label for tab in app.tabs])
             regional_tables = [table.value for table in app.dataframe
@@ -240,31 +243,41 @@ class ThermalWizardTests(unittest.TestCase):
                 for zone in ('Fria', 'Neutra', 'Quente'):
                     self.assertEqual(table[zone].iloc[-1], table[zone].iloc[:4].sum())
             self.assertEqual(len(app.metric), 0)
-            self.assertEqual(app.selectbox(key='thermography_player').value, 1)
-            app.number_input(key='thermography_mass').set_value(76.5).run()
-            app.text_area(key='thermography_observations').set_value('Revisado no resumo').run()
-            for table in regional_tables:
-                self.assertEqual(list(table['Região']), ['Coxa', 'Joelho', 'Canela', 'Pé', 'Total'])
-                self.assertTrue((table[['Fria', 'Neutra', 'Quente']] >= 0).all().all())
-            with patch('frontend.streamlit.components.thermography.regional_summary._preview', side_effect=RuntimeError('API indisponível')):
-                app.run()
-                self.assertTrue(app.button(key='register_thermography_analysis').disabled)
-            app.run()
-            self.assertFalse(app.button(key='register_thermography_analysis').disabled)
-            app.button(key='regional_edit_parts').click().run()
-            self.assertEqual(app.session_state['thermal_step'], 3)
-            self.assertEqual(app.session_state['thermal_draft']['mass'], 76.5)
-            self.assertEqual(app.session_state['thermal_draft']['notes'], 'Revisado no resumo')
-            for _ in range(3):
-                app.button(key='thermal_next').click().run()
-            self.assertEqual(app.session_state['thermal_step'], 6)
-            self.assertEqual(len(app.exception), 0, list(app.exception))
             signature = next(iter(app.session_state['thermography_metrics']))
             app.session_state['thermal_registered_analysis'] = {'signature': signature}
             app.run()
-            self.assertTrue(app.button(key='register_thermography_analysis').disabled)
+            self.assertFalse(app.button(key='thermal_save_analysis').disabled)
             for _ in range(6):
                 app.button(key='thermal_previous').click().run()
-            self.assertEqual(app.number_input(key='thermography_mass').value, 76.5)
+            self.assertEqual(app.number_input(key='thermography_mass').value, 75.0)
             self.assertEqual(app.number_input(key='thermography_pain_score').value, 0)
             self.assertEqual(app.selectbox(key='thermography_player').value, 1)
+            for _ in range(6):
+                app.button(key='thermal_next').click().run()
+            # A edição da coluna define a data enviada, sem janela de data.
+            def edit_collection_date(frame, **kwargs):
+                edited = frame.copy()
+                edited.loc[0, 'Data da coleta'] = date(2026, 11, 21)
+                return edited
+            with patch('streamlit.data_editor', side_effect=edit_collection_date), \
+                 patch('frontend.streamlit.components.thermography.save_flow.register_prepared_analysis', return_value={}) as save:
+                app.run()
+                self.assertEqual(app.session_state['thermal_prepared_record']['collected_at'], date(2026, 11, 21))
+                # Voltar à segmentação não torna incompletos os cálculos já válidos.
+                app.button(key='thermal_previous').click().run()
+                app.button(key='thermal_previous').click().run()
+                self.assertEqual(app.session_state['thermal_step'], 4)
+                app.button(key='thermal_save_analysis').click().run()
+                self.assertFalse(app.exception)
+                self.assertFalse(any(button.key == 'thermal_save_confirm' for button in app.button))
+                self.assertEqual(save.call_args.kwargs['collected_at'], date(2026, 11, 21))
+                self.assertFalse(app.date_input)
+            self.assertEqual(app.session_state['thermal_step'], 0)
+            self.assertEqual(app.title[0].value, 'Termografia - Nova análise térmica')
+            self.assertIsNone(app.number_input(key='thermography_mass').value)
+            self.assertIsNone(app.number_input(key='thermography_pain_score').value)
+            self.assertIsNone(app.selectbox(key='thermography_player').value)
+            self.assertEqual(app.session_state['thermal_upload_generation'], 1)
+            self.assertNotIn('thermal_prepared_record', app.session_state)
+            self.assertNotIn('thermal_calculation', app.session_state)
+            self.assertEqual(app.toast[0].value, 'Análise salva. Você poderá visualizá-la em Ver análises anteriores.')

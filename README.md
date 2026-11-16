@@ -21,6 +21,8 @@ navegador ou em uma janela desktop (WebView).
 - Documentação detalhada:
   - [Configuração e modelo de .env](docs/configuration.md)
   - [Banco local — cópia da nuvem e restauração](docs/local-database.md)
+  - [Sincronização — Drive e compartilhamento entre computadores](docs/synchronization.md)
+  - [Backups legados — restauração e reconciliação](docs/backups.md)
   - [Execução web, Docker e hospedagem](docs/web.md)
   - [Desktop, build e distribuição](docs/desktop.md)
   - [API — endpoints completos e contratos](docs/api.md)
@@ -30,6 +32,7 @@ navegador ou em uma janela desktop (WebView).
   - [Saltos — importação, métricas e gráficos](docs/jumps.md)
   - [GPS — extração e importação](docs/gps.md)
   - [Termografia — etapas, cálculos, timeline e formulários](docs/thermography.md)
+  - [Mapa corporal experimental — uso, integração e licença](docs/body-muscles.md)
 
 ## Resumo do projeto
 
@@ -39,9 +42,15 @@ navegador ou em uma janela desktop (WebView).
 - `infrastructure/`: imagens Docker; `docs/`: guias detalhados.
 
 As métricas são consultadas nas views do banco. Escritas passam pelas validações
-e transações da API. **Registrar Análise**, na última etapa térmica, salva as
+e transações da API. **Salvar análise** registra as medidas já disponíveis no
+banco local mesmo em etapas incompletas, com o jogador selecionado. Quando
+a análise está completa, salva todas as
 medidas no banco local e imagens, máscaras e temperaturas em `data/thermography`,
 disponibilizando a coleta na timeline. Detalhes: [registro unificado](docs/thermography.md#registro-unificado).
+A página **Sincronização** compartilha registros do banco local e análises pelo
+Drive, na pasta **Analises MAC**, com um ZIP por análise e detecção de conflitos.
+Não substitui o banco inteiro. Antes de usar em equipe, leia os
+[limites, IDs e compatibilidade de estrutura](docs/synchronization.md).
 
 ## Preparação do Ambiente de Desenvolvimento
 
@@ -95,7 +104,7 @@ Hospedagem e instalação por processo: [guia web](docs/web.md).
 Com Docker Compose instalado e o `.env` preenchido:
 
 ```bash
-mkdir -p data/thermography
+mkdir -p data/thermography data/credentials data/backups
 docker compose up --build -d
 ```
 
@@ -153,7 +162,7 @@ macOS e empacotamento do OCR: [build e distribuição](docs/desktop.md).
 Com as dependências desktop instaladas e o `.env` preenchido:
 
 ```bash
-mkdir -p data/thermography
+mkdir -p data/thermography data/credentials data/backups
 docker compose up --build -d backend
 python desktop.py
 ```

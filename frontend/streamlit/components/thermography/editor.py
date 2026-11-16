@@ -343,6 +343,8 @@ def edit_thermal_mask(
         st.rerun(scope="fragment")
     if reset_column.button("Restaurar máscara automática", width='stretch'):
         item.setdefault("mask_seeds", {}).pop(side, None)
+        item.get('saved_analysis', {}).get('masks', {}).pop(side, None)
+        item['saved_analysis_revision'] = item.get('saved_analysis_revision', 0) + 1
         recalculate(side)
         item.pop("analysis_config", None)
         st.session_state[f"thermal_mask_message_{item_key}"] = (
@@ -358,19 +360,24 @@ def cached_temperature_scale(content: bytes) -> dict[str, float]:
     return extract_thermography_scale(content)
 
 
-def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature, threshold, item):
-    from frontend.streamlit.api_client.thermal_client import segmented_image
-    config = ('watershed-v2-zones-v1', item.get('thermal_zone'), minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
+def analysis_configuration(minimum_temperature, maximum_temperature, threshold, item):
+    return ('watershed-v2-zones-v1', item.get('thermal_zone'), minimum_temperature, maximum_temperature, threshold, item.get('image_rotation', 0),
+              item.get('saved_analysis_revision', 0),
               repr(item.get('manual_boxes')), repr(item.get('manual_colorbar_box')),
               tuple((side, hashlib.sha256(seed.tobytes()).hexdigest())
                     for side, seed in sorted(item.get('mask_seeds', {}).items())))
+
+
+def segmented_analysis(image, view_key, minimum_temperature, maximum_temperature, threshold, item):
+    from frontend.streamlit.api_client.thermal_client import segmented_image
+    config = analysis_configuration(minimum_temperature, maximum_temperature, threshold, item)
     if (item.get('analysis_config') == config and item.get('analysis') is not None
             and item['analysis'].get('thermal_zone') == item.get('thermal_zone')):
         return item['analysis']
     analysis = segmented_image(image, view_key, minimum_temperature, maximum_temperature,
                                threshold, item.get('manual_boxes'), item.get('manual_colorbar_box'),
                                item.get('mask_seeds'), image_rotation=item.get('image_rotation', 0),
-                               thermal_zone=item.get('thermal_zone'))
+                               saved_analysis=item.get('saved_analysis'), thermal_zone=item.get('thermal_zone'))
     item['analysis_config'] = config
     item['analysis'] = analysis
     return analysis

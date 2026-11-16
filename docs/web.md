@@ -51,7 +51,7 @@ pontos de entrada de compatibilidade; para a interface web, prefira
 Com o `.env` preenchido na raiz:
 
 ```bash
-mkdir -p data/thermography data/credentials
+mkdir -p data/thermography data/credentials data/backups
 docker compose up --build -d
 docker compose ps
 docker compose logs -f backend frontend
@@ -109,8 +109,12 @@ O botão **Entrar com Google** só aparece após preencher `MAC_GOOGLE_CLIENT_ID
 Antes do login, a navegação contém somente a página **Entrar**; as páginas de
 trabalho não aparecem no menu nem ficam disponíveis por seus endereços. Ao
 reabrir o app, a sessão é verificada na API antes de mostrar a navegação.
-O fluxo cria a pasta **MAC Backups** e guarda a autorização do Drive no backend;
-o envio periódico dos backups ainda não faz parte desta etapa.
+O fluxo valida a pasta existente indicada em `MAC_GOOGLE_BACKUP_FOLDER_ID` e
+guarda a autorização do Drive no backend, sem criar pastas automaticamente.
+Configure o mesmo ID em todas as instalações conforme a
+[configuração da pasta única](configuration.md#pasta-única-de-backup-da-equipe).
+O envio e a restauração manuais ficam na página **Backups**; não há agendamento
+automático. Veja o [guia de backups](backups.md).
 
 O retorno OAuth de `localhost:8000` não serve para o segundo computador. O modo
 desktop/WebView, que usa portas variáveis, também não participa deste primeiro

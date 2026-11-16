@@ -10,7 +10,7 @@ from frontend.streamlit.components.image_fonts import image_font
 from streamlit_drawable_konva import st_canvas
 
 from frontend.streamlit.api_client.thermal_client import (
-    annotate_boxes, image_regions, leg_part_metrics, DEFAULT_PART_CUTS,
+    annotate_boxes, image_regions, detect_colorbar_box, leg_part_metrics, DEFAULT_PART_CUTS,
     temperature_from_scale_percentage,
 )
 from frontend.streamlit.components.thermography.editor import (
@@ -22,6 +22,7 @@ from frontend.streamlit.components.thermography.editor import (
 from frontend.streamlit.presentation.thermography_data import athlete_label
 from frontend.streamlit.presentation.thermal_zones import ZONE_BUTTONS, normalize_zone_selection, zone_caption
 from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
+from frontend.streamlit.components.thermography.draft_state import clear_analysis_draft, reset_after_saved_analysis, set_metadata_widgets
 
 STEPS = ('Dados da coleta', 'Imagens e rotação', 'Regiões das pernas e barra de cores',
          'Divisão anatômica', 'Segmentação', 'Cálculo da termografia', 'Resumo da coleta')
@@ -153,12 +154,7 @@ def restart_analysis():
     st.warning('Os dados e imagens da análise atual serão descartados da sessão. '
                'Registros no banco e coletas já adicionadas à timeline não serão alterados.')
     if st.button('Confirmar nova análise', width='stretch'):
-        for key in list(st.session_state):
-            if key.startswith(('thermal_', 'wizard_', 'thermography_front_upload',
-                               'thermography_back_upload', 'thermography_record_editor_')) or key in {
-                                   'thermography_items', 'thermography_metrics', 'thermography_player',
-                                   'thermography_mass', 'thermography_pain_score', 'thermography_observations'}:
-                del st.session_state[key]
+        clear_analysis_draft()
         st.rerun()
 
     if st.button('Concluir', type='primary', width='stretch', key='close_restart_analysis'):
@@ -176,11 +172,22 @@ def navigate(step, valid=True):
         st.rerun()
     if step == len(STEPS)-1 and right.button('Iniciar outra análise', width='stretch'):
         restart_analysis()
+    from .history import render_history_button
+    history_column, save_column = st.columns(2, gap='large')
+    with history_column:
+        render_history_button(st.session_state.get('thermal_available_players', {}))
+    with save_column:
+        from .save_flow import render_save_button
+        render_save_button(step)
 
 
 def render_wizard(athletes_by_id):
+    reset_after_saved_analysis()
+    st.session_state['thermal_available_players'] = athletes_by_id
     step = st.session_state.setdefault('thermal_step', 0)
     draft = st.session_state.setdefault('thermal_draft', {})
+    from frontend.streamlit.api_client.contracts import current_sao_paulo_date
+    draft.setdefault('collected_at', current_sao_paulo_date())
     st.progress((step+1)/len(STEPS), text=f'Etapa {step+1} de {len(STEPS)} — {STEPS[step]}')
     if step == 6:
         calculation = st.session_state.get('thermal_calculation')
@@ -189,21 +196,24 @@ def render_wizard(athletes_by_id):
             navigate(step)
         return calculation
     if step == 0:
+        set_metadata_widgets(draft, overwrite=False)
         columns = st.columns(3)
         ids = list(athletes_by_id)
         with columns[0]:
-            selected = draft.get('player')
+            selected = st.session_state['thermography_player']
+            if selected not in ids:
+                st.session_state['thermography_player'] = None
             player = st.selectbox('Jogador *', ids,
-                                  index=ids.index(selected) if selected in ids else None,
+                                  index=None,
                                   format_func=lambda value: athlete_label(athletes_by_id[value]),
                                   key='thermography_player')
         with columns[1]:
-            mass = st.number_input('Massa (kg) *', min_value=0.1, value=draft.get('mass'),
+            mass = st.number_input('Massa (kg) *', min_value=0.1, value=None,
                                    step=0.1, key='thermography_mass')
         with columns[2]:
             pain = st.number_input('EVA Dor *', min_value=0, max_value=10,
-                                   value=draft.get('pain'), step=1, key='thermography_pain_score')
-        notes = st.text_area('Observações', value=draft.get('notes', ''), key='thermography_observations')
+                                   value=None, step=1, key='thermography_pain_score')
+        notes = st.text_area('Observações', value='', key='thermography_observations')
         draft.update(player=player, mass=mass, pain=pain, notes=notes)
         navigate(step, player is not None and mass is not None and pain is not None)
         return None
@@ -212,7 +222,7 @@ def render_wizard(athletes_by_id):
         for column, view in zip(st.columns(2, gap='large'), VIEW_LABELS):
             with column:
                 uploaded = st.file_uploader(f'Imagem de {VIEW_LABELS[view].lower()}',
-                                            type=['png', 'jpg', 'jpeg'], key=f'thermography_{view}_upload')
+                                            type=['png', 'jpg', 'jpeg'], key=f'thermography_{view}_upload_{st.session_state.get("thermal_upload_generation", 0)}')
                 if uploaded is not None:
                     content = uploaded.getvalue()
                     if uploads.get(view, {}).get('content') != content:
@@ -272,7 +282,12 @@ def render_wizard(athletes_by_id):
                     continue
             if step in (2, 3):
                 try:
-                    regions = image_regions(image, view, item['image_rotation'])
+                    saved = item.get('saved_analysis')
+                    if saved and set(saved.get('boxes', {})) == {'right', 'left'}:
+                        bar = saved.get('colorbar_box') or detect_colorbar_box(image)[0]
+                        regions = dict(boxes=saved['boxes'], colorbar_box=bar, segmentation_warning=None)
+                    else:
+                        regions = image_regions(image, view, item['image_rotation'])
                     automatic, colorbar = regions['boxes'], regions['colorbar_box']
                     if regions.get('segmentation_warning'):
                         st.warning(regions['segmentation_warning'])

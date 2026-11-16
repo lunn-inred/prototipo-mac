@@ -1,3 +1,4 @@
+
 # Testes e validação
 
 [← Voltar ao README](../README.md)
@@ -75,6 +76,25 @@ HTTP. As contagens de chamadas não representam medições de latência do Supab
 
 ## Testes locais com PostgreSQL
 
+A sincronização tem testes de mesclagem em `backend.tests.test_synchronization`,
+transporte Drive simulado em `test_backup_drive` e interface em
+`frontend.tests.test_sync_page`. Com o PostgreSQL descartável habilitado,
+`backend.tests.test_sync_postgres` simula dois computadores com estados locais
+independentes e Drive em memória. Cobre dados/ZIPs, reaproveitamento de arquivos,
+análises parciais, exclusões, conflitos de edição/IDs, estruturas incompatíveis e
+rollback de SQL/arquivos. Use as mesmas variáveis seguras abaixo, acrescentando
+`backend.tests.test_sync_postgres` à seleção de módulos. Não valida OAuth real,
+velocidade da rede nem publicação concorrente real entre dois processos.
+
+Os backups têm cobertura em `backend.tests.test_backup_bundle`,
+`backend.tests.test_backup_drive`, `backend.tests.test_backup_routes` e
+`frontend.tests.test_backups_page`, sem usar o Drive real. No banco descartável,
+`backend.tests.test_backup_postgres` testa restauração dos dados e imagens,
+preservação de medidas locais mais recentes, conflito de IDs e rollback em
+falha na publicação dos arquivos. Execute com as mesmas variáveis seguras abaixo.
+Esses testes usam somente arquivos temporários e recusam qualquer banco diferente
+de `mac_test`; não os direcione à cópia persistente.
+
 A fixture `backend/tests/fixtures/schema.sql` reproduz o modelo necessário aos
 testes. Não é um dump completo do Supabase nem uma migração de produção.
 Com `.env` presente na raiz, inicie somente o banco descartável:
@@ -93,6 +113,11 @@ python -m unittest backend.tests.test_local_postgres backend.tests.test_web_ui -
 ```
 
 Esses testes recusam hosts externos e bancos diferentes de `mac_test`.
+O teste de edição térmica cobre substituição, mudança de atleta/data,
+confirmação de conflito, revisão desatualizada, preservação de saltos e
+rollback de banco/arquivos em falha de gravação. As imagens usam diretórios
+temporários. Os testes AppTest de histórico e registro verificam seleção,
+restauração das máscaras/temperaturas, cancelamento e confirmação de sobrescrita.
 Nunca aponte os testes destrutivos para o `mac_dev` persistente. A cópia de
 desenvolvimento é descrita em [Banco local](local-database.md).
 Para testar também os processos Docker com esse banco:
@@ -114,6 +139,41 @@ O banco de teste não tem volume persistente: remover o container descarta seus 
 
 ## Limites da validação
 
+Os testes `test_thermal_drafts.py` e `test_thermal_draft_flow.py` cobrem confirmação
+e cancelamento, compatibilidade da API com rascunhos antigos sem atleta,
+bloqueio na interface por toast quando falta jogador, retorno à primeira etapa
+sem perda de dados/imagens, upload de uma única vista, retomada em
+outra sessão, preservação de matrizes/ajustes e revisão desatualizada. O teste do
+assistente verifica que a coluna editável de data é enviada ao salvar, sem
+diálogo de data. Após sucesso completo ou parcial, verificam campos/imagens
+limpos, retorno à primeira etapa e toast de confirmação exibido uma única vez;
+falhas e cancelamentos mantêm o preenchimento. Usam diretórios temporários e
+API interna de teste.
+O salvamento na primeira etapa verifica também o sinal `set_value` enviado aos
+widgets: o estado Python vazio, sozinho, não comprova que o navegador limpou os
+campos já montados.
+Os testes de reabertura usam a mesma sessão após a limpeza e após preencher outro
+atleta, verificando restauração explícita dos widgets, campos ausentes e EVA zero.
+
+`test_thermal_save_readiness.py` verifica completude nas etapas anteriores ao
+resumo, reabertura de análise completa sem confirmação indevida e rejeição de
+caches antigos após mudar imagem, rotação, caixas, barra ou escala. Também cobre
+EVA zero, metadados atuais e o contrato de armazenamento das matrizes restauradas.
+
+Com PostgreSQL descartável habilitado, `test_thermal_drafts_postgres.py` cobre
+promoção do rascunho mantendo UUID, edição incompleta preservando a versão
+completa em arquivos, atualização imediata de medidas parciais no SQL, mudança
+de jogador/data sem duplicação, EVA zero, omissão de campos ausentes, contagens
+recalculadas, rollback SQL/arquivos, sobrescrita explícita e restauração de
+backup preservando análise parcial, medidas e atleta.
+
+Os testes de OAuth em `backend/tests/test_google_auth.py` simulam as respostas do
+Google e usam arquivos de credenciais temporários. Cobrem a pasta configurada,
+tokens independentes web/desktop, acesso negado, lixeira, destino sem escrita,
+falhas de rede e ausência de criação automática. Não comprovam o acesso real
+à pasta da equipe: após preencher `MAC_GOOGLE_BACKUP_FOLDER_ID`, faça novo login
+nos dois modos e confirme que a autorização `drive.file` permite esse destino.
+
 Para reproduzir o dimensionamento dos diálogos sem API nem banco:
 
 ```bash
@@ -123,6 +183,17 @@ python -m streamlit run frontend/tests/fixtures/dialog_browser_app.py
 Clique em **Abrir** e compare a primeira abertura com a reabertura. A legenda
 `MEASURED` mostra os limites recebidos do navegador. Essa tela é apenas uma
 fixture de diagnóstico, não faz parte da navegação do produto.
+
+Para conferir o popup de análises anteriores com listas longas de atletas e
+análises fictícios, sem API nem banco:
+
+```bash
+python -m streamlit run frontend/tests/fixtures/history_browser_app.py
+```
+
+Confira as margens superior/inferior, o acesso ao último cartão pela rolagem e
+o botão **Voltar aos atletas** em diferentes alturas de janela. Essa fixture
+reutiliza os estilos da página térmica para reproduzir seus limites internos.
 
 Os testes de interface usam Streamlit AppTest e simulam o retorno do canvas.
 Eles verificam navegação, rascunho, prévias e atualização das divisões, mas não

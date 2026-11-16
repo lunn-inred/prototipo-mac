@@ -15,6 +15,14 @@ APP = Path(__file__).resolve().parents[1] / "streamlit" / "app.py"
 
 
 class GoogleLoginNavigationTests(unittest.TestCase):
+    def setUp(self):
+        # Um login desktop real persistido não deve autenticar um AppTest.
+        directory = TemporaryDirectory(prefix='mac-login-test-')
+        self.addCleanup(directory.cleanup)
+        environment = patch.dict(os.environ, MAC_GOOGLE_DESKTOP_SESSION_FILE=str(Path(directory.name) / 'session.txt'))
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_logged_out_navigation_contains_only_login_page(self):
         original = st.navigation
         declarations = []
@@ -57,7 +65,7 @@ class GoogleLoginNavigationTests(unittest.TestCase):
         pages, _ = declarations[0]
         self.assertEqual(
             [page.title for page in pages],
-            ["Jogadores", "Monitoramento GPS", "Monitoramento Salto", "Termografia", "Timeline térmica"],
+            ["Jogadores", "Monitoramento GPS", "Monitoramento Salto", "Termografia", "Timeline térmica", "Sincronização", "Mapa corporal (experimental)"],
         )
 
     def test_logout_button_is_in_authenticated_sidebar(self):

@@ -436,7 +436,7 @@ with filter_columns[2]:
 with filter_columns[3]:
     order_by = st.selectbox(
         "Ordenar por",
-        ["Risco", "Nome"],
+        ["Nome", "Risco"],
     )
 
 period_days = PERIODS[selected_period]

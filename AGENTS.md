@@ -15,6 +15,23 @@ documentação em `docs/`; não substituem a inspeção do código atual.
 - Comunique e documente limitações reais; não declare testes executados ou
   garantias de persistência que não foram verificados.
 
+## Escopo e eficiência
+
+- Leia apenas os arquivos e trechos necessários à tarefa, além das instruções
+  obrigatórias. Prefira buscas focadas e saídas limitadas; evite reler conteúdo
+  já disponível no contexto sem motivo concreto.
+- Para mudanças pequenas, execute os testes diretamente relacionados. Reserve
+  a suíte completa para alterações transversais, de persistência ou preparação
+  de entrega; amplie a validação conforme o risco e as dependências afetadas.
+- Use o navegador quando o comportamento visual ou a interação exigirem.
+  Confirme que o ambiente de diagnóstico carregou o código atual; reinicie
+  somente os processos de diagnóstico próprios se a recarga não funcionar.
+- Após duas tentativas sem progresso, reavalie a hipótese e o ambiente antes
+  de repetir ferramentas ou ampliar a investigação. Comunique o diagnóstico
+  antes de uma ampliação significativa do escopo.
+- Informe o que foi validado e as limitações restantes. Economia de contexto
+  não dispensa proteções de dados nem validações essenciais.
+
 ## Arquitetura
 
 - `frontend/`: páginas, widgets, edição visual, sessão, caches e cliente HTTP.
@@ -50,8 +67,15 @@ documentação em `docs/`; não substituem a inspeção do código atual.
 
 - Preserve as análises existentes e o formato de máscaras, matrizes e metadados.
   `MAC_ANALYSES_DIR` tem padrão `./data/thermography`, resolvido no backend.
-- O botão **Registrar Análise** registra medidas no banco local e arquivos para
-  a timeline em uma operação da API, com a mesma data e o atleta cadastrado.
+- **Salvar análise** está disponível em todas as etapas. Análises incompletas
+  gravam no banco local as medidas disponíveis, sem valores fictícios para campos
+  ausentes, e preservam o estado de edição em arquivos. Na interface, salvar sem
+  jogador deve mostrar um toast, voltar à primeira etapa e não gravar nada.
+  Preserve os dados já preenchidos nesse retorno. Análises completas
+  gravam banco local e arquivos da timeline pela mesma operação da API; a data
+  é editável no resumo. Preserve as confirmações de incompletude e sobrescrita.
+- Após salvar com sucesso, reinicie somente o estado do assistente para uma nova
+  análise e confirme por toast. Não limpe dados após erro ou cancelamento.
 - Recalcule contagens no backend sobre temperaturas e máscaras, não sobre valores
   resumidos enviados pela interface. Preserve medidas por perna e somas por vista.
 - Preserve rollback SQL e compensação dos arquivos recém-criados nas falhas.
@@ -75,8 +99,9 @@ API e frontend são processos separados; execute-os em terminais diferentes.
 `python desktop.py` também exige API separada; o binário empacotado inicia sua
 API automaticamente, mas não inicia Docker nem restaura o banco.
 
-- Crie/ajuste testes junto das mudanças. Rode os testes pertinentes e, quando
-  viável, a suíte completa: `python -m unittest discover -v`.
+- Crie/ajuste testes quando o comportamento alterado exigir cobertura. Escolha
+  a abrangência conforme a seção de escopo e eficiência; para a suíte completa,
+  use `python -m unittest discover -v`.
 - Testes de escrita usam exclusivamente `mac_test` descartável, nunca `mac_dev`
   nem Supabase. Só habilite `MAC_TEST_DB_ENABLED=1` após conferir explicitamente
   host, porta e nome desse banco, conforme [docs/testing.md](docs/testing.md).

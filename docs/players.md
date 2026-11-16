@@ -15,6 +15,8 @@ consulta ao histórico. Não há mais endpoint de exclusão de jogadores.
 O mural é dividido em **Ativos** e, logo abaixo, **Inativos**, com os mesmos
 cards. Os filtros e a ordenação se aplicam às duas seções. Desativar ou reativar
 um jogador o move para a seção correspondente, sem alterar suas medições.
+A ordenação padrão é alfabética pelo nome de exibição (apelido, quando preenchido;
+caso contrário, nome). A opção de ordenar por risco continua disponível no filtro.
 
 Na aba **Desativar/reativar jogador**, selecione o jogador e clique em
 **Desativar jogador** ou **Reativar jogador**, conforme o status atual.

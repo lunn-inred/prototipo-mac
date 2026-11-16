@@ -24,11 +24,11 @@ for _name in (
 
 
 def segmented_image(image, view, minimum_temperature, maximum_temperature, threshold,
-                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0, thermal_zone=None):
+                    manual_boxes=None, colorbar_box=None, seeds=None, image_rotation=0, thermal_zone=None, saved_analysis=None):
     payload = encode(dict(image=image, view=view, minimum_temperature=minimum_temperature,
                           maximum_temperature=maximum_temperature, threshold=threshold,
                           manual_boxes=manual_boxes, colorbar_box=colorbar_box, seeds=seeds,
-                          image_rotation=image_rotation, thermal_zone=thermal_zone))
+                          image_rotation=image_rotation, thermal_zone=thermal_zone, saved_analysis=saved_analysis))
     result = decode(_request('POST', '/api/v1/thermography/segment', json=payload))
     if thermal_zone is not None and result.get('thermal_zone') != thermal_zone:
         raise ApiClientError(

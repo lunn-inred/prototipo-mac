@@ -119,4 +119,3 @@ JOIN public.grupo_medida g USING (id_grupo_medida)
 WHERE lower(trim(g.nome)) = 'termografia'
 GROUP BY mv.id_atleta, mv.data;
 COMMIT;
-

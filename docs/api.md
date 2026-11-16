@@ -66,14 +66,64 @@ Com a API em execução:
 | `POST /api/v1/thermography/legacy/import` | Registra o lote legado validado | Sim |
 | `POST /api/v1/thermography/analyses` | Salva imagens e dados da análise localmente | Não |
 | `POST /api/v1/thermography/analyses/register` | Registra medidas no banco local e arquivos da timeline em uma operação | Sim |
+| `PUT /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Substitui uma análise salva, podendo mudar atleta/data | Sim |
 | `GET /api/v1/thermography/analyses?athlete_id=` | Lista análises locais com miniatura | Não |
 | `GET /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Carrega imagens, máscaras e matrizes de uma análise | Não |
+| `POST /api/v1/thermography/drafts` | Salva análise parcial e suas medidas disponíveis no banco local | Sim, se houver atleta |
+| `GET /api/v1/thermography/drafts/{draft_id}` | Carrega o estado de um rascunho | Não |
+| `GET /api/v1/backups?desktop=false` | Lista pacotes MAC na pasta configurada do Drive | Não |
+| `POST /api/v1/backups` | Inicia snapshot local e envio de um novo pacote ao Drive | Arquivos/Drive |
+| `POST /api/v1/backups/restore` | Baixa e restaura o banco local com reconciliação das análises | Sim, exige confirmação |
+| `GET /api/v1/backups/jobs/{id}` | Progresso/resultado da operação em segundo plano | Não |
+| `GET /api/v1/backups/sync/status?desktop=false` | Estado do índice compartilhado e detecção de ramificação | Não |
+| `POST /api/v1/backups/sync` | Mescla banco local e Drive, com um ZIP por análise | Sim, banco local/arquivos/Drive |
 
 Uploads usam `multipart/form-data`; os demais corpos usam JSON. Os esquemas,
 campos obrigatórios e exemplos para testar cada chamada ficam sempre atualizados
 na página `/docs`.
 Os formatos de imagens/matrizes e as operações permitidas estão em
 [Contratos de processamento](#contrato-de-termografia).
+
+## Contrato de backups
+
+A navegação utiliza agora **Sincronização**. `POST /api/v1/backups/sync` recebe
+`{"desktop": false}` e responde `202` com uma tarefa de tipo `sync`, acompanhada
+em `GET /api/v1/backups/jobs/{id}`. Após sucesso, o resultado informa `revision`,
+`analyses`, `uploaded`, `downloaded` e `recovery_copy`. Conflitos e estrutura
+incompatível aparecem como tarefa `failed`, sem escolha automática de vencedor.
+Não executa DDL nem restaura o banco inteiro. Regras e limites:
+[Sincronização](synchronization.md). Os contratos abaixo são legados de recuperação.
+
+As rotas de backup exigem chave de API e sessão Google mesmo no desenvolvimento;
+operam exclusivamente em `MAC_DB_TARGET=local`. A listagem retorna metadados do
+Drive (`id`, `name`, `size`, `createdTime`, `properties`). O campo
+`properties.sha256` identifica o conteúdo que será confirmado para restauração.
+
+`POST /api/v1/backups` recebe `{"desktop": false}`. `POST .../restore` recebe:
+
+```json
+{
+  "desktop": false,
+  "file_id": "ID_DO_ARQUIVO_DE_BACKUP",
+  "expected_sha256": "HASH_SHA256_DE_64_CARACTERES_HEXADECIMAIS",
+  "confirm": true
+}
+```
+
+O hash deve ser o valor real da listagem. `confirm` omitido/falso retorna 422;
+o arquivo precisa continuar pertencendo à pasta configurada e ter o hash
+confirmado. `desktop=true` seleciona o token nativo quando disponível, sem
+compartilhá-lo com o cliente OAuth Web. As respostas de início são `202`, com
+`id`, `kind`, `status` e `message`; consulte `GET .../jobs/{id}` até `completed`
+ou `failed`. Em sucesso, `result` informa contagens e caminho da cópia local ou
+preventiva, nunca credenciais. Não repita automaticamente um POST após perder
+a resposta; confira o estado para não iniciar duas restaurações.
+
+Uma tarefa por vez por processo (409 em tentativa simultânea). Enquanto aplica
+uma restauração ou copia o snapshot, as rotas normais de dados retornam 423;
+os endpoints de listagem/polling de backups continuam disponíveis. As tarefas
+não sobrevivem ao reinício da API; um diário de restauração pendente mantém
+os dados bloqueados até revisão. Regras, formato e limites: [Backups](backups.md).
 
 ## Contrato de termografia
 
@@ -171,9 +221,17 @@ nem alteram o banco. Data e UUID identificam arquivos, não coletas SQL.
 O arquivo local permite recuperar as imagens após encerrar a sessão;
 o histórico de medidas do banco continua sem imagens.
 
+Os resumos completos e parciais incluem `thumbnails`, com `front` e `back`
+codificados pelo transporte de imagens da API. Cada prévia mantém proporção e
+rotação, com até 640 × 480 px, sem ampliar imagens menores. Em análises parciais,
+somente as vistas enviadas aparecem nesse mapa; ele pode estar vazio.
+O campo singular `thumbnail` continua disponível em tamanho reduzido por
+compatibilidade com clientes anteriores. Nenhum arquivo salvo é migrado ou
+reescrito para gerar as prévias.
+
 ### Registro único de análise
 
-O botão **Registrar Análise** usa `POST /api/v1/thermography/analyses/register`.
+O botão **Salvar análise**, quando completa, usa `POST /api/v1/thermography/analyses/register`.
 O corpo tem o mesmo formato de `analyses`, mas `mass` e `pain_score` são
 obrigatórios; EVA zero é válido. `observations` é opcional. `athlete_name` deve
 ser enviado, mas o nome persistido é o do cadastro SQL. A data informada é usada
@@ -189,6 +247,74 @@ distribuída tolerante a desligamento abrupto. Veja [registro unificado](thermog
 
 As rotas antigas permanecem disponíveis para compatibilidade. Não execute a
 rota antiga de medidas e a rota unificada para a mesma coleta: isso gera conflito.
+
+### Rascunhos térmicos persistentes
+
+`POST /api/v1/thermography/drafts` recebe `state`, `draft_id` e
+`expected_revision` opcionais, mais `overwrite` (padrão `false`). `state` usa o
+transporte de matrizes existente e contém `step` (0–6), `draft` (`player`,
+`mass`, `pain`, `notes`, `collected_at`), `uploads` por `front`/`back` (nome,
+conteúdo original em base64 e rotação), `items` com os ajustes de cada imagem e
+`source` opcional com a identidade/revisão da análise completa em edição.
+Campos de coleta podem ser nulos. Não aceita pickle nem objetos executáveis.
+
+A resposta contém o resumo com `id`, `created_at` (revisão) e `is_draft: true`.
+Para atualizar, envie o ID e a revisão recebidos. `GET .../drafts/{draft_id}`
+retorna também `state`. Exige chave da API e destino local; valida o atleta
+selecionado e insere as medidas disponíveis nas tabelas existentes. Não exige
+massa, EVA ou ambas as imagens para salvar; omite medidas ausentes, preservando
+EVA zero. Contagens disponíveis na etapa de cálculo são recalculadas no backend.
+Novos salvamentos substituem as medidas da mesma coleta; mudanças de jogador/data
+movem os dados, sem duplicar. Por compatibilidade, esta rota ainda aceita um
+rascunho sem atleta somente em arquivos, sem conexão SQL; a interface, porém,
+bloqueia esse caso antes da chamada, mostra um toast e pede a seleção do jogador.
+Uma análise já vinculada ao
+banco não pode perder o jogador ao ser salva.
+Conflitos de atleta/data e revisão usam os mesmos códigos `409` da análise
+completa; `overwrite` não ignora revisões desatualizadas.
+
+`GET .../analyses?athlete_id=<id>&include_drafts=true` inclui rascunhos; o ID `0`
+lista apenas os ainda sem atleta. Sem `include_drafts`, a listagem permanece
+restrita às análises completas, como exige a timeline. Uma edição em rascunho
+aparece no histórico no lugar da versão completa. Atualiza as medidas SQL
+imediatamente, preserva internamente os arquivos completos antigos até a
+finalização e retira essa versão antiga da listagem usada pela timeline.
+O resumo do rascunho inclui `sql_pair` e `sql_revision` para identificar a coleta
+parcial e detectar alterações concorrentes, sem adicionar colunas ao banco.
+
+Na finalização, envie `draft_id` e `draft_revision` no `POST .../analyses/register`
+(novo registro) ou no `PUT` da origem (edição existente). O backend confere as
+revisões e a origem, mantém o UUID e só remove o rascunho depois do sucesso.
+Falha de registro preserva o rascunho para nova tentativa. O `POST` retorna `201`
+e o `PUT`, `200`, com o envelope de registro unificado. A data vem da coluna
+editável do resumo; nenhuma chamada separada para escolha de data é necessária.
+
+### Edição e sobrescrita de análise
+
+O `PUT` recebe o mesmo corpo do registro unificado e `expected_revision`, com o
+`created_at` retornado pelo detalhe/listagem da análise aberta. A URL identifica
+a origem; `athlete_id` e `collected_at` no corpo definem o destino, que pode mudar.
+A resposta `200` tem o mesmo envelope do registro. O UUID é preservado e
+`created_at` é atualizado para detectar edições concorrentes e renovar caches.
+Não há histórico permanente de versões. Uma análise antiga somente em arquivos
+também pode ser editada; ao salvar, suas medidas passam a existir no banco local.
+
+Se outro registro existir para o atleta/data de destino, a API responde `409`:
+
+```json
+{"detail":{"code":"analysis_date_conflict","message":"Uma análise do atleta já foi realizada nessa data. Deseja sobrescrevê-la?"}}
+```
+
+Somente após a confirmação do usuário, repita a requisição com `overwrite: true`.
+O `POST .../register` também aceita essa confirmação. Um `PUT` com revisão
+desatualizada retorna `409` com código `analysis_changed`; nesse caso é necessário
+reabrir a análise, não forçar a sobrescrita.
+
+A substituição remove apenas medidas do grupo termografia dos pares atleta/data
+envolvidos; GPS e saltos são preservados. Arquivos antigos ficam temporariamente
+em pastas ocultas `.replacing_*`, com recuperação em falhas normais, e são
+removidos após o commit. Banco e disco não têm transação distribuída: uma queda
+abrupta exige conferir banco e essas pastas antes de reenviar. Faça backup dos dois.
 
 ## Indicadores e importações
 

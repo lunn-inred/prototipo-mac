@@ -6,6 +6,7 @@ import json
 import base64
 import hashlib
 import os
+import re
 import secrets
 import threading
 import time
@@ -244,23 +245,48 @@ def _google_identity(id_token: str, client_id: str) -> dict:
     return google_id_token.verify_oauth2_token(id_token, GoogleRequest(), client_id)
 
 
-def _folder(access_token: str, existing_id: str | None) -> str:
+def _folder(access_token: str) -> str:
+    """Valida o único destino configurado; nunca cria pastas nem usa IDs em cache."""
+    folder_id = (setting('MAC_GOOGLE_BACKUP_FOLDER_ID') or '').strip()
+    if not folder_id:
+        raise HTTPException(503, 'Configure MAC_GOOGLE_BACKUP_FOLDER_ID no .env com o ID da pasta de backup da equipe. Nenhuma pasta foi criada.')
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,255}', folder_id):
+        raise HTTPException(503, 'MAC_GOOGLE_BACKUP_FOLDER_ID inválido. Informe somente o ID da pasta, não a URL completa.')
     headers = {"Authorization": f"Bearer {access_token}"}
-    if existing_id:
+    try:
         response = httpx.get(
-            f"https://www.googleapis.com/drive/v3/files/{existing_id}",
-            headers=headers, params={"fields": "id,trashed"}, timeout=15,
+            f"https://www.googleapis.com/drive/v3/files/{folder_id}",
+            headers=headers, params={
+                "fields": "id,mimeType,trashed,capabilities(canAddChildren)",
+                "supportsAllDrives": "true",
+            }, timeout=15,
         )
-        if response.status_code == 200 and not response.json().get("trashed"):
-            return existing_id
-    response = httpx.post(
-        "https://www.googleapis.com/drive/v3/files",
-        headers=headers,
-        json={"name": "MAC Backups", "mimeType": "application/vnd.google-apps.folder"},
-        params={"fields": "id"}, timeout=15,
-    )
-    response.raise_for_status()
-    return response.json()["id"]
+    except httpx.HTTPError as error:
+        raise HTTPException(503, 'Não foi possível verificar a pasta de backup no Drive. Tente novamente; nenhuma pasta foi criada.') from error
+    if response.status_code == 401:
+        raise HTTPException(401, 'A autorização do Drive é inválida ou expirou. Entre novamente com a conta autorizada.')
+    if response.status_code in (403, 404):
+        raise HTTPException(403, 'A pasta de backup não foi encontrada ou não está autorizada para este aplicativo. Confira o ID e a conta Google. Com drive.file, conhecer o ID não concede acesso: pode ser necessário autorizar a pasta pelo Google Picker. Nenhuma pasta foi criada.')
+    if response.status_code == 429 or response.status_code >= 500:
+        raise HTTPException(503, 'O Drive está temporariamente indisponível. Tente novamente; nenhuma pasta foi criada.')
+    if response.status_code != 200:
+        raise HTTPException(502, 'O Drive não confirmou o acesso à pasta de backup. Nenhuma pasta foi criada.')
+    try:
+        metadata = response.json()
+        if not isinstance(metadata, dict) or metadata.get('id') != folder_id:
+            raise ValueError('Metadados inválidos')
+        capabilities = metadata.get('capabilities') or {}
+        if not isinstance(capabilities, dict):
+            raise ValueError('Permissões inválidas')
+    except (ValueError, TypeError) as error:
+        raise HTTPException(502, 'O Drive retornou dados inválidos da pasta de backup. Nenhuma pasta foi criada.') from error
+    if metadata.get('trashed') is not False:
+        raise HTTPException(409, 'A pasta de backup está na lixeira ou seu estado não foi confirmado. Confira a pasta configurada; nenhuma outra foi criada.')
+    if metadata.get('mimeType') != 'application/vnd.google-apps.folder':
+        raise HTTPException(422, 'MAC_GOOGLE_BACKUP_FOLDER_ID precisa identificar uma pasta do Drive, não um arquivo ou atalho.')
+    if capabilities.get('canAddChildren') is not True:
+        raise HTTPException(403, 'A autorização atual não permite adicionar arquivos à pasta de backup. Confira as permissões; nenhuma pasta foi criada.')
+    return folder_id
 
 
 def _desktop_callback(code: str, pending: tuple[float, str, str, str, str, str, bool]) -> HTMLResponse:
@@ -287,13 +313,8 @@ def _desktop_callback(code: str, pending: tuple[float, str, str, str, str, str, 
         )
         if not refresh:
             raise HTTPException(503, "O Google não concedeu acesso offline ao Drive.")
-        if native:
-            # Outro cliente OAuth: manter apenas a referência, sem assumir acesso à pasta.
-            folder_hint = saved.get("folder_id_hint") or _saved_credentials().get("folder_id", "")
-            credentials = {"email": email, "refresh_token": refresh, "folder_id_hint": folder_hint}
-        else:
-            folder_id = _folder(tokens["access_token"], saved.get("folder_id") if saved.get("email") == email else None)
-            credentials = {"email": email, "refresh_token": refresh, "folder_id": folder_id}
+        folder_id = _folder(tokens["access_token"])
+        credentials = {"email": email, "refresh_token": refresh, "folder_id": folder_id}
         _save_credentials(credentials, desktop=native)
     except (HTTPException, httpx.HTTPError, KeyError, ValueError) as error:
         message = error.detail if isinstance(error, HTTPException) else "Não foi possível concluir o login Google."
@@ -369,7 +390,7 @@ def callback(
         )
         if not refresh:
             raise HTTPException(503, "O Google não concedeu acesso offline ao Drive.")
-        folder_id = _folder(tokens["access_token"], saved.get("folder_id") if saved.get("email") == email else None)
+        folder_id = _folder(tokens["access_token"])
         _save_credentials({"email": email, "refresh_token": refresh, "folder_id": folder_id})
     except httpx.HTTPError as error:
         raise HTTPException(502, "Não foi possível concluir a autorização no Google.") from error
