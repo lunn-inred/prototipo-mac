@@ -2,5 +2,6 @@
 
 streamlit-desktop-app==0.3.4
 pyinstaller>=6.22,<7
+pywin32>=308; sys_platform == "win32"
 PySide6>=6.8,<7; sys_platform == "linux"
 QtPy>=2.4,<3; sys_platform == "linux"

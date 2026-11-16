@@ -3,12 +3,15 @@
 
 from pathlib import Path
 import shutil
+import sys
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata, collect_submodules
 
 
 root = Path(SPECPATH).resolve().parent
 datas = [
+    (str(root / 'backend/bootstrap'), 'backend/bootstrap'),
+    (str(root / 'backend/migrations'), 'backend/migrations'),
     (str(root / 'backend/mac_api/assets/fonts'), 'backend/mac_api/assets/fonts'),
     (str(root / 'frontend/streamlit/app.py'), 'frontend/streamlit'),
     (str(root / 'frontend/streamlit/pages'), 'frontend/streamlit/pages'),
@@ -16,8 +19,11 @@ datas = [
     (str(root / 'frontend/streamlit/.streamlit/config.toml'), 'frontend/streamlit/.streamlit'),
 ]
 binaries = []
-hiddenimports = collect_submodules('backend') + collect_submodules('frontend') + ['desktop.launcher']
+hiddenimports = collect_submodules('backend') + collect_submodules('frontend') + collect_submodules('desktop')
 hiddenimports = [name for name in hiddenimports if '.tests' not in name]
+if sys.platform == 'win32':
+    # GetFileInformationByHandle carrega este módulo dinamicamente ao criar PyTime.
+    hiddenimports.append('win32timezone')
 
 for package in ("streamlit", "streamlit_drawable_konva"):
     package_datas, package_binaries, package_hidden = collect_all(package)
@@ -32,7 +38,7 @@ for distribution in ("streamlit", "streamlit-desktop-app"):
     datas += copy_metadata(distribution)
 
 tesseract = shutil.which("tesseract")
-if tesseract:
+if tesseract and sys.platform != 'win32':
     binaries.append((tesseract, "tesseract"))
     for candidate in (
         Path("/usr/share/tesseract-ocr/5/tessdata"),
@@ -57,11 +63,11 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+windows = sys.platform == 'win32'
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
+    *([] if windows else [a.binaries, a.datas]),
     [],
     name="MAC Performance",
     debug=False,
@@ -74,4 +80,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    exclude_binaries=windows,
 )
+if windows:
+    collect = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='MAC Performance')

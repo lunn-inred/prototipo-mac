@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "baseline": "00000000_initial",
+  "includes": {
+    "20261016_athlete_status.sql": "506870d18a339dbc0f92d3173d6d6119c3a0b5b404900e81ac3442babdbe37eb",
+    "20261115_thermography_regional_zones.sql": "b54e0bb0a789b839577bbce977bbcfd0ef9661cc5aa4d35dfbca7a74714285ba",
+    "20261116_thermography_regional_eva.sql": "c3fd446be19c8ec7ee3252dbd65a58175ba0fd4f5615b742299339754aa58afe"
+  }
+}

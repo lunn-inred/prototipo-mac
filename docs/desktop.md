@@ -4,6 +4,11 @@
 
 ## Visão geral
 
+Para a entrega ao cliente Windows, use o [instalador Windows](windows-installer.md).
+Ele prepara um PostgreSQL próprio e gerencia a inicialização/migrations, sem
+Docker. A homologação real é feita na VM Windows. Os passos abaixo de `.env`
+manual e banco separado continuam válidos para desenvolvimento e pacotes legados.
+
 O cliente também pode ser executado em uma janela nativa com
 `streamlit-desktop-app`. O conteúdo continua sendo renderizado pelo Streamlit,
 mas fica dentro de uma WebView, sem abrir uma aba do navegador. Durante o
@@ -145,8 +150,8 @@ Abra o executável Linux:
 No Windows PowerShell, copie a configuração e abra o `.exe` com:
 
 ```powershell
-Copy-Item .env "dist\.env"
-& ".\dist\MAC Performance.exe"
+Copy-Item .env "dist\MAC Performance\.env"
+& ".\dist\MAC Performance\MAC Performance.exe"
 ```
 
 O `.env` não é incluído no pacote nem versionado, evitando que credenciais sejam

@@ -1,0 +1,18 @@
+MAC Performance — componentes redistribuídos
+
+O pacote inclui Python/PyInstaller, Streamlit, pywebview, PostgreSQL 17,
+Tesseract e dependências. Preserve as licenças e avisos contidos nas pastas
+dos fornecedores e no pacote Python. Não remova LICENSE/COPYING/COPYRIGHT.
+
+PostgreSQL: https://www.postgresql.org/about/licence/
+Python: https://docs.python.org/3/license.html
+PyInstaller: https://pyinstaller.org/en/stable/license.html
+Tesseract: https://github.com/tesseract-ocr/tesseract/blob/main/LICENSE
+Body Muscles: licença/NOTICE em frontend/streamlit/assets/vendor/body-muscles/2.1.1/
+
+WebView2 e Visual C++ Runtime são instaladores Microsoft assinados, sujeitos
+aos respectivos termos de redistribuição. Inno Setup possui termos próprios,
+inclusive orientação de licenciamento comercial: https://jrsoftware.org/isorder.php
+
+Os hashes em runtime-manifest.json identificam os arquivos utilizados no build;
+não substituem verificação da origem dos fornecedores ou assinatura do instalador.

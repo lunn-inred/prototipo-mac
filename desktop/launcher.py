@@ -13,6 +13,13 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
+# Executáveis windowed não possuem console; Uvicorn/Streamlit consultam isatty.
+if sys.platform == 'win32' and getattr(sys, 'frozen', False):
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, 'w', encoding='utf-8')
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, 'w', encoding='utf-8')
+
 if sys.platform.startswith("linux"):
     # Qt 6 fornece um Chromium compatível com o frontend do Streamlit atual.
     os.environ.setdefault("QT_API", "pyside6")
@@ -24,7 +31,7 @@ from streamlit_desktop_app import start_desktop_app
 APP_TITLE = "MAC Performance"
 WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
-API_STARTUP_TIMEOUT_SECONDS = 30
+API_STARTUP_TIMEOUT_SECONDS = 120
 
 
 def resource_root() -> Path:
@@ -62,10 +69,28 @@ def load_environment(path: Path, *, override: bool = False) -> None:
 def configure_runtime() -> Path:
     root = resource_root()
     # Um único .env configura API e Streamlit. No pacote ele fica ao lado do binário.
-    environment_file = executable_root() / ".env"
+    managed = sys.platform == 'win32' and bool(getattr(sys, 'frozen', False))
+    if managed:
+        from desktop.windows_runtime import installation_file, read_installation, configure_user_paths
+        if installation_file().exists():
+            state = read_installation()
+            if Path(state['install_dir']).resolve() != executable_root():
+                raise RuntimeError('Abra o atalho da instalação atual do MAC Performance.')
+            environment_file = installation_file().parent / '.env'
+            if not environment_file.is_file():
+                raise RuntimeError('Configuração ausente. Execute a reparação do instalador.')
+        elif not (executable_root() / '.env').is_file():
+            raise RuntimeError('Execute MAC-Setup.exe para preparar a instalação.')
+        else:
+            managed = False  # Compatibilidade explícita com pacote portátil antigo.
+            environment_file = executable_root() / '.env'
+    else:
+        environment_file = executable_root() / ".env"
     load_environment(environment_file, override=True)
+    if managed:
+        configure_user_paths(state)
     os.environ["MAC_DESKTOP_MODE"] = "1"
-    if getattr(sys, "frozen", False):
+    if getattr(sys, "frozen", False) and not managed:
         credentials = executable_root() / "data" / "credentials"
         if not os.environ.get("MAC_GOOGLE_TOKEN_FILE"):
             os.environ["MAC_GOOGLE_TOKEN_FILE"] = str(credentials / "google-drive.json")
@@ -79,13 +104,15 @@ def configure_runtime() -> Path:
     bundled_tesseract = root / "tesseract" / (
         "tesseract.exe" if sys.platform == "win32" else "tesseract"
     )
+    if managed:
+        bundled_tesseract = executable_root() / 'runtime/tesseract/tesseract.exe'
     if bundled_tesseract.is_file():
         os.environ["PATH"] = (
             str(bundled_tesseract.parent)
             + os.pathsep
             + os.environ.get("PATH", "")
         )
-        tessdata = root / "tessdata"
+        tessdata = bundled_tesseract.parent / 'tessdata' if managed else root / "tessdata"
         if tessdata.is_dir():
             os.environ.setdefault("TESSDATA_PREFIX", str(tessdata))
 
@@ -107,12 +134,27 @@ def run_local_api(port: int) -> None:
     import uvicorn
     from backend.mac_api.main import app
 
+    options = {}
+    if sys.platform == 'win32' and os.environ.get('MAC_DESKTOP_MANAGED') == '1':
+        from desktop.windows_os import known_directory
+        directory = known_directory(False) / 'logs'
+        directory.mkdir(parents=True,exist_ok=True)
+        options['log_config'] = {
+            'version':1,'disable_existing_loggers':False,
+            'formatters':{'standard':{'format':'%(asctime)s %(levelname)s %(message)s'}},
+            'handlers':{'file':{'class':'logging.handlers.RotatingFileHandler',
+                'filename':str(directory/'api.log'),'maxBytes':2_000_000,'backupCount':3,
+                'encoding':'utf-8','formatter':'standard'}},
+            'loggers':{'uvicorn':{'handlers':['file'],'level':'WARNING','propagate':False},
+                       'uvicorn.error':{'handlers':['file'],'level':'WARNING','propagate':False}},
+        }
     uvicorn.run(
         app,
         host="127.0.0.1",
         port=port,
         log_level="warning",
         access_log=False,
+        **options,
     )
 
 
@@ -173,16 +215,38 @@ def start_local_api() -> tuple[multiprocessing.Process, int]:
 
 
 def main() -> None:
-    script = configure_runtime()
-    if not script.is_file():
-        raise RuntimeError(f"Arquivo principal não encontrado: {script}")
+    windows = sys.platform == 'win32' and bool(getattr(sys, 'frozen', False))
+    if windows and '--setup-action' in sys.argv:
+        try:
+            from desktop import windows_os, windows_runtime
+            user = windows_os.known_directory(False)
+            user.mkdir(parents=True, exist_ok=True)
+            windows_os.protect(user, writers=(windows_os.current_sid(),))
+            windows_runtime.configure_logging(user)
+            from desktop.windows_setup import main as setup_main
+            setup_main(sys.argv[1:])
+        except Exception as error:
+            from desktop.windows_runtime import show_error
+            show_error(error)
+            raise SystemExit(1) from None
+        return
     bundled = bool(getattr(sys, "frozen", False))
     api_process: multiprocessing.Process | None = None
+    instance = None
     original_webview_start = webview.start
     if sys.platform.startswith("linux"):
         # Evita a tentativa ruidosa de carregar GTK antes do backend instalado.
         webview.start = partial(original_webview_start, gui="qt")
     try:
+        if windows:
+            from desktop.windows_os import instance_lock
+            instance = instance_lock()
+        script = configure_runtime()
+        if not script.is_file():
+            raise RuntimeError(f"Arquivo principal não encontrado: {script}")
+        if windows and os.environ.get('MAC_DESKTOP_MANAGED') == '1':
+            from desktop.windows_runtime import prepare
+            prepare()
         if bundled:
             api_process, api_port = start_local_api()
             os.environ["MAC_API_BASE_URL"] = f"http://127.0.0.1:{api_port}"
@@ -207,11 +271,19 @@ def main() -> None:
                 "client.showErrorDetails": "false",
             },
         )
+    except Exception as error:
+        if windows:
+            from desktop.windows_runtime import show_error
+            show_error(error)
+            raise SystemExit(1) from None
+        raise
     finally:
         webview.start = original_webview_start
         stop_process(api_process)
         if api_process is not None:
             print("[MAC Desktop] API local encerrada.", flush=True)
+        if instance is not None:
+            instance.Close()
 
 
 if __name__ == "__main__":

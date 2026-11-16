@@ -54,8 +54,10 @@ documentação em `docs/`; não substituem a inspeção do código atual.
   modo de produção apenas para contornar um erro de conexão.
 - Acesso à nuvem exige autorização explícita para a tarefa. Exportações usam
   conexão somente leitura; nunca aplique mudanças remotas por conveniência.
-- O arquivo de configuração é o único `.env` da raiz. Preserve-o; mantenha
-  `.env.example` sem credenciais reais. Não exiba segredos em logs ou comandos.
+- No desenvolvimento, a configuração é o único `.env` da raiz; preserve-o.
+  No Windows instalado, o Setup gera um único `.env` privado em ProgramData,
+  sem copiar o do desenvolvedor. Mantenha `.env.example` sem credenciais reais.
+  Não exiba segredos em logs ou comandos.
 - Não versione nem inclua em imagens Docker dumps, dados dos atletas ou os
   diretórios `data/backups/` e `data/thermography/`.
 - Não apague volumes, restaure sobre um banco populado ou use `down -v` no
@@ -96,8 +98,10 @@ python -m frontend.run
 ```
 
 API e frontend são processos separados; execute-os em terminais diferentes.
-`python desktop.py` também exige API separada; o binário empacotado inicia sua
-API automaticamente, mas não inicia Docker nem restaura o banco.
+`python desktop.py` também exige API separada. O binário inicia sua API; no
+Windows instalado pelo Setup, gerencia serviço PostgreSQL próprio e migrations
+com identificação/backup, sem adotar bancos existentes. Não altere `mac_dev` do
+Docker ao testar essa instalação. Veja [instalador Windows](docs/windows-installer.md).
 
 - Crie/ajuste testes quando o comportamento alterado exigir cobertura. Escolha
   a abrangência conforme a seção de escopo e eficiência; para a suíte completa,

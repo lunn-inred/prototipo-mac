@@ -29,6 +29,7 @@ coverage.xml
 # Build and packaging artifacts
 build/
 dist/
+/entrega-windows/
 *.egg-info/
 # Streamlit runtime files
 streamlit*.log

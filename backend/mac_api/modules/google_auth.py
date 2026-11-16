@@ -34,7 +34,18 @@ _SCOPE = "openid email profile https://www.googleapis.com/auth/drive.file"
 
 
 def enabled() -> bool:
+    if setting('MAC_DESKTOP_MANAGED') == '1':
+        return bool(setting('MAC_GOOGLE_DESKTOP_CLIENT_ID'))
     return bool(setting("MAC_GOOGLE_CLIENT_ID"))
+
+
+def _desktop_allowed_email() -> str:
+    if setting('MAC_DESKTOP_MANAGED') != '1':
+        return _config()[2]
+    email = (setting('MAC_GOOGLE_ALLOWED_EMAIL') or '').strip().lower()
+    if not email or not api_key():
+        raise HTTPException(503, 'Configuração do login Desktop incompleta.')
+    return email
 
 
 def _config() -> tuple[str, str, str, str, str]:
@@ -199,7 +210,7 @@ def _desktop_client(request: Request) -> tuple[str, str, str, bool]:
 @router.post("/desktop/start")
 def desktop_start(request: Request, x_api_key: str | None = Header(default=None)) -> dict[str, str]:
     _require_internal_key(x_api_key)
-    _, _, allowed_email, _, _ = _config()
+    allowed_email = _desktop_allowed_email()
     client_id, client_secret, redirect, native = _desktop_client(request)
     state = secrets.token_urlsafe(32)
     poll_token = secrets.token_urlsafe(32)
@@ -291,7 +302,7 @@ def _folder(access_token: str) -> str:
 
 def _desktop_callback(code: str, pending: tuple[float, str, str, str, str, str, bool]) -> HTMLResponse:
     _, poll_token, verifier, redirect, client_id, client_secret, native = pending
-    _, _, allowed_email, _, _ = _config()
+    allowed_email = _desktop_allowed_email()
     try:
         response = httpx.post(
             "https://oauth2.googleapis.com/token",

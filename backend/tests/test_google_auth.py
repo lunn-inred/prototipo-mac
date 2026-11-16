@@ -44,6 +44,28 @@ class GoogleAuthTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertIn('Google', response.json()['detail'])
 
+    def test_installed_desktop_login_does_not_require_web_client_secrets(self):
+        with patch.dict(os.environ,MAC_DESKTOP_MANAGED='1',MAC_GOOGLE_CLIENT_ID='',
+                        MAC_GOOGLE_CLIENT_SECRET='',MAC_GOOGLE_DESKTOP_CLIENT_ID='desktop-client',
+                        MAC_GOOGLE_DESKTOP_CLIENT_SECRET='desktop-secret'):
+            self.assertTrue(google_auth.enabled())
+            client=TestClient(create_app(),base_url='http://127.0.0.1:9123',follow_redirects=False)
+            started=client.post('/auth/google/desktop/start',headers={'X-API-Key':'api-test-key'})
+            self.assertEqual(started.status_code,200,started.text)
+            data=started.json();query=parse_qs(urlparse(data['authorization_url']).query)
+            self.assertEqual(query['client_id'],['desktop-client'])
+            response=httpx.Response(200,json={'id_token':'id','access_token':'access','refresh_token':'refresh'},
+                                    request=httpx.Request('POST','https://oauth2.googleapis.com/token'))
+            with patch.object(google_auth.httpx,'post',return_value=response), \
+                 patch.object(google_auth,'_google_identity',return_value={'email':'mac@example.org','email_verified':True}), \
+                 patch.object(google_auth,'_folder',return_value='folder-id'):
+                completed=client.get('/auth/google/callback',params={'code':'code','state':query['state'][0]})
+            self.assertEqual(completed.status_code,200,completed.text)
+            session=client.post('/auth/google/desktop/poll',headers={'X-API-Key':'api-test-key'},
+                                json={'poll_token':data['poll_token']})
+            self.assertEqual(session.status_code,200,session.text)
+            self.assertTrue(google_auth.valid_session(session.json()['session_token']))
+
     def test_callback_checks_state_and_account_and_redeems_once(self):
         start = self.client.get('/auth/google/start')
         self.assertEqual(start.status_code, 307)

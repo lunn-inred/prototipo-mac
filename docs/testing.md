@@ -5,6 +5,15 @@
 
 ## Suíte automatizada
 
+O instalador Windows possui testes em `desktop.tests.test_windows_setup` e
+`backend.tests.test_installer_migrations`. Os primeiros simulam caminhos,
+serviço e ordem banco/API/janela no Linux; não executam SCM, ACLs ou Inno Setup.
+Com o PostgreSQL descartável habilitado, os segundos recriam exclusivamente o
+schema de `mac_test`, validam base vazia de dados pessoais, idempotência, UUID,
+fingerprint, checksums, backup obrigatório e rollback de migrations/histórico.
+Ao terminar restauram a fixture de teste; nunca execute contra `mac_dev`.
+Homologação real de build/instalação: [instalador Windows](windows-installer.md).
+
 `backend.tests.test_regional_eva` cobre as 16 medidas, lateralidade/vistas,
 valores inteiros 0–10, zero para regiões omitidas e ausência de conversão do EVA
 geral antigo. Com `MAC_TEST_DB_ENABLED=1` e as variáveis de `mac_test` abaixo,

@@ -16,7 +16,6 @@ from starlette.concurrency import run_in_threadpool
 import backend.mac_api.repositories.data_repository as data_repository
 from backend.mac_api.api_serialization import gps_preview_to_dict, gps_result_to_dict
 from backend.mac_api.modules.athletes.athlete_service import create_athlete, deactivate_athlete, reactivate_athlete, update_athlete
-from backend.mac_api.modules.gps.gps_extraction import extract_uploaded_pdfs
 from backend.mac_api.modules.gps.gps_import_service import import_gps_documents, prepare_gps_documents, preview_gps_documents
 from backend.mac_api.modules.jumps.jump_service import (
     DuplicateJumpCollectionError, JumpCollection, create_jump_collection,
@@ -38,6 +37,12 @@ from .schemas import (
     AthleteCreated, AthleteInput, GpsPayload, JumpCollectionInput,
     JumpRowsPayload, LegacyImport, LegacyValidation, ThermographyInput,
 )
+
+
+def extract_uploaded_pdfs(files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
+    # img2table/Numba inicializam o OCR; não bloquear a abertura de toda a API.
+    from backend.mac_api.modules.gps.gps_extraction import extract_uploaded_pdfs as extract
+    return extract(files)
 
 
 def require_api_key(

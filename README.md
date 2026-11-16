@@ -25,6 +25,7 @@ navegador ou em uma janela desktop (WebView).
   - [Backups legados — restauração e reconciliação](docs/backups.md)
   - [Execução web, Docker e hospedagem](docs/web.md)
   - [Desktop, build e distribuição](docs/desktop.md)
+  - [Instalador Windows — build, banco automático e homologação](docs/windows-installer.md)
   - [API — endpoints completos e contratos](docs/api.md)
   - [Arquitetura e estrutura de pastas](docs/architecture.md)
   - [Testes e PostgreSQL local](docs/testing.md)

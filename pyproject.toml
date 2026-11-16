@@ -14,5 +14,6 @@ include = ["backend*", "frontend*", "desktop*"]
 exclude = ["*.tests", "*.tests.*"]
 
 [tool.setuptools.package-data]
+"backend" = ["bootstrap/*.sql", "bootstrap/*.json", "migrations/*.sql"]
 "backend.mac_api" = ["assets/fonts/*.ttf", "assets/fonts/LICENSE.txt"]
 "frontend.streamlit" = ["pages/*.py", "assets/*.png", "assets/fonts/*.ttf", "assets/fonts/LICENSE.txt", "assets/vendor/body-muscles/2.1.1/*", ".streamlit/config.toml"]
