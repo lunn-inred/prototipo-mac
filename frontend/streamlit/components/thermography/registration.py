@@ -1,78 +1,57 @@
 from __future__ import annotations
-import hashlib
-import io
-from datetime import date
-from typing import Any
-import numpy as np
-import pandas as pd
+
 import streamlit as st
-from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
-from streamlit_drawable_konva import crop_box_from_json, st_canvas
-from frontend.streamlit.api_client.contracts import (unique_matching_athlete_id)
-from frontend.streamlit.api_client.thermal_client import (annotate_boxes, compare_hot_masks, count_hot_pixels, detect_colorbar_box, detect_leg_boxes, hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix, DEFAULT_PART_CUTS, LEG_PARTS, leg_part_metrics, scale_percentage_from_temperature, temperature_from_scale_percentage)
-from frontend.streamlit.presentation.thermography_data import (
-    athlete_label,
-    load_thermography_athletes,
-    load_thermography_history,
-)
-from frontend.streamlit.api_client.contracts import (DuplicateThermographyError, LegacyThermographyRecord, current_sao_paulo_date)
-from frontend.streamlit.api_client.service_gateway import (
-    extract_thermography_scale,
-    extract_legacy_documents,
-    save_image_thermography,
-    save_legacy_thermography,
-)
-from frontend.streamlit.components.thermography.editor import LEGS, VIEW_LABELS
+from frontend.streamlit.api_client.contracts import current_sao_paulo_date
+from frontend.streamlit.api_client.local_analyses import register_analysis
+from frontend.streamlit.presentation.thermography_data import load_thermography_history
+from frontend.streamlit.presentation.player_data import load_player_dashboard_data
+from frontend.streamlit.components.thermography.timeline import views_for_storage, remember_timeline_entry
 
-@st.dialog("Registrar coleta no banco")
-def confirm_database_collection(
-    *,
-    athlete_id: int,
-    mass: object,
-    pain_score: object,
-    front_right: object,
-    front_left: object,
-    back_right: object,
-    back_left: object,
-    observations: object,
-    pair_signature: str,
-) -> None:
-    st.caption("Confirme a data em que esta coleta termográfica foi realizada.")
-    collected_at = st.date_input(
-        "Data de registro da coleta",
-        value=current_sao_paulo_date(),
-        key=f"database_collection_date_{pair_signature}",
+
+def register_prepared_analysis(*, athlete_id, athlete_name, collected_at, mass,
+                               pain_score, observations, views, items, pair_signature):
+    result = register_analysis(
+        athlete_id, athlete_name, collected_at, views_for_storage(views, items),
+        mass=mass, pain_score=pain_score, observations=observations,
     )
-    if st.button(
-        "Confirmar registro",
-        type="secondary",
-        use_container_width=True,
-        key=f"confirm_database_collection_{pair_signature}",
-    ):
-        try:
-            inserted = save_image_thermography(
-                athlete_id=athlete_id,
-                collected_at=collected_at,
-                mass=mass,
-                pain_score=pain_score,
-                front_right=front_right,
-                front_left=front_left,
-                back_right=back_right,
-                back_left=back_left,
-                observations=observations,
-            )
-        except (ValueError, RuntimeError, DuplicateThermographyError) as error:
-            st.error(str(error))
-        except Exception:
-            st.error("Não foi possível registrar a coleta no banco.")
-        else:
-            load_thermography_history.clear()
-            st.session_state["thermography_flash"] = (
-                f"Coleta de {collected_at.strftime('%d/%m/%Y')} registrada "
-                f"com {inserted} medida(s)."
-            )
-            st.rerun()
+    remember_timeline_entry(result['analysis'])
+    load_thermography_history.clear()
+    load_player_dashboard_data.clear()
+    st.session_state['thermal_registered_analysis'] = {
+        'signature': pair_signature, 'id': result['analysis']['id'],
+        'date': collected_at, 'athlete_id': athlete_id,
+    }
+    st.session_state['thermography_flash'] = (
+        f"Análise de {collected_at:%d/%m/%Y} registrada no banco local e adicionada à timeline."
+    )
+    return result
 
-    if st.button('Concluir', type='primary', width='stretch', key=f'close_database_collection_{pair_signature}'):
+
+def _submit(date_key, values):
+    if st.session_state.get('thermal_registered_analysis', {}).get('signature') == values['pair_signature']:
+        return
+    st.session_state.pop('thermal_registration_error', None)
+    try:
+        register_prepared_analysis(collected_at=st.session_state[date_key], **values)
+    except ValueError as error:
+        st.session_state['thermal_registration_error'] = str(error)
+    except Exception:
+        st.session_state['thermal_registration_error'] = 'Não foi possível concluir o registro. Confira a API e o banco local antes de tentar novamente.'
+
+
+@st.dialog('Registrar Análise')
+def confirm_analysis_registration(**values):
+    signature = values['pair_signature']
+    saved = st.session_state.get('thermal_registered_analysis', {})
+    if saved.get('signature') == signature:
+        st.rerun()
+    st.caption('Confirme a data. As medidas serão salvas no banco local e as imagens ficarão disponíveis na timeline.')
+    date_key = f'thermal_collection_date_{signature}'
+    st.date_input('Data de registro da coleta', value=current_sao_paulo_date(), key=date_key)
+    st.button('Confirmar registro', type='secondary', width='stretch',
+              key=f'confirm_analysis_{signature}', on_click=_submit, args=(date_key, values))
+    if error := st.session_state.get('thermal_registration_error'):
+        st.error(error)
+    if st.button('Concluir', type='primary', width='stretch', key=f'close_analysis_{signature}'):
         st.rerun()
 

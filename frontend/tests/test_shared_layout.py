@@ -6,6 +6,12 @@ from frontend.streamlit.components.ui import apply_global_style
 class SharedLayoutTests(unittest.TestCase):
     @patch('frontend.streamlit.components.ui.st.logo')
     @patch('frontend.streamlit.components.ui.st.markdown')
+    def test_login_style_does_not_repeat_logo_in_sidebar(self, _markdown, logo):
+        apply_global_style(show_sidebar_logo=False)
+        logo.assert_not_called()
+
+    @patch('frontend.streamlit.components.ui.st.logo')
+    @patch('frontend.streamlit.components.ui.st.markdown')
     def test_global_theme_has_centered_bounded_responsive_width(self, markdown, _logo):
         apply_global_style()
         css = markdown.call_args.args[0]

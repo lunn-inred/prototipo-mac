@@ -36,6 +36,10 @@ def _request(method: str, path: str, **kwargs: Any) -> Any:
     access_key = api_key()
     if access_key:
         headers['X-API-Key'] = str(access_key)
+    from frontend.streamlit.google_login import session_token
+    token = session_token()
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
     timeout = float(setting('MAC_API_TIMEOUT_SECONDS', '300') or 300)
     try:
         response = _http_request(method, f'{api_base_url()}{path}', headers=headers, timeout=timeout, **kwargs)
@@ -54,7 +58,7 @@ def _request(method: str, path: str, **kwargs: Any) -> Any:
     return None if response.status_code == 204 else response.json()
 
 @st.cache_data(ttl=60, max_entries=64, show_spinner=False)
-def _reference_get(base_url: str, access_key: str | None, path: str) -> Any:
+def _reference_get(base_url: str, access_key: str | None, path: str, session: str | None = None) -> Any:
     # URL e credencial participam da chave para não compartilhar dados entre APIs/usuários.
     return _request('GET', path)
 
@@ -89,7 +93,8 @@ def load_player_dashboard() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]
     return (_parse_date_fields(data['athletes'], 'data_nascimento'), _parse_date_fields(data['measurements'], 'data'))
 
 def load_athletes() -> list[dict[str, Any]]:
-    records = _reference_get(api_base_url(), api_key(), '/api/v1/athletes')
+    from frontend.streamlit.google_login import session_token
+    records = _reference_get(api_base_url(), api_key(), '/api/v1/athletes', session_token())
     return _parse_date_fields(records, 'data_nascimento')
 
 def load_jump_records() -> list[dict[str, Any]]:
@@ -97,7 +102,8 @@ def load_jump_records() -> list[dict[str, Any]]:
     return _parse_date_fields(records, 'data_coleta')
 
 def load_jump_collections() -> list[dict[str, Any]]:
-    records = _reference_get(api_base_url(), api_key(), '/api/v1/jumps/collections')
+    from frontend.streamlit.google_login import session_token
+    records = _reference_get(api_base_url(), api_key(), '/api/v1/jumps/collections', session_token())
     return _parse_date_fields(records, 'data_coleta')
 
 def create_jump(values: dict[str, Any]) -> int:

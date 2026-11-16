@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import Any
-import pandas as pd
 import streamlit as st
 from frontend.streamlit.api_client.thermal_client import summarize_pair
 from frontend.streamlit.presentation.thermography_data import (
@@ -8,9 +7,9 @@ from frontend.streamlit.presentation.thermography_data import (
     load_thermography_athletes,
 )
 
-from frontend.streamlit.components.thermography.timeline import confirm_timeline_date
 from frontend.streamlit.components.thermography.forms import render_forms
-from frontend.streamlit.components.thermography.registration import confirm_database_collection
+from frontend.streamlit.components.thermography.registration import confirm_analysis_registration
+from frontend.streamlit.components.thermography.regional_summary import render_regional_summary
 from frontend.streamlit.components.thermography.wizard import render_wizard, navigate
 
 st.set_page_config(page_title="MAC Performance | Termografia", page_icon="🌡️", layout="wide")
@@ -122,8 +121,6 @@ stored_metrics: dict[str, Any] = st.session_state.setdefault(
 if all(view_metrics.values()):
     summary = summarize_pair(view_metrics)
     front_pixels, back_pixels = summary['front']['hot_pixels'], summary['back']['hot_pixels']
-    front_area, back_area = summary['front']['total_pixels'], summary['back']['total_pixels']
-    front_percentage, back_percentage = summary['front']['hot_percentage'], summary['back']['hot_percentage']
     selected_player = athletes_by_id.get(selected_player_id)
     record = {
         "Jogador": (
@@ -146,96 +143,36 @@ if all(view_metrics.values()):
 
     with st.container(border=True, key='thermal_collection_summary'):
         st.subheader("Resumo da coleta")
-        summary_columns = st.columns(2)
-        with summary_columns[0]:
-            with st.container(border=True):
-                st.metric(
-                    "Pixels quentes — Frente (duas pernas)",
-                    f"{front_pixels:,} px".replace(",", "."),
+        with st.container(border=True):
+            columns = st.columns(3)
+            ids = list(athletes_by_id)
+            with columns[0]:
+                prepared_player_id = st.selectbox(
+                    'Jogador *', ids,
+                    index=ids.index(selected_player_id) if selected_player_id in ids else None,
+                    format_func=lambda value: athlete_label(athletes_by_id[value]),
+                    key='thermography_player',
                 )
-                st.caption(
-                    f"{front_percentage:.1f}% quentes · área segmentada: "
-                    f"{front_area:,} pixels".replace(",", ".")
-                )
-        with summary_columns[1]:
-            with st.container(border=True):
-                st.metric(
-                    "Pixels quentes — Costas (duas pernas)",
-                    f"{back_pixels:,} px".replace(",", "."),
-                )
-                st.caption(
-                    f"{back_percentage:.1f}% quentes · área segmentada: "
-                    f"{back_area:,} pixels".replace(",", ".")
-                )
-
-        st.caption(
-            "Edite Jogador, Massa, EVA Dor e Observações diretamente na tabela. "
-            "Frente e Costas são calculados automaticamente."
-        )
-        prepared_frame = pd.DataFrame([record])
-        prepared_frame["Jogador"] = prepared_frame["Jogador"].astype("string")
-        prepared_frame["Massa"] = pd.to_numeric(
-            prepared_frame["Massa"], errors="coerce"
-        ).astype("Float64")
-        prepared_frame["EVA Dor"] = pd.to_numeric(
-            prepared_frame["EVA Dor"], errors="coerce"
-        ).astype("Int64")
-        prepared_frame["Frente"] = prepared_frame["Frente"].astype("Int64")
-        prepared_frame["Verso"] = prepared_frame["Verso"].astype("Int64")
-        prepared_frame["Observações"] = (
-            prepared_frame["Observações"].fillna("").astype("string")
-        )
-        edited_prepared_frame = st.data_editor(
-            prepared_frame,
-            width="stretch",
-            hide_index=True,
-            num_rows="fixed",
-            disabled=["Frente", "Verso"],
-            column_config={
-                "Jogador": st.column_config.SelectboxColumn(
-                    options=sorted(athlete_id_by_editor_label),
-                    required=True,
-                ),
-                "Massa": st.column_config.NumberColumn(
-                    min_value=0.1,
-                    step=0.1,
-                    format="%.1f kg",
-                    required=True,
-                ),
-                "EVA Dor": st.column_config.NumberColumn(
-                    min_value=0,
-                    max_value=10,
-                    step=1,
-                    format="%d",
-                    required=True,
-                ),
-                "Frente": st.column_config.NumberColumn(format="%d"),
-                "Verso": st.column_config.NumberColumn("Costas", format="%d"),
-                "Observações": st.column_config.TextColumn(
-                    width="large",
-                    default="",
-                ),
-            },
-            key=f"thermography_record_editor_{pair_signature}",
-        )
-        prepared_record = edited_prepared_frame.iloc[0].to_dict()
-        prepared_player_id = athlete_id_by_editor_label.get(
-            prepared_record.get("Jogador")
-        )
-        prepared_mass = prepared_record.get("Massa")
-        prepared_pain_score = prepared_record.get("EVA Dor")
-        prepared_observations = prepared_record.get("Observações")
-        if prepared_observations is None or pd.isna(prepared_observations):
-            prepared_observations = ""
-        else:
-            prepared_observations = str(prepared_observations).strip()
+            with columns[1]:
+                prepared_mass = st.number_input('Massa (kg) *', min_value=0.1,
+                    value=mass, step=0.1, key='thermography_mass')
+            with columns[2]:
+                prepared_pain_score = st.number_input('EVA Dor *', min_value=0, max_value=10,
+                    value=pain_score, step=1, key='thermography_pain_score')
+        prepared_observations = st.text_area('Observações', value=observations,
+                                              key='thermography_observations').strip()
+        draft.update(player=prepared_player_id, mass=prepared_mass,
+                     pain=prepared_pain_score, notes=prepared_observations)
+        record.update(Jogador=editor_label_by_athlete_id.get(prepared_player_id),
+                      Massa=prepared_mass, **{'EVA Dor': prepared_pain_score,
+                                             'Observações': prepared_observations})
 
         missing_fields = []
         if prepared_player_id is None:
             missing_fields.append("Jogador")
-        if prepared_mass is None or pd.isna(prepared_mass):
+        if prepared_mass is None:
             missing_fields.append("Massa")
-        if prepared_pain_score is None or pd.isna(prepared_pain_score):
+        if prepared_pain_score is None:
             missing_fields.append("EVA Dor")
 
         if missing_fields:
@@ -244,41 +181,32 @@ if all(view_metrics.values()):
                 + ", ".join(missing_fields)
                 + "."
             )
-        else:
-            st.success("Registro pronto para envio. Observações permanece opcional.")
 
-        timeline_action, database_action = st.columns(2)
-        if timeline_action.button(
-            "Adicionar à timeline",
-            disabled=prepared_player_id is None,
-            help="Salva imagens, máscaras e metadados localmente no servidor da API.",
-            key=f"add_thermography_timeline_{pair_signature}",
-            width="stretch",
-        ):
-            confirm_timeline_date(int(prepared_player_id), views, items, pair_signature,
-                                  athlete_name=athletes_by_id[int(prepared_player_id)]['nome'],
-                                  mass=prepared_mass, pain_score=prepared_pain_score,
-                                  observations=prepared_observations)
-
-        if database_action.button(
-            "Registrar coleta no banco",
+        regional_ready = render_regional_summary(views, items, reviewed_record={
+            'player': prepared_player_id, 'mass': prepared_mass,
+            'pain': prepared_pain_score, 'notes': prepared_observations,
+        } if not missing_fields else None)
+        already_registered = st.session_state.get('thermal_registered_analysis', {}).get('signature') == pair_signature
+        if already_registered:
+            st.info('Esta análise já foi registrada no banco local e na timeline. Inicie outra análise para um novo registro.')
+        if st.button(
+            "Registrar Análise",
             type="primary",
-            disabled=bool(missing_fields),
-            key="save_image_thermography",
+            disabled=bool(missing_fields) or already_registered or not regional_ready,
+            key="register_thermography_analysis",
             width='stretch',
         ):
-            confirm_database_collection(
+            confirm_analysis_registration(
                 athlete_id=int(prepared_player_id),
                 mass=prepared_mass,
                 pain_score=prepared_pain_score,
-                front_right=view_metrics["front"]["right"]["hot_pixels"],
-                front_left=view_metrics["front"]["left"]["hot_pixels"],
-                back_right=view_metrics["back"]["right"]["hot_pixels"],
-                back_left=view_metrics["back"]["left"]["hot_pixels"],
+                athlete_name=athletes_by_id[int(prepared_player_id)]['nome'],
+                views=views,
+                items=items,
                 observations=prepared_observations,
                 pair_signature=pair_signature,
             )
-        st.caption("Adicionar à timeline salva imagens localmente. Registrar no banco envia somente as medidas.")
+        st.caption('O registro salva as medidas no banco local e as imagens, máscaras e temperaturas na timeline.')
 
     navigate(6)
 

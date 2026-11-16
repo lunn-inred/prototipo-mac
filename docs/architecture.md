@@ -18,6 +18,7 @@
 │   │   └── .streamlit/
 │   └── tests/
 ├── backend/
+│   ├── tools/                  # exportação read-only, restauração e verificação local
 │   ├── mac_api/
 │   │   ├── main.py e schemas.py
 │   │   ├── core/               # configuração, conexão e transporte
@@ -36,7 +37,10 @@
 └── README.md
 ```
 
-Fluxo web: navegador → Streamlit → HTTP → FastAPI → serviços/repositórios → Supabase.
+Fluxo web: navegador → Streamlit → HTTP → FastAPI → serviços/repositórios → PostgreSQL.
+Em desenvolvimento o destino padrão é o banco local `mac_dev`; Supabase só é
+destino da aplicação em produção explicitamente configurada. A exportação remota
+é uma ferramenta read-only separada. Veja [Banco local](local-database.md).
 No executável, a mesma API é iniciada localmente e consumida pela WebView.
 
 O frontend controla widgets, desenho, formulários e estado temporário. O backend
@@ -49,10 +53,12 @@ As métricas de leitura vêm das views; cadastro de atletas continua na tabela
 validar existência, duplicatas e integridade. Nenhuma alteração de schema é
 necessária para esta reorganização.
 
-O rascunho permanece na sessão até a confirmação. Adicionar à timeline grava
+O rascunho permanece na sessão até a confirmação. **Registrar Análise** grava
 imagens, máscaras e matrizes no arquivo local do backend, permitindo reabrir a
 comparação em outra sessão. A API lista metadados/miniaturas e carrega matrizes
-sob demanda. O registro das medidas no banco continua uma operação separada.
+sob demanda. A mesma operação registra as medidas no banco local, com transação
+SQL e compensação de arquivos em falhas normais. As rotas independentes antigas
+continuam disponíveis apenas para compatibilidade.
 
 Contratos: [API HTTP](api.md). Validação: [testes](testing.md).
 
@@ -117,9 +123,11 @@ são disponibilizados no gerenciamento de coletas nem associados no mural.
 ## React e desktop
 
 React poderá entrar em `frontend/react/` e consumir a mesma API. Máscaras e
-coordenadas têm contratos independentes do canvas. Antes de disponibilizar
-chaves no navegador, implemente autenticação de usuários; a chave atual serve
-para comunicação entre processos. Esta reorganização não adiciona login.
+coordenadas têm contratos independentes do canvas. A chave da API continua
+restrita à comunicação entre processos e não deve ser enviada ao navegador.
+Quando o login Google está ativo, a API exige também uma sessão de usuário.
+O Streamlit registra somente a página **Entrar** até validar essa sessão;
+depois disponibiliza as páginas de trabalho.
 
 Docker atende à execução web e testes. O executável usa processos Python locais,
 continua iniciando o backend automaticamente e é compilado por sistema operacional.

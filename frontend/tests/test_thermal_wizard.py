@@ -62,12 +62,13 @@ class ThermalWizardTests(unittest.TestCase):
             kwargs.pop('timeout', None)
             processing_requests.append(urlsplit(url).path)
             return client.request(method, urlsplit(url).path, **kwargs)
-        image = Image.new('RGB', (320, 200), (15, 15, 15))
+        image = Image.new('RGB', (240, 320), (170, 0, 210))
         draw = ImageDraw.Draw(image)
-        draw.ellipse((45, 62, 215, 102), fill=(230, 55, 25))
-        draw.ellipse((45, 125, 215, 162), fill=(240, 70, 25))
-        for y in range(20, 180):
-            draw.line((280, y, 294, y), fill=(255-y, y, 40))
+        draw.rectangle((65, 30, 170, 90), fill=(40, 185, 80))
+        draw.polygon([(68, 75), (115, 75), (102, 170), (75, 290), (45, 290)], fill=(230, 55, 25))
+        draw.polygon([(125, 75), (169, 75), (195, 290), (165, 290), (137, 170)], fill=(240, 70, 25))
+        for y in range(30, 280):
+            draw.line((226, y, 234, y), fill=(255-y//2, y//2, 30))
         buffer = io.BytesIO(); image.save(buffer, format='PNG')
         upload_labels = []
         def upload(label, **kwargs):
@@ -103,7 +104,7 @@ class ThermalWizardTests(unittest.TestCase):
                 self.assertNotIn('Timeline térmica', headers)
                 self.assertFalse(any(expander.label == 'Formulários' for expander in app.expander))
                 self.assertFalse(any('Timeline' in expander.label for expander in app.expander))
-                self.assertEqual(len(app.get('tab')), 0)
+                self.assertEqual(len(app.get('tab')), 2 if step == 6 else 0)
                 temperature_inputs = [widget for widget in app.number_input
                                       if widget.key and widget.key.startswith('wizard_tmin_')]
                 self.assertEqual(len(temperature_inputs), 2 if step == 5 else 0)
@@ -132,7 +133,7 @@ class ThermalWizardTests(unittest.TestCase):
                     self.assertEqual(app.session_state['thermal_uploads']['front']['rotation'], 0)
                 if step == 2:
                     labels = [button.label for button in app.button]
-                    self.assertEqual(labels.count('Redefinir retângulos'), 2)
+                    self.assertEqual(labels.count('Ajustar regiões'), 2)
                     self.assertNotIn('Corrigir Áreas', labels)
                     self.assertEqual(labels[-2:], ['Voltar', 'Continuar'])
                     self.assertIn('#### Costas', [text.value for text in app.markdown])
@@ -191,61 +192,79 @@ class ThermalWizardTests(unittest.TestCase):
                         self.assertFalse(any(line.startswith('- ') for line in lines))
                     self.assertFalse(any('Pixels quentes —' in metric.label for metric in app.metric))
                     self.assertNotIn('Resumo da coleta', [h.value for h in app.subheader])
-                    self.assertFalse(any(button.key == 'save_image_thermography' for button in app.button))
+                    self.assertFalse(any(button.key == 'register_thermography_analysis' for button in app.button))
                     from frontend.streamlit.components.thermography.wizard import centered_preview
                     with patch('frontend.streamlit.components.thermography.wizard.centered_preview', wraps=centered_preview) as preview:
                         app.run()
                     captions = [call.kwargs.get('caption', '') for call in preview.call_args_list]
                     self.assertEqual(captions.count('Divisão anatômica'), 2)
                     self.assertNotIn('Original com caixas', captions)
-                    mode_key = next(radio.key for radio in app.radio
-                                    if radio.key and radio.key.startswith('wizard_mode_front:'))
-                    self.assertEqual(app.radio(key=mode_key).options, ['Temperatura (°C)', 'Porcentagem'])
-                    self.assertEqual(app.radio(key=mode_key).value, 'Temperatura (°C)')
-                    app.radio(key=mode_key).set_value('Porcentagem').run()
-                    threshold_key = next(widget.key for widget in app.slider
-                                         if widget.key and widget.key.startswith('wizard_threshold_front:'))
-                    app.slider(key=threshold_key).set_value(50.0).run()
-                    item_key = threshold_key.removeprefix('wizard_threshold_')
-                    self.assertEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 50.0)
-                    self.assertEqual([radio.label for radio in app.radio].count('Limiar de pixels quentes'), 2)
-                    percentage_number = f'wizard_threshold_number_{item_key}'
-                    self.assertEqual(app.number_input(key=percentage_number).value, 50.)
-                    app.number_input(key=percentage_number).set_value(75.25).run()
-                    self.assertEqual(app.slider(key=threshold_key).value, 75.25)
-                    self.assertEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 75.25)
-                    app.radio(key=f'wizard_mode_{item_key}').set_value('Temperatura (°C)').run()
-                    celsius_slider = f'wizard_threshold_celsius_{item_key}'
-                    celsius_number = f'wizard_threshold_celsius_number_{item_key}'
-                    self.assertAlmostEqual(app.slider(key=celsius_slider).value, 35.05)
-                    self.assertAlmostEqual(app.number_input(key=celsius_number).value, 35.05)
-                    app.number_input(key=celsius_number).set_value(32.34).run()
-                    self.assertAlmostEqual(app.slider(key=celsius_slider).value, 32.34)
-                    self.assertAlmostEqual(app.session_state['thermography_items'][item_key]['threshold_percentage'], 61.7)
-                    app.slider(key=celsius_slider).set_value(34.).run()
-                    self.assertEqual(app.number_input(key=celsius_number).value, 34.)
-                    # Mudar os limites em °C mantém o valor absoluto quando
-                    # possível e limita os dois widgets quando necessário.
+                    cold_key = next(button.key for button in app.button
+                                    if button.key and button.key.startswith('wizard_zone_cold_front:'))
+                    item_key = cold_key.removeprefix('wizard_zone_cold_')
+                    self.assertFalse(any(widget.key and widget.key.startswith('wizard_threshold_') for widget in app.slider))
+                    self.assertEqual(len([button for button in app.button if button.key and button.key.startswith('wizard_zone_')]), 6)
+                    for zone, zone_name in (('cold', 'Zona fria'), ('neutral', 'Zona neutra'), ('hot', 'Zona quente')):
+                        app.button(key=f'wizard_zone_{zone}_{item_key}').click().run()
+                        item = app.session_state['thermography_items'][item_key]
+                        self.assertEqual(item['thermal_zone'], zone)
+                        self.assertEqual(item['analysis']['thermal_zone'], zone)
+                        with patch('frontend.streamlit.components.thermography.wizard.centered_preview', wraps=centered_preview) as preview:
+                            app.run()
+                        self.assertIn(zone_name, [call.kwargs.get('caption') for call in preview.call_args_list])
+                    app.button(key=cold_key).click().run()
                     app.number_input(key=f'wizard_tmin_{item_key}').set_value(35.).run()
-                    self.assertEqual(app.slider(key=celsius_slider).value, 35.)
-                    self.assertEqual(app.number_input(key=celsius_number).value, 35.)
-                    app.radio(key=f'wizard_mode_{item_key}').set_value('Porcentagem').run()
-                    self.assertEqual(app.slider(key=threshold_key).value, 0.)
-                    self.assertEqual(app.number_input(key=percentage_number).value, 0.)
-                    app.number_input(key=percentage_number).set_value(100.).run()
-                    self.assertEqual(app.slider(key=threshold_key).value, 100.)
+                    item = app.session_state['thermography_items'][item_key]
+                    self.assertEqual(item['thermal_zone'], 'cold')
+                    self.assertTrue(all(metric['hot_pixels'] == 0 for metric in item['analysis']['metrics'].values()))
                     self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertIn('Resumo da coleta', [h.value for h in app.subheader])
             self.assertNotIn('Registro preparado', [h.value for h in app.subheader])
             self.assertEqual(app.get('progress')[0].proto.text, 'Etapa 7 de 7 — Resumo da coleta')
             labels = [button.label for button in app.button]
-            self.assertLess(labels.index('Adicionar à timeline'), labels.index('Registrar coleta no banco'))
-            self.assertLess(labels.index('Registrar coleta no banco'), labels.index('Voltar'))
+            self.assertNotIn('Adicionar à timeline', labels)
+            self.assertNotIn('Registrar coleta no banco', labels)
+            self.assertLess(labels.index('Registrar Análise'), labels.index('Voltar'))
             self.assertLess(labels.index('Voltar'), labels.index('Iniciar outra análise'))
             self.assertFalse(any(widget.key and widget.key.startswith('wizard_tmin_') for widget in app.number_input))
-            self.assertFalse(app.button(key='save_image_thermography').disabled)
+            self.assertFalse(app.button(key='register_thermography_analysis').disabled)
+            self.assertIn('Frente', [tab.label for tab in app.tabs])
+            self.assertIn('Costas', [tab.label for tab in app.tabs])
+            regional_tables = [table.value for table in app.dataframe
+                               if list(table.value.columns) == ['Região', 'Fria', 'Neutra', 'Quente']]
+            self.assertEqual(len(regional_tables), 4)
+            total_tables = [table.value for table in app.dataframe
+                            if list(table.value.columns) == ['Zona', 'Total (px)']]
+            self.assertEqual(len(total_tables), 0)
+            for table in regional_tables:
+                for zone in ('Fria', 'Neutra', 'Quente'):
+                    self.assertEqual(table[zone].iloc[-1], table[zone].iloc[:4].sum())
+            self.assertEqual(len(app.metric), 0)
+            self.assertEqual(app.selectbox(key='thermography_player').value, 1)
+            app.number_input(key='thermography_mass').set_value(76.5).run()
+            app.text_area(key='thermography_observations').set_value('Revisado no resumo').run()
+            for table in regional_tables:
+                self.assertEqual(list(table['Região']), ['Coxa', 'Joelho', 'Canela', 'Pé', 'Total'])
+                self.assertTrue((table[['Fria', 'Neutra', 'Quente']] >= 0).all().all())
+            with patch('frontend.streamlit.components.thermography.regional_summary._preview', side_effect=RuntimeError('API indisponível')):
+                app.run()
+                self.assertTrue(app.button(key='register_thermography_analysis').disabled)
+            app.run()
+            self.assertFalse(app.button(key='register_thermography_analysis').disabled)
+            app.button(key='regional_edit_parts').click().run()
+            self.assertEqual(app.session_state['thermal_step'], 3)
+            self.assertEqual(app.session_state['thermal_draft']['mass'], 76.5)
+            self.assertEqual(app.session_state['thermal_draft']['notes'], 'Revisado no resumo')
+            for _ in range(3):
+                app.button(key='thermal_next').click().run()
+            self.assertEqual(app.session_state['thermal_step'], 6)
+            self.assertEqual(len(app.exception), 0, list(app.exception))
+            signature = next(iter(app.session_state['thermography_metrics']))
+            app.session_state['thermal_registered_analysis'] = {'signature': signature}
+            app.run()
+            self.assertTrue(app.button(key='register_thermography_analysis').disabled)
             for _ in range(6):
                 app.button(key='thermal_previous').click().run()
-            self.assertEqual(app.number_input(key='thermography_mass').value, 75.0)
+            self.assertEqual(app.number_input(key='thermography_mass').value, 76.5)
             self.assertEqual(app.number_input(key='thermography_pain_score').value, 0)
             self.assertEqual(app.selectbox(key='thermography_player').value, 1)

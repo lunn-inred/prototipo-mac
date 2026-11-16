@@ -14,6 +14,40 @@ A janela abre com tamanho inicial de **1920 × 1080**, tanto em desenvolvimento
 quanto no executável. Isso não altera a resolução do monitor; o gerenciador de
 janelas pode limitar o tamanho conforme a área disponível e a escala de exibição.
 
+Com login Google ativo, a WebView mostra a página **Entrar** e continua aberta.
+O botão abre o navegador do sistema para a autorização exigida pelo Google;
+após o consentimento, a API local entrega a sessão à WebView e as páginas do MAC
+abrem na janela desktop. A aba do navegador exibe apenas a confirmação de que
+o login terminou e pode ser fechada.
+
+Após o primeiro login, o aplicativo desktop lembra a sessão neste computador
+por até 12 horas. Ao reabrir, a API confirma se ela ainda é válida antes de
+mostrar as páginas internas. **Sair da conta Google** remove a sessão lembrada;
+após a expiração, é preciso entrar novamente. Isso vale para o desktop; a
+sessão da interface aberta diretamente no navegador segue o comportamento do
+navegador.
+
+O desktop guarda o identificador da sessão em
+`data/credentials/desktop-session.txt` e a API guarda somente seu hash em
+`data/credentials/desktop-remember.json`. Esses arquivos ficam na pasta privada
+de credenciais do projeto (ou ao lado do executável no pacote) e não devem ser
+versionados ou copiados para outro computador.
+
+Em desenvolvimento com a API externa na porta 8000, o desktop reutiliza o
+cliente OAuth **Web application** e o retorno já configurado em
+`http://localhost:8000/auth/google/callback`. Para o executável, que inicia a
+API em porta variável, crie no mesmo projeto Google um segundo cliente OAuth
+do tipo **Desktop app** e preencha `MAC_GOOGLE_DESKTOP_CLIENT_ID` e
+`MAC_GOOGLE_DESKTOP_CLIENT_SECRET` no `.env` ao lado do binário. O cliente
+Desktop usa um retorno local dinâmico com PKCE; não é necessário cadastrar
+manualmente uma URI de retorno nesse cliente.
+
+O executável guarda a autorização do cliente Desktop em
+`data/credentials/google-drive-desktop.json` ao lado do binário, com permissão
+de acesso apenas ao usuário. Se houver um ID de pasta conhecido, ele fica salvo
+apenas como referência para uma verificação futura. O envio e a importação de
+análises ainda não estão implementados.
+
 ## 1. Instale as dependências
 
 Com o ambiente virtual ativado, instale as dependências do desktop. Esse arquivo
@@ -35,10 +69,15 @@ No Windows e no macOS essas bibliotecas Linux não são necessárias.
 ## 2. Configure o `.env`
 
 Use o mesmo `.env` da raiz, compartilhado com a API. Copie `.env.example` e
-preencha as credenciais do banco. O [guia de configuração](configuration.md)
+configure o banco local. O [guia de configuração](configuration.md)
 contém o modelo semipronto para copiar e colar. Não crie outro `.env` para o desktop.
 
 ## 3. Execute em desenvolvimento
+
+Primeiro, inicie o PostgreSQL persistente: `docker compose up -d --wait db-dev`.
+Ele deve estar restaurado conforme o [guia de banco local](local-database.md).
+O executável inicia a API, mas não inicia o Docker nem restaura o banco por conta
+própria. No modo local, o PostgreSQL precisa estar disponível também para o binário.
 
 No primeiro terminal, inicie a API:
 

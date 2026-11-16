@@ -1,13 +1,42 @@
 services:
+  db-dev:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${MAC_LOCAL_DB_USER:-mac_dev}
+      POSTGRES_PASSWORD: ${MAC_LOCAL_DB_PASSWORD:-mac_dev_local}
+      POSTGRES_DB: mac_dev
+    ports: ["127.0.0.1:${MAC_LOCAL_DB_PORT:-55433}:5432"]
+    volumes:
+      - mac_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d mac_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
   backend:
     build:
       context: .
       dockerfile: infrastructure/docker/backend.Dockerfile
     env_file: ${MAC_ENV_FILE:-.env}
+    environment:
+      MAC_ENVIRONMENT: ${MAC_ENVIRONMENT:-development}
+      MAC_DB_TARGET: ${MAC_DB_TARGET:-local}
+      MAC_LOCAL_DB_HOST: db-dev
+      MAC_LOCAL_DB_PORT: "5432"
+      MAC_LOCAL_DB_NAME: mac_dev
+    depends_on:
+      db-dev:
+        condition: service_healthy
     volumes:
       - type: bind
         source: ./data/thermography
         target: /app/data/thermography
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/credentials
+        target: /app/data/credentials
         bind:
           create_host_path: false
     ports: ["127.0.0.1:8000:8000"]
@@ -25,6 +54,8 @@ services:
       MAC_API_BASE_URL: http://backend:8000
       MAC_API_KEY: ${MAC_API_KEY:-}
       MAC_API_TIMEOUT_SECONDS: ${MAC_API_TIMEOUT_SECONDS:-300}
+      MAC_GOOGLE_CLIENT_ID: ${MAC_GOOGLE_CLIENT_ID:-}
+      MAC_GOOGLE_PUBLIC_API_URL: ${MAC_GOOGLE_PUBLIC_API_URL:-http://localhost:8000}
     ports: ["8501:8501"]
     depends_on:
       backend:
@@ -50,3 +81,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+volumes:
+  mac_dev_data:

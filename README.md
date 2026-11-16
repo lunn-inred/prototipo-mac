@@ -20,6 +20,7 @@ navegador ou em uma janela desktop (WebView).
 - [Testes](#testes)
 - Documentação detalhada:
   - [Configuração e modelo de .env](docs/configuration.md)
+  - [Banco local — cópia da nuvem e restauração](docs/local-database.md)
   - [Execução web, Docker e hospedagem](docs/web.md)
   - [Desktop, build e distribuição](docs/desktop.md)
   - [API — endpoints completos e contratos](docs/api.md)
@@ -38,9 +39,9 @@ navegador ou em uma janela desktop (WebView).
 - `infrastructure/`: imagens Docker; `docs/`: guias detalhados.
 
 As métricas são consultadas nas views do banco. Escritas passam pelas validações
-e transações da API. Adicionar à timeline salva imagens, máscaras e metadados
-localmente em `data/thermography`; registrar no banco continua enviando somente
-as medidas. Detalhes: [armazenamento térmico](docs/thermography.md#armazenamento-local).
+e transações da API. **Registrar Análise**, na última etapa térmica, salva as
+medidas no banco local e imagens, máscaras e temperaturas em `data/thermography`,
+disponibilizando a coleta na timeline. Detalhes: [registro unificado](docs/thermography.md#registro-unificado).
 
 ## Preparação do Ambiente de Desenvolvimento
 
@@ -57,7 +58,10 @@ cp .env.example .env
 ```
 
 No PowerShell, ative com `.venv\Scripts\Activate.ps1` e copie com
-`Copy-Item .env.example .env`. Preencha as credenciais do banco no `.env`.
+`Copy-Item .env.example .env`. O desenvolvimento usa PostgreSQL local por padrão.
+Inicie-o com `docker compose up -d --wait db-dev`; se ainda estiver vazio, siga
+o [guia de cópia e restauração](docs/local-database.md). Credenciais remotas no
+`.env` servem somente para exportação explícita, sem fallback da aplicação.
 O [modelo único](.env.example) já aponta a API para `http://127.0.0.1:8000`.
 Não sobrescreva um `.env` já configurado nem versione credenciais. A chave de
 exemplo é somente para desenvolvimento; substitua-a ao hospedar a API.

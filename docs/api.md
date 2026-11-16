@@ -65,6 +65,7 @@ Com a API em execução:
 | `POST /api/v1/thermography/legacy/validate-athletes` | Correlaciona nomes revisados | Não |
 | `POST /api/v1/thermography/legacy/import` | Registra o lote legado validado | Sim |
 | `POST /api/v1/thermography/analyses` | Salva imagens e dados da análise localmente | Não |
+| `POST /api/v1/thermography/analyses/register` | Registra medidas no banco local e arquivos da timeline em uma operação | Sim |
 | `GET /api/v1/thermography/analyses?athlete_id=` | Lista análises locais com miniatura | Não |
 | `GET /api/v1/thermography/analyses/{athlete_id}/{collected_at}/{analysis_id}` | Carrega imagens, máscaras e matrizes de uma análise | Não |
 
@@ -79,10 +80,12 @@ Os formatos de imagens/matrizes e as operações permitidas estão em
 O frontend organiza a coleta em sete etapas com rascunho na sessão
 (`components/thermography/wizard.py`). O campo opcional `image_rotation`
 de `/thermography/segment` aceita 0, 90, 180 ou 270 graus anti-horários:
-`image` já deve estar rotacionada. O backend localiza as regiões na orientação
-original e transforma as caixas, preservando a lateralidade e a ordem da paleta.
-`operations/image_regions` recebe imagem, vista e rotação e retorna as caixas
-antes da segmentação. Correções manuais usam coordenadas da imagem rotacionada.
+`image` já deve estar rotacionada, com as pernas verticais e pés para baixo.
+O watershed segmenta nessa orientação; direita/esquerda são atribuídas pela posição
+na imagem e pela vista (invertidas nas costas). A barra térmica continua sendo
+localizada na orientação original e transformada, preservando a ordem da paleta.
+`operations/image_regions` retorna caixas derivadas das máscaras, `masks` e
+`segmentation_warning` opcional. Correções usam coordenadas da imagem enviada.
 
 `POST /api/v1/thermography/segment` recebe uma análise completa de uma vista:
 
@@ -93,14 +96,30 @@ antes da segmentação. Correções manuais usam coordenadas da imagem rotaciona
 - `manual_boxes`: caixas opcionais `right` e `left`;
 - `colorbar_box`: caixa opcional da paleta;
 - `seeds`: matrizes opcionais de correção de cada perna.
+- `thermal_zone`: opcional, `cold` (T < 31), `neutral` (31 ≤ T < 33) ou `hot`
+  (T ≥ 33), em °C. Sem esse campo, preserva a seleção legada por `threshold`.
+
+Com zona informada, a imagem `hot_overlay`, as contagens `hot_pixels` e os
+percentuais `hot_percentage` usam a faixa selecionada. O denominador permanece
+a área segmentada total. O resultado inclui `thermal_zone` e `zone_label`.
+`threshold` continua sendo enviado por compatibilidade; o retorno armazena uma
+referência escalar limitada à escala, mas é a zona que determina os pixels.
+`leg_part_metrics`, `count_hot_pixels` e `hot_pixels_overlay` aceitam o mesmo
+argumento opcional. Nas vistas salvas, `thermal_zone` preserva a seleção para
+recalcular contagens na persistência e ao abrir a timeline. Registros antigos
+sem esse campo mantêm seu comportamento por limiar.
 
 Uma caixa contém `left`, `top`, `width`, `height` em pixels da imagem enviada,
 com orientação EXIF corrigida e rotação aplicada. Seeds usam `int8`: `1` inclui, `-1` exclui e `0`
 permanece desconhecido. O cliente converte coordenadas do canvas antes do envio.
 
 O resultado contém caixas automáticas/utilizadas, máscaras, temperaturas,
-métricas de área/pixels/percentual e previews. Sem caixas detectadas, a API
-fornece regiões iniciais para correção. A escala, o limiar e as regiões são
+métricas de área/pixels/percentual e previews. A segmentação automática não lê
+as caixas R1/R2 impressas. Se falhar, `image_regions` fornece regiões editáveis
+e um aviso; `/segment` rejeita a análise até a delimitação manual das duas pernas.
+`manual_boxes` continua disponível para delimitação/correção explícita, usando
+watershed dentro da região indicada. `seeds` inclui/exclui pixels exatamente;
+inclusões conflitantes e sobreposição de máscaras são rejeitadas. A escala, o limiar e as regiões são
 validados no backend. O Swagger apresenta os modelos de entrada e saída.
 
 Matrizes usam bytes em ordem C, comprimidos com zlib e codificados em base64:
@@ -124,6 +143,7 @@ interação. Recebe `{ "args": [...], "kwargs": {...} }` e retorna
 | `timeline_view_at_threshold` | Recalcular máscaras quentes e métricas |
 | `compare_hot_masks` | Mapa de pixels novos, persistentes e resolvidos |
 | `summarize_pair` | Totais e percentuais de frente/verso |
+| `preview_regional_zones` | Recebe `views` no formato do registro e retorna as 48 contagens; com `include_totals=true`, retorna `measurements` e `totals` por vista/zona (soma das duas pernas). Não acessa banco nem grava arquivos |
 | `detect_leg_boxes`, `detect_colorbar_box`, `image_regions` | Detectar regiões e transformar caixas após rotação |
 | `segment_leg_mask` | Segmentar com correções opcionais |
 | `temperature_matrix`, `count_hot_pixels` | Conversão térmica e contagem |
@@ -133,7 +153,8 @@ interação. Recebe `{ "args": [...], "kwargs": {...} }` e retorna
 
 Para novos consumidores, prefira a rota tipada `/segment` para análise completa.
 `leg_part_metrics` aceita `region_box` opcional para manter os limites das partes
-relativos à caixa escolhida antes do GrabCut. A contagem continua restrita à máscara.
+relativos à caixa derivada da máscara automática ou escolhida manualmente.
+Exclusões pelo pincel não encolhem essa referência. A contagem continua restrita à máscara.
 As operações granulares preservam a interação do protótipo existente.
 
 As rotas de processamento são stateless. Para persistir uma análise, utilize
@@ -149,6 +170,25 @@ com UUID, data e miniatura. Listagem retorna resumos; detalhe retorna também
 nem alteram o banco. Data e UUID identificam arquivos, não coletas SQL.
 O arquivo local permite recuperar as imagens após encerrar a sessão;
 o histórico de medidas do banco continua sem imagens.
+
+### Registro único de análise
+
+O botão **Registrar Análise** usa `POST /api/v1/thermography/analyses/register`.
+O corpo tem o mesmo formato de `analyses`, mas `mass` e `pain_score` são
+obrigatórios; EVA zero é válido. `observations` é opcional. `athlete_name` deve
+ser enviado, mas o nome persistido é o do cadastro SQL. A data informada é usada
+no banco e no arquivo. As contagens não são recebidas como fonte de verdade:
+o backend calcula os pixels sobre máscaras e temperaturas de cada vista.
+
+Resposta `201`: `{ "analysis": <resumo da análise>, "inserted_measurements": 8 }`
+(9 medidas quando há observações), com imagens codificadas pelo transporte padrão.
+Retorna `409` para jogador/data já registrado, `422` para dados inválidos ou
+destino não local e `503` para falha de banco/arquivos. O registro usa uma
+transação SQL e compensação dos arquivos em falhas normais; não é uma transação
+distribuída tolerante a desligamento abrupto. Veja [registro unificado](thermography.md#registro-unificado).
+
+As rotas antigas permanecem disponíveis para compatibilidade. Não execute a
+rota antiga de medidas e a rota unificada para a mesma coleta: isso gera conflito.
 
 ## Indicadores e importações
 

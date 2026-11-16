@@ -14,9 +14,10 @@ import numpy as np
 from PIL import Image
 from backend.mac_api.core.settings import setting
 from .thermal_analysis import count_hot_pixels, leg_part_metrics
+from .watershed import ALGORITHM_VERSION as ANALYSIS_VERSION
+from .thermal_zones import validate_zone
 
 FORMAT_VERSION = 1
-ANALYSIS_VERSION = 'thermal-rgb-grabcut-v1'
 
 
 def analyses_directory():
@@ -60,6 +61,7 @@ def _validate_view(source):
     if int(source.get('image_rotation', 0)) not in (0, 90, 180, 270):
         raise ValueError('Rotação inválida.')
     masks, metrics, boxes, parts = {}, {}, {}, {}
+    thermal_zone = validate_zone(source.get('thermal_zone'))
     for side in ('right', 'left'):
         box = source['boxes'][side]
         if any(type(box[k]) is not int for k in ('left', 'top', 'width', 'height')):
@@ -74,7 +76,7 @@ def _validate_view(source):
         inside = np.zeros(mask.shape, dtype=bool); inside[y:y+h, x:x+w] = True
         if np.any(mask & ~inside):
             raise ValueError('A máscara ultrapassa a caixa da perna.')
-        pixels, area = count_hot_pixels(temperatures, box, threshold, mask)
+        pixels, area = count_hot_pixels(temperatures, box, threshold, mask, thermal_zone=thermal_zone)
         config = source.get('part_settings', {}).get(side, {'cuts': [45, 57, 88], 'axis': 'vertical', 'foot_at_end': True})
         cuts = config['cuts']
         if len(cuts) != 3 or any(type(cut) is not int for cut in cuts) or not 0 < cuts[0] < cuts[1] < cuts[2] < 100:
@@ -83,7 +85,7 @@ def _validate_view(source):
             raise ValueError('As divisões devem seguir de cima para baixo.')
         boundaries = [y + round(h * cut / 100) for cut in cuts]
         part_metrics, _ = leg_part_metrics(temperatures, mask, threshold, tuple(cuts),
-                                         axis='vertical', region_box=box)
+                                         axis='vertical', region_box=box, thermal_zone=thermal_zone)
         parts[side] = dict(cuts=cuts, axis='vertical', foot_at_end=True,
                           boundaries_pixels=boundaries, metrics=part_metrics)
         metrics[side] = dict(hot_pixels=pixels, total_pixels=area, hot_percentage=pixels/area*100)
@@ -98,6 +100,8 @@ def _validate_view(source):
                     maximum_temperature=maximum, default_threshold=threshold,
                     threshold_percentage=100*(threshold-minimum)/(maximum-minimum),
                     boxes=boxes, colorbar_box=colorbar, part_settings=parts, metrics=metrics)
+    if thermal_zone is not None:
+        metadata['thermal_zone'] = thermal_zone
     return image, temperatures.astype(np.float32), masks, metadata
 
 
@@ -130,11 +134,19 @@ def save_analysis(*, athlete_id, athlete_name, collected_at, views, mass=None, p
             metadata['views'][view] = info
         with (pending / 'metadados.json').open('w', encoding='utf-8') as file:
             json.dump(metadata, file, ensure_ascii=False, indent=2, allow_nan=False)
+        entry = _summary(pending, metadata)
         os.replace(pending, target)
     except Exception:
         shutil.rmtree(pending)
         raise
-    return _summary(target, metadata)
+    return entry
+
+
+def discard_created_analysis(entry):
+    """Compensa somente o diretório recém-criado pela operação de registro."""
+    path = _directory(entry['athlete_id'], entry['collected_at'], entry['id'])
+    _metadata(path)  # Conferir identificação antes de remover o diretório exato.
+    shutil.rmtree(path)
 
 
 def _metadata(directory):

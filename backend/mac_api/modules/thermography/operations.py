@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from backend.mac_api.core.wire import encode, decode
 from backend.mac_api.modules.thermography import thermal_analysis as thermal
+from .regional_zones import preview_regional_zones
 
 router = APIRouter()
 OPERATIONS = {name: getattr(thermal, name) for name in (
@@ -14,6 +15,7 @@ OPERATIONS = {name: getattr(thermal, name) for name in (
     'temperature_from_scale_percentage', 'segmented_image', 'timeline_view_at_threshold',
     'summarize_pair', 'image_regions', 'compare_temperature_maps',
 )}
+OPERATIONS['preview_regional_zones'] = preview_regional_zones
 
 class ProcessingInput(BaseModel):
     args: list[Any] = Field(default_factory=list)
@@ -52,6 +54,7 @@ class SegmentationInput(BaseModel):
     manual_boxes: dict[Literal['right', 'left'], BoundingBox] | None = None
     colorbar_box: BoundingBox | None = None
     seeds: dict[Literal['right', 'left'], ArrayPayload] | None = None
+    thermal_zone: Literal['cold', 'neutral', 'hot'] | None = None
 
 
 class LegMetric(BaseModel):
@@ -74,6 +77,9 @@ class SegmentationOutput(BaseModel):
     colorbar_confidence: float
     temperatures: ArrayPayload
     threshold: float
+    segmentation_warning: str | None = None
+    thermal_zone: Literal['cold', 'neutral', 'hot'] | None = None
+    zone_label: str = 'Pixels quentes'
 
 
 @router.post('/thermography/segment', response_model=SegmentationOutput, tags=['Processamento térmico'])

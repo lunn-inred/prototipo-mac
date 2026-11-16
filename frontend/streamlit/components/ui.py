@@ -11,9 +11,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOGO_PATH = PROJECT_ROOT / "assets" / "logo_mac.png"
 
 
-def apply_global_style() -> None:
+def apply_global_style(*, show_sidebar_logo: bool = True) -> None:
     """Aplica o tema visual e exibe a logo quando o arquivo estiver disponível."""
-    if LOGO_PATH.is_file():
+    if show_sidebar_logo and LOGO_PATH.is_file():
         st.logo(str(LOGO_PATH), size="large")
 
     st.markdown(
@@ -47,6 +47,53 @@ def apply_global_style() -> None:
             padding: 2rem 1rem 4rem;
         }
 
+        .st-key-google_login_card {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            box-sizing: border-box;
+            width: min(440px, calc(100vw - 2rem));
+            max-height: calc(100vh - 2rem);
+            max-height: calc(100dvh - 2rem);
+            overflow-y: auto;
+            padding: clamp(1.25rem, 3vw, 2rem);
+            background: var(--mac-surface);
+            border: 1px solid var(--mac-border);
+            border-radius: 1.25rem;
+            box-shadow: 0 18px 45px rgba(11, 20, 35, 0.12);
+        }
+
+        @media (max-height: 540px) {
+            .st-key-google_login_card {
+                position: relative;
+                top: auto;
+                left: auto;
+                transform: none;
+                margin: 1rem auto;
+            }
+        }
+
+        .st-key-google_login_card > [data-testid="stElementContainer"]:has([data-testid="stImage"]) {
+            align-self: center;
+        }
+
+        .st-key-google_login_card h1,
+        .st-key-google_login_card h3,
+        .st-key-google_login_card [data-testid="stMarkdown"] p {
+            text-align: center;
+        }
+
+        .st-key-google_login_card h1 {
+            margin-bottom: 0.25rem !important;
+        }
+
+        .st-key-google_login_card h3 {
+            color: var(--mac-muted);
+            font-size: 1rem;
+        }
+
         h1, h2, h3, h4 {
             color: var(--mac-text);
             letter-spacing: -0.02em;
@@ -69,6 +116,34 @@ def apply_global_style() -> None:
 
         [data-testid="stSidebar"] [data-testid="stSidebarContent"] {
             padding-top: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            min-height: 100%;
+        }
+
+        [data-testid="stSidebarUserContent"]:has(.st-key-google_logout) {
+            margin-top: auto;
+            padding-bottom: 1rem;
+        }
+
+        [data-testid="stSidebar"] .st-key-google_logout button {
+            background: #c62828;
+            border: 1px solid #c62828;
+            color: #ffffff;
+        }
+
+        [data-testid="stSidebar"] .st-key-google_logout button:hover {
+            background: #a51f1f;
+            border-color: #a51f1f;
+        }
+
+        [data-testid="stSidebar"] .st-key-google_logout button:focus-visible {
+            outline: 2px solid #ffffff;
+            outline-offset: 2px;
+        }
+
+        [data-testid="stSidebar"] .st-key-google_logout button p {
+            color: #ffffff;
         }
 
         [data-testid="stSidebar"] p,
