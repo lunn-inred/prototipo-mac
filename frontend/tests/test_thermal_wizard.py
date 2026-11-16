@@ -252,8 +252,11 @@ render_wizard({1: {'id_atleta': 1, 'nome': 'Teste'}})
                     self.assertEqual(item['thermal_zone'], 'cold')
                     self.assertTrue(all(metric['hot_pixels'] == 0 for metric in item['analysis']['metrics'].values()))
                     self.assertEqual(len(app.exception), 0, list(app.exception))
-            # O mapa é apenas visual; o contrato legado ainda recebe EVA no resumo.
-            app.number_input(key='thermal_summary_pain_score').set_value(0).run()
+            # O resumo não oferece EVA; preservar um valor legado no cenário completo.
+            self.assertFalse(any(w.label.startswith('EVA') for w in app.number_input))
+            app.session_state['thermal_draft']['pain'] = 0
+            app.session_state['thermal_calculation'][0]['pain'] = 0
+            app.run()
             self.assertIn('Resumo da coleta', [h.value for h in app.subheader])
             self.assertNotIn('Registro preparado', [h.value for h in app.subheader])
             self.assertEqual(app.get('progress')[0].proto.text, 'Etapa 7 de 7 — Resumo da coleta')

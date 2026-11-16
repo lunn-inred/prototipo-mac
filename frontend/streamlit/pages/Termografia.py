@@ -154,7 +154,7 @@ if all(view_metrics.values()):
 
     with st.container(border=True, key='thermal_collection_summary'):
         st.subheader("Resumo da coleta")
-        columns = st.columns([2, 1, 1, 1.4])
+        columns = st.columns([2, 1, 1.4])
         ids = list(athletes_by_id)
         with columns[0]:
             prepared_player_id = st.selectbox(
@@ -167,13 +167,10 @@ if all(view_metrics.values()):
             prepared_mass = st.number_input('Massa (kg) *', min_value=0.1,
                 value=mass, step=0.1, key='thermography_mass')
         with columns[2]:
-            if 'thermal_summary_pain_score' not in st.session_state:
-                st.session_state['thermal_summary_pain_score'] = pain_score
-            prepared_pain_score = st.number_input('EVA Dor *', min_value=0, max_value=10,
-                value=None, step=1, key='thermal_summary_pain_score')
-        with columns[3]:
             prepared_day = st.date_input('Data da coleta *', value=draft.get('collected_at'),
                 format='DD/MM/YYYY', key='thermal_summary_date')
+        # Preservar o EVA legado sem criar valores a partir do mapa visual.
+        prepared_pain_score = pain_score
         prepared_observations = st.text_area('Observações', value=observations,
                                               key='thermography_observations').strip()
         record.update(Jogador=editor_label_by_athlete_id.get(prepared_player_id),
@@ -188,8 +185,6 @@ if all(view_metrics.values()):
             missing_fields.append("Jogador")
         if prepared_mass is None:
             missing_fields.append("Massa")
-        if prepared_pain_score is None:
-            missing_fields.append("EVA Dor")
 
         if missing_fields:
             st.warning(

@@ -63,12 +63,11 @@ def select_thermal_zone(item_key, zone):
 def render_zone_control(item, item_key):
     zone_selected = normalize_zone_selection(item)
     with st.container(border=True):
-        st.caption('Zona térmica para análise')
+        st.caption('Visualizar zonas de temperatura')
         for column, (zone, label) in zip(st.columns(3), ZONE_BUTTONS.items()):
             column.button(label, key=f'wizard_zone_{zone}_{item_key}', width='stretch',
                           type='primary' if zone_selected == zone else 'secondary',
                           on_click=select_thermal_zone, args=(item_key, zone))
-        st.caption('Fria: abaixo de 31 °C · Neutra: 31 ≤ T < 33 °C · Quente: a partir de 33 °C')
 
 
 def cuts_from_objects(objects, extent, foot_at_end, coordinate='x'):

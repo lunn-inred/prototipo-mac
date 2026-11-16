@@ -49,8 +49,9 @@ Os valores regionais ficam em estado de sessão separado, preservado ao voltar
 às etapas e limpo ao iniciar/reabrir outra análise ou após salvar. **Ainda não
 entram no registro, nas análises parciais salvas ou no Drive.** Não se calcula
 automaticamente um EVA geral a partir deles. Valores gerais legados são
-preservados, e o resumo mantém o contrato de EVA geral existente até definirmos
-a persistência regional. Veja [mapa corporal](body-muscles.md).
+preservados, mas o resumo também não oferece mais edição do EVA geral. A
+persistência regional ainda será definida; sem EVA legado, o salvamento segue
+o fluxo de análise incompleta existente. Veja [mapa corporal](body-muscles.md).
 
 ### Salvar e retomar uma análise incompleta
 
