@@ -9,14 +9,14 @@ de frente e costas. O título **Termografia - Nova análise térmica** reúne o
 nome da página e do assistente, sem um subtítulo duplicado. Quando habilitado,
 o componente **Envio de Formulário** aparece ao final para importar fichas manuscritas.
 A consulta e a comparação de análises ficam na página separada **Timeline térmica**.
-A data da coleta aparece como coluna editável no resumo da última etapa, com a
+A data da coleta aparece como campo editável no resumo da última etapa, com a
 data atual de São Paulo como padrão. Não há pop-up para escolher a data.
 Quando omitida em uma chamada à API, a mesma data padrão é aplicada pelo serviço.
 
 A nova análise utiliza um assistente com **Continuar** e **Voltar**, apresentando
 somente uma etapa por vez:
 
-1. Jogador, massa, EVA Dor e observações opcionais.
+1. Jogador e massa, mapa de EVA Dor por região e observações opcionais.
 2. Upload de frente/costas, prévia e botão para girar 90° para a direita.
 3. Regiões das pernas e barra de cores, com **Ajustar regiões** em uma linha
    alinhada às colunas de **Voltar** e **Continuar**.
@@ -37,6 +37,20 @@ somente uma etapa por vez:
    permitem voltar às divisões e à segmentação sem perder os metadados editados.
    Se a prévia falhar, o salvamento completo fica indisponível; permanece possível
    salvar os dados disponíveis como análise parcial mediante confirmação.
+
+### Mapa de EVA na primeira etapa (integração visual)
+
+Logo abaixo de jogador/massa e antes das observações, o mapa apresenta frente e
+costas, somente as pernas e os 16 grupos personalizados. Os números permanecem
+visíveis, com uma região selecionada por vez. O campo único de EVA foi removido
+dessa primeira etapa; basta preencher jogador e massa para avançar.
+
+Os valores regionais ficam em estado de sessão separado, preservado ao voltar
+às etapas e limpo ao iniciar/reabrir outra análise ou após salvar. **Ainda não
+entram no registro, nas análises parciais salvas ou no Drive.** Não se calcula
+automaticamente um EVA geral a partir deles. Valores gerais legados são
+preservados, e o resumo mantém o contrato de EVA geral existente até definirmos
+a persistência regional. Veja [mapa corporal](body-muscles.md).
 
 ### Salvar e retomar uma análise incompleta
 

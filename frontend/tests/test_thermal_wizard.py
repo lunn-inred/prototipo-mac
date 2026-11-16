@@ -17,9 +17,43 @@ from frontend.streamlit.components.thermography.wizard import cuts_from_objects,
 
 class ThermalWizardTests(unittest.TestCase):
     def setUp(self):
+        map_patch = patch('frontend.streamlit.components.thermography.wizard.body_muscles_map',
+                          return_value={'active': None, 'bodyState': {}})
+        self.eva_map = map_patch.start()
+        self.addCleanup(map_patch.stop)
         import streamlit as st
         st.cache_data.clear()
         self.addCleanup(st.cache_data.clear)
+
+    def test_first_step_uses_grouped_leg_map_without_recording_regional_eva(self):
+        from frontend.streamlit.components.thermography.save_flow import snapshot_state
+        app = AppTest.from_string('''
+from frontend.streamlit.components.thermography.wizard import render_wizard
+render_wizard({1: {'id_atleta': 1, 'nome': 'Teste'}})
+''').run()
+        self.assertFalse(app.exception)
+        self.assertFalse(any(w.key == 'thermography_pain_score' for w in app.number_input))
+        args = self.eva_map.call_args.kwargs
+        self.assertTrue(args['custom_grouping'])
+        self.assertTrue(args['legs_only'])
+        self.assertTrue(args['compact'])
+        self.assertEqual(args['view'], 'BOTH')
+        app.selectbox(key='thermography_player').set_value(1)
+        app.number_input(key='thermography_mass').set_value(75.)
+        app.text_area(key='thermography_observations').set_value('Teste visual').run()
+        self.assertFalse(app.button(key='thermal_next').disabled)
+        regional = {'active': 'front-thigh-right', 'bodyState': {'front-thigh-right': {'intensity': 6, 'selected': True}}}
+        app.session_state['thermal_eva_map_state'] = regional
+        app.button(key='thermal_next').click().run()
+        app.button(key='thermal_previous').click().run()
+        self.assertEqual(app.session_state['thermal_eva_map_state'], regional)
+        self.assertEqual(app.text_area(key='thermography_observations').value, 'Teste visual')
+        self.assertIsNone(app.session_state['thermal_draft']['pain'])
+        with patch('frontend.streamlit.components.thermography.save_flow.st.session_state',
+                   {'thermal_draft': app.session_state['thermal_draft'], 'thermal_eva_map_state': regional}):
+            payload = snapshot_state()
+        self.assertNotIn('thermal_eva_map_state', payload)
+        self.assertNotIn('bodyState', payload['draft'])
 
     def test_cropped_strokes_are_positioned_in_original_image(self):
         from frontend.streamlit.components.thermography.editor import _canvas_seeds
@@ -89,7 +123,6 @@ class ThermalWizardTests(unittest.TestCase):
             self.assertTrue(app.button(key='thermal_next').disabled)
             app.selectbox(key='thermography_player').set_value(1)
             app.number_input(key='thermography_mass').set_value(75.0)
-            app.number_input(key='thermography_pain_score').set_value(0)
             app.run()
             for step in range(1, 7):
                 app.button(key='thermal_next').click().run()
@@ -219,6 +252,8 @@ class ThermalWizardTests(unittest.TestCase):
                     self.assertEqual(item['thermal_zone'], 'cold')
                     self.assertTrue(all(metric['hot_pixels'] == 0 for metric in item['analysis']['metrics'].values()))
                     self.assertEqual(len(app.exception), 0, list(app.exception))
+            # O mapa é apenas visual; o contrato legado ainda recebe EVA no resumo.
+            app.number_input(key='thermal_summary_pain_score').set_value(0).run()
             self.assertIn('Resumo da coleta', [h.value for h in app.subheader])
             self.assertNotIn('Registro preparado', [h.value for h in app.subheader])
             self.assertEqual(app.get('progress')[0].proto.text, 'Etapa 7 de 7 — Resumo da coleta')
@@ -251,7 +286,7 @@ class ThermalWizardTests(unittest.TestCase):
             for _ in range(6):
                 app.button(key='thermal_previous').click().run()
             self.assertEqual(app.number_input(key='thermography_mass').value, 75.0)
-            self.assertEqual(app.number_input(key='thermography_pain_score').value, 0)
+            self.assertEqual(app.session_state['thermal_draft'].get('pain'), 0)
             self.assertEqual(app.selectbox(key='thermography_player').value, 1)
             for _ in range(6):
                 app.button(key='thermal_next').click().run()
@@ -275,7 +310,7 @@ class ThermalWizardTests(unittest.TestCase):
             self.assertEqual(app.session_state['thermal_step'], 0)
             self.assertEqual(app.title[0].value, 'Termografia - Nova análise térmica')
             self.assertIsNone(app.number_input(key='thermography_mass').value)
-            self.assertIsNone(app.number_input(key='thermography_pain_score').value)
+            self.assertIsNone(app.session_state['thermal_draft'].get('pain'))
             self.assertIsNone(app.selectbox(key='thermography_player').value)
             self.assertEqual(app.session_state['thermal_upload_generation'], 1)
             self.assertNotIn('thermal_prepared_record', app.session_state)

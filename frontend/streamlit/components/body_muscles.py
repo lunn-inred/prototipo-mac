@@ -14,17 +14,30 @@ VENDOR = Path(__file__).resolve().parents[1] / 'assets/vendor/body-muscles/2.1.1
 BRIDGE_JS = '''
 export default function({parentElement, data, setStateValue}) {
     const host = parentElement.querySelector('.body-lab');
+    host.dataset.compact = String(Boolean(data.compact));
     // Streamlit v2 pode reutilizar o DOM e chamar o renderer novamente antes
     // de desmontar o componente. Não acumular mapas nem handlers nesse caso.
     host.macBodyMuscles?.dispose();
     const map = parentElement.querySelector('[data-body-map]');
     const name = parentElement.querySelector('[data-region-name]');
-    const identifier = parentElement.querySelector('[data-region-id]');
     const number = parentElement.querySelector('[data-intensity-number]');
     const slider = parentElement.querySelector('[data-intensity-slider]');
     let state = {...data.value.bodyState};
     let active = data.value.active;
-    const {BodyChart, MUSCLE_METADATA} = BodyMuscles;
+    const {BodyChart, MUSCLE_METADATA, INTENSITY_COLORS} = BodyMuscles;
+    const legend = parentElement.querySelector('[data-intensity-legend]');
+    legend.replaceChildren(...Array.from({length: 11}, (_, intensity) => {
+        const entry = document.createElement('span');
+        entry.className = 'intensity-legend-entry';
+        entry.title = `Intensidade ${intensity}`;
+        const swatch = document.createElement('span');
+        swatch.className = 'intensity-legend-swatch';
+        swatch.style.backgroundColor = INTENSITY_COLORS[intensity];
+        const label = document.createElement('span');
+        label.textContent = String(intensity);
+        entry.append(swatch, label);
+        return entry;
+    }));
     const groups = data.customGrouping ? data.groups : null;
     map.dataset.legsOnly = String(Boolean(groups && data.legsOnly));
     const catalog = groups || MUSCLE_METADATA;
@@ -42,8 +55,7 @@ export default function({parentElement, data, setStateValue}) {
     }
     function showEditor() {
         const region = active && catalog[active];
-        name.textContent = region ? region.name : 'Selecione uma região no mapa';
-        identifier.textContent = region ? region.id : 'Frente e costas têm regiões independentes.';
+        name.textContent = region ? region.name : 'Selecione uma região';
         number.disabled = slider.disabled = !region;
         number.value = slider.value = region ? (state[active]?.intensity ?? 0) : 0;
     }
@@ -183,13 +195,12 @@ HTML = '''
 <div class="body-lab">
   <div data-body-map></div>
   <section class="body-editor" aria-label="Editar intensidade da região">
-    <h3 data-region-name>Selecione uma região no mapa</h3>
-    <p data-region-id></p>
+    <h3 data-region-name>Selecione uma região</h3>
     <label>Intensidade (0–10)
       <input data-intensity-number type="number" min="0" max="10" step="1" disabled>
     </label>
     <input data-intensity-slider aria-label="Intensidade da região" type="range" min="0" max="10" step="1" disabled>
-    <p>0: sem dor · 10: intensidade máxima</p>
+    <div data-intensity-legend class="intensity-legend" role="img" aria-label="Escala de cores de intensidade de 0 a 10, conforme a paleta do mapa"></div>
   </section>
 </div>
 '''
@@ -202,7 +213,15 @@ CSS = '''
 .body-editor p {font-size:13px;overflow-wrap:anywhere;}
 .body-editor input {box-sizing:border-box;width:100%;margin:12px 0;font:inherit;}
 .body-editor input[type=number] {padding:8px;}
+.intensity-legend {display:grid;grid-template-columns:repeat(11,minmax(0,1fr));gap:2px;margin-top:8px;}
+.intensity-legend-entry {display:flex;flex-direction:column;gap:4px;text-align:center;font-size:11px;}
+.intensity-legend-swatch {height:14px;border-radius:2px;}
 [data-body-map] {min-width:0;--bm-max-height:65vh;}
+.body-lab[data-compact=true] {gap:16px;}
+.body-lab[data-compact=true] [data-body-map] svg {max-height:clamp(220px,32vh,340px) !important;}
+.body-lab[data-compact=true] .body-editor {padding:10px;}
+.body-lab[data-compact=true] .body-editor input {margin:6px 0;}
+.body-lab[data-compact=true] .body-editor p {margin:6px 0;}
 [data-mac-disabled=true] {pointer-events:none !important;opacity:.12 !important;}
 [data-legs-only=true] svg path:not([data-mac-group]) {display:none !important;}
 .mac-intensity-label {fill:white;font-family:Arial,sans-serif;font-size:2.5px;
@@ -244,7 +263,7 @@ def _component():
 
 
 def body_muscles_map(*, key, state_key, view='BOTH', show_tooltip=True, transitions=True,
-                     custom_grouping=False, legs_only=False):
+                     custom_grouping=False, legs_only=False, compact=False):
     if view not in ('FRONT', 'BACK', 'BOTH'):
         raise ValueError('Vista desconhecida do mapa corporal.')
     # O estado do widget contém o evento mais recente ANTES deste rerun.
@@ -253,6 +272,7 @@ def body_muscles_map(*, key, state_key, view='BOTH', show_tooltip=True, transiti
     result = _component()(key=key, data=dict(value=value, view=view, showTooltip=show_tooltip,
         enableTransitions=transitions, customGrouping=bool(custom_grouping),
         legsOnly=bool(custom_grouping and legs_only),
+        compact=bool(compact),
         groups=custom_groups() if custom_grouping else {}),
         default={'value': value}, height='content',
         on_value_change=lambda: None)

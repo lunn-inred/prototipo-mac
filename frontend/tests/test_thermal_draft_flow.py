@@ -16,6 +16,10 @@ from frontend.streamlit.components.thermography import history
 
 class ThermalDraftFlowTests(unittest.TestCase):
     def setUp(self):
+        map_patch = patch('frontend.streamlit.components.thermography.wizard.body_muscles_map',
+                          return_value={'active': None, 'bodyState': {}})
+        self.eva_map = map_patch.start()
+        self.addCleanup(map_patch.stop)
         st.cache_data.clear()
         self.addCleanup(st.cache_data.clear)
         self.directory = TemporaryDirectory(prefix='mac-draft-ui-')
@@ -103,19 +107,19 @@ render_pending_save()
                 if initial != 'empty_after_save':
                     app.selectbox(key='thermography_player').set_value(2)
                     app.number_input(key='thermography_mass').set_value(80.)
-                    app.number_input(key='thermography_pain_score').set_value(9)
+                    app.session_state['thermal_draft']['pain'] = 9
                     app.text_area(key='thermography_observations').set_value('Não reutilizar').run()
                 app.button(key='fixture_open').click().run()
                 self.assertFalse(app.exception)
                 self.assertFalse(app.warning)
                 widgets = [app.selectbox(key='thermography_player'), app.number_input(key='thermography_mass'),
-                           app.number_input(key='thermography_pain_score'), app.text_area(key='thermography_observations')]
-                self.assertEqual([widget.value for widget in widgets], [draft[key] for key in ('player','mass','pain','notes')])
+                           app.text_area(key='thermography_observations')]
+                self.assertEqual([widget.value for widget in widgets], [draft[key] for key in ('player','mass','notes')])
                 self.assertTrue(all(widget.proto.set_value for widget in widgets))
                 self.assertEqual(app.session_state['thermal_saved_draft']['id'], entry['id'])
                 app.run()
                 self.assertEqual(app.number_input(key='thermography_mass').value, draft['mass'])
-                self.assertEqual(app.number_input(key='thermography_pain_score').value, draft['pain'])
+                self.assertEqual(app.session_state['thermal_draft'].get('pain'), draft['pain'])
 
     def test_single_image_is_saved_before_uploading_the_other_view(self):
         buffer = io.BytesIO(); Image.new('RGB', (8, 12), 'red').save(buffer, format='PNG')
@@ -140,7 +144,7 @@ render_pending_save()
         self.assertEqual(app.session_state['thermal_upload_generation'], 1)
         self.assertIsNone(app.selectbox(key='thermography_player').value)
         self.assertIsNone(app.number_input(key='thermography_mass').value)
-        self.assertIsNone(app.number_input(key='thermography_pain_score').value)
+        self.assertIsNone(app.session_state['thermal_draft'].get('pain'))
         self.assertEqual(app.text_area(key='thermography_observations').value, '')
         self.assertFalse(app.success)
         self.assertEqual(app.toast[0].value, 'Análise parcial salva. Você poderá visualizá-la em Ver análises anteriores.')
@@ -177,7 +181,7 @@ render_pending_save()
         app = AppTest.from_string(script).run()
         app.selectbox(key='thermography_player').set_value(1)
         app.number_input(key='thermography_mass').set_value(75.)
-        app.number_input(key='thermography_pain_score').set_value(3)
+        app.session_state['thermal_draft']['pain'] = 3
         app.text_area(key='thermography_observations').set_value('Análise de teste').run()
         with patch('frontend.streamlit.components.thermography.save_flow.save_draft',
                    return_value=dict(id='partial-test', created_at='2026-11-12T00:00:00+00:00', athlete_id=1)) as save:
@@ -187,12 +191,12 @@ render_pending_save()
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state['thermal_step'], 0)
         widgets = [app.selectbox(key='thermography_player'), app.number_input(key='thermography_mass'),
-                   app.number_input(key='thermography_pain_score'), app.text_area(key='thermography_observations')]
+                   app.text_area(key='thermography_observations')]
         for widget in widgets:
             with self.subTest(widget=widget.key):
                 # Não basta o Python estar vazio: o navegador deve receber a ordem de limpar.
                 self.assertTrue(widget.proto.set_value)
-        self.assertEqual([widget.value for widget in widgets], [None, None, None, ''])
+        self.assertEqual([widget.value for widget in widgets], [None, None, ''])
         self.assertEqual(app.toast[0].value, 'Análise parcial salva. Você poderá visualizá-la em Ver análises anteriores.')
 
     def test_return_to_first_step_preserves_images_and_filled_metadata(self):
@@ -210,7 +214,7 @@ render_pending_save()
         self.assertEqual(app.session_state['thermal_step'], 0)
         self.assertEqual(app.session_state['thermal_uploads']['front'], upload)
         self.assertEqual(app.number_input(key='thermography_mass').value, 75.)
-        self.assertEqual(app.number_input(key='thermography_pain_score').value, 2)
+        self.assertEqual(app.session_state['thermal_draft'].get('pain'), 2)
         self.assertEqual(app.text_area(key='thermography_observations').value, 'Não perder')
         self.assertEqual(app.toast[0].value, 'Selecione um jogador antes de salvar a análise.')
 

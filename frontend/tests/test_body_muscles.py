@@ -46,10 +46,10 @@ class BodyMusclesTests(unittest.TestCase):
             self.assertTrue(all(member.endswith('-'+group['side']) for member in group['members']))
             members.extend(group['members'])
         self.assertEqual(len(members), len(set(members)))
-        self.assertEqual(groups['front-coxa-right']['members'], ['quads-right','adductors-right','hip-flexor-right'])
-        self.assertEqual(groups['back-canela-left']['members'],
+        self.assertEqual(groups['front-thigh-right']['members'], ['quads-right','adductors-right','hip-flexor-right'])
+        self.assertEqual(groups['back-lower-leg-left']['members'],
                          ['calves-gastroc-medial-left','calves-gastroc-lateral-left','calves-soleus-left'])
-        value = dict(active='back-canela-left', bodyState={'back-canela-left': dict(intensity=8,selected=True)})
+        value = dict(active='back-lower-leg-left', bodyState={'back-lower-leg-left': dict(intensity=8,selected=True)})
         self.assertEqual(body.normalize_state(value,custom_grouping=True), value)
         with self.assertRaises(ValueError):
             body.normalize_state(value)
@@ -75,7 +75,7 @@ class BodyMusclesTests(unittest.TestCase):
             self.assertEqual(len(factory.return_value.call_args.kwargs['data']['groups']),16)
             app.checkbox(key='body_lab_legs_only').check().run()
             self.assertTrue(factory.return_value.call_args.kwargs['data']['legsOnly'])
-            grouped = dict(active='front-coxa-right',bodyState={'front-coxa-right':dict(intensity=4,selected=True)})
+            grouped = dict(active='front-thigh-right',bodyState={'front-thigh-right':dict(intensity=4,selected=True)})
             app.session_state['body_lab_map_0_custom'] = {'value': grouped}
             app.run()
             app.checkbox(key='body_lab_custom_grouping').uncheck().run()

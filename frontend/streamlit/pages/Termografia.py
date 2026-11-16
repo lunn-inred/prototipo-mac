@@ -167,8 +167,10 @@ if all(view_metrics.values()):
             prepared_mass = st.number_input('Massa (kg) *', min_value=0.1,
                 value=mass, step=0.1, key='thermography_mass')
         with columns[2]:
+            if 'thermal_summary_pain_score' not in st.session_state:
+                st.session_state['thermal_summary_pain_score'] = pain_score
             prepared_pain_score = st.number_input('EVA Dor *', min_value=0, max_value=10,
-                value=pain_score, step=1, key='thermography_pain_score')
+                value=None, step=1, key='thermal_summary_pain_score')
         with columns[3]:
             prepared_day = st.date_input('Data da coleta *', value=draft.get('collected_at'),
                 format='DD/MM/YYYY', key='thermal_summary_date')
@@ -200,6 +202,9 @@ if all(view_metrics.values()):
 
         draft.update(player=prepared_player_id, mass=prepared_mass, pain=prepared_pain_score,
                      notes=prepared_observations, collected_at=prepared_day)
+        # O resumo pode usar o objeto guardado com o cálculo; sincronizar também
+        # o rascunho atual, usado ao voltar às etapas e no salvamento parcial.
+        st.session_state['thermal_draft'] = dict(draft)
         regional_ready = render_regional_summary(views, items, reviewed_record=draft.copy())
         st.session_state['thermal_prepared_record'] = dict(athlete_id=prepared_player_id,
             athlete_name=athletes_by_id.get(prepared_player_id, {}).get('nome', ''), mass=prepared_mass,

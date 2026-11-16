@@ -7,6 +7,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 from PIL import Image, ImageDraw
 from frontend.streamlit.components.image_fonts import image_font
+from frontend.streamlit.components.body_muscles import body_muscles_map
 from streamlit_drawable_konva import st_canvas
 
 from frontend.streamlit.api_client.thermal_client import (
@@ -197,7 +198,7 @@ def render_wizard(athletes_by_id):
         return calculation
     if step == 0:
         set_metadata_widgets(draft, overwrite=False)
-        columns = st.columns(3)
+        columns = st.columns(2)
         ids = list(athletes_by_id)
         with columns[0]:
             selected = st.session_state['thermography_player']
@@ -210,12 +211,22 @@ def render_wizard(athletes_by_id):
         with columns[1]:
             mass = st.number_input('Massa (kg) *', min_value=0.1, value=None,
                                    step=0.1, key='thermography_mass')
-        with columns[2]:
-            pain = st.number_input('EVA Dor *', min_value=0, max_value=10,
-                                   value=None, step=1, key='thermography_pain_score')
+        st.markdown('<h3 style="font-size:16px;line-height:1.4;margin:0;padding:0">EVA por região</h3>',
+                    unsafe_allow_html=True,
+                    help='Selecione uma região para informar a intensidade. Os valores ficam somente na sessão e ainda não são registrados na análise.')
+        body_muscles_map(
+            key=f'thermal_eva_map_{st.session_state.get("thermal_upload_generation", 0)}',
+            state_key='thermal_eva_map_state', view='BOTH',
+            custom_grouping=True, legs_only=True, compact=True,
+        )
+        # Não inferir o EVA geral das regiões nesta etapa exclusivamente visual.
+        pain = draft.get('pain')
+        # Esta chave não é mais um widget nesta etapa. Atualizá-la impede que
+        # um estado antigo/vazio sobrescreva o EVA legado ao voltar ao resumo.
+        st.session_state['thermography_pain_score'] = pain
         notes = st.text_area('Observações', value='', key='thermography_observations')
         draft.update(player=player, mass=mass, pain=pain, notes=notes)
-        navigate(step, player is not None and mass is not None and pain is not None)
+        navigate(step, player is not None and mass is not None)
         return None
     uploads = st.session_state.setdefault('thermal_uploads', {})
     if step == 1:

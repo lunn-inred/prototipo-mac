@@ -30,6 +30,15 @@ não uma escala clínica aprovada para o projeto.
 
 ## Integração e distribuição
 
+O mesmo componente aparece na primeira etapa de **Termografia**, entre
+jogador/massa e observações, com modo personalizado e Somente Pernas fixos e os
+números sempre visíveis. O estado é independente do laboratório e não é enviado
+ao banco nem incluído no salvamento térmico; esta integração é apenas visual.
+Na termografia, o modo compacto limita a altura do mapa entre 220 e 340 px,
+adaptando-se à altura da janela; o título usa fonte de 16 px e a orientação fica na ajuda.
+O painel de intensidade apresenta uma legenda numerada de 0 a 10, gerada diretamente
+de `INTENSITY_COLORS` da biblioteca, com as mesmas cores do mapa (paleta demonstrativa).
+
 A opção **Agrupamento personalizado** vem desmarcada. Ao ativá-la, cada grupo
 recebe um único valor/seleção e colore juntas suas regiões originais. Os nomes
 passam a ser em português; outras regiões ficam esmaecidas e não são editáveis.
@@ -53,7 +62,8 @@ Definição em `components/body_muscles_groups.py`, espelhada para esquerda/dire
 | Canela | tibialis-anterior | calves-gastroc-medial + calves-gastroc-lateral + calves-soleus |
 | Pé | foot | foot-back |
 
-As regiões são identificadas por vista/parte/lado, como `front-coxa-right`.
+Os IDs são inteiramente em inglês, por vista/parte/lado, como `front-thigh-right`.
+As partes são `thigh`, `knee`, `lower-leg` e `foot`; os nomes exibidos continuam em português.
 Frente/costas e esquerda/direita são independentes. O modo original e o modo
 personalizado mantêm estados separados na sessão; alternar não converte valores
 por média/máximo nem os descarta. **Limpar exploração** limpa ambos os modos.

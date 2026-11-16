@@ -18,6 +18,10 @@ from frontend.streamlit.components.thermography.editor import analysis_configura
 
 class ThermalSaveReadinessTests(unittest.TestCase):
     def setUp(self):
+        map_patch = patch('frontend.streamlit.components.thermography.wizard.body_muscles_map',
+                          return_value={'active': None, 'bodyState': {}})
+        self.eva_map = map_patch.start()
+        self.addCleanup(map_patch.stop)
         st.cache_data.clear(); self.addCleanup(st.cache_data.clear)
         temporary = TemporaryDirectory(prefix='mac-readiness-')
         self.addCleanup(temporary.cleanup)
@@ -113,7 +117,7 @@ render_pending_save()
             self.assertEqual(app.toast[0].value, 'Análise salva. Você poderá visualizá-la em Ver análises anteriores.')
             self.assertIsNone(app.selectbox(key='thermography_player').value)
             for widget in (app.selectbox(key='thermography_player'), app.number_input(key='thermography_mass'),
-                           app.number_input(key='thermography_pain_score'), app.text_area(key='thermography_observations')):
+                           app.text_area(key='thermography_observations')):
                 self.assertTrue(widget.proto.set_value, widget.key)
 
     def test_missing_required_metadata_still_requests_partial_confirmation(self):
