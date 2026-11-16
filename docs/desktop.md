@@ -18,6 +18,11 @@ executável empacotado, API, Streamlit e WebView são iniciados automaticamente.
 A janela abre com tamanho inicial de **1920 × 1080**, tanto em desenvolvimento
 quanto no executável. Isso não altera a resolução do monitor; o gerenciador de
 janelas pode limitar o tamanho conforme a área disponível e a escala de exibição.
+O ícone da janela usa a logo MAC: no Linux, a WebView Qt carrega o PNG da
+interface; no Windows, o executável e os atalhos recebem o ícone gerado a partir
+da mesma logo durante o build. A alteração no ícone do Windows aparece após
+gerar um novo executável e instalador; o sistema pode manter o ícone anterior
+em cache por algum tempo.
 
 Com login Google ativo, a WebView mostra a página **Entrar** e continua aberta.
 O botão abre o navegador do sistema para a autorização exigida pelo Google;

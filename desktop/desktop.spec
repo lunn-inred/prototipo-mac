@@ -80,6 +80,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(root / 'desktop' / 'mac.ico') if windows else None,
     exclude_binaries=windows,
 )
 if windows:

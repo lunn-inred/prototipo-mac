@@ -31,5 +31,6 @@ class SharedLayoutTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"]', css)
         self.assertIn('inset-inline-end: 1.25rem;', css)
         self.assertIn('[data-testid="stSidebar"] [data-testid="stSidebarLogo"]', css)
-        self.assertIn('transform: scale(1.32);', css)
+        self.assertIn('min-height: 7rem;', css)
+        self.assertIn('transform: scale(2.64);', css)
         self.assertIn('transform-origin: center;', css)

@@ -65,6 +65,25 @@ class DesktopLauncherTests(unittest.TestCase):
         if sys.platform.startswith("linux"):
             self.assertEqual(os.environ["QT_API"], "pyside6")
 
+    def test_linux_window_uses_mac_logo_as_icon(self):
+        if not sys.platform.startswith('linux'):
+            self.skipTest('Ícone da janela Qt verificado somente no Linux.')
+        original_directory = Path.cwd()
+        window_options = {}
+
+        def capture_window(*_args, **_kwargs):
+            window_options.update(desktop.webview.start.keywords)
+
+        try:
+            with patch('desktop.launcher.start_desktop_app', side_effect=capture_window) as start, \
+                 patch('desktop.launcher.stop_process'):
+                desktop.main()
+                self.assertEqual(window_options['gui'], 'qt')
+                self.assertEqual(Path(window_options['icon']).name, 'logo_mac.png')
+                start.assert_called_once()
+        finally:
+            os.chdir(original_directory)
+
     @patch("desktop.launcher.stop_process")
     @patch("desktop.launcher.start_local_api")
     @patch("desktop.launcher.start_desktop_app")

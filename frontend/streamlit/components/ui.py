@@ -117,10 +117,11 @@ def apply_global_style(*, show_sidebar_logo: bool = True) -> None:
         [data-testid="stSidebar"] [data-testid="stSidebarHeader"] {
             position: relative;
             justify-content: center;
+            min-height: 7rem;
         }
 
         [data-testid="stSidebar"] [data-testid="stSidebarLogo"] {
-            transform: scale(1.32);
+            transform: scale(2.64);
             transform-origin: center;
         }
 

@@ -236,7 +236,8 @@ def main() -> None:
     original_webview_start = webview.start
     if sys.platform.startswith("linux"):
         # Evita a tentativa ruidosa de carregar GTK antes do backend instalado.
-        webview.start = partial(original_webview_start, gui="qt")
+        icon = resource_root() / 'frontend' / 'streamlit' / 'assets' / 'logo_mac.png'
+        webview.start = partial(original_webview_start, gui="qt", icon=str(icon))
     try:
         if windows:
             from desktop.windows_os import instance_lock
