@@ -14,6 +14,12 @@ recebe cadastros, GPS, saltos, medidas térmicas e arquivos de análises
 completas/parciais. Alterações ainda apenas na interface não são enviadas nem
 descartadas.
 
+A tarefa automática também mostra sua etapa na página. Enquanto estiver ativa,
+o botão manual fica desabilitado e o erro da tentativa anterior fica oculto.
+No desktop Windows, progresso e tipos/origem de falhas são gravados em
+`%LOCALAPPDATA%\MAC Performance\logs\api.log`. Não são registrados tokens,
+URLs autenticadas, valores de consultas ou conteúdo das análises.
+
 O sinal pendente fica em `MAC_BACKUPS_DIR/auto-sync-state.json` e sobrevive ao
 reinício da API. Falhas mantêm o sinal e são tentadas novamente com espera
 crescente até cinco minutos. `MAC_AUTO_SYNC_ENABLED=0` desativa o trabalhador;

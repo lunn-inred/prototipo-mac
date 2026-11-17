@@ -24,11 +24,18 @@ def render_sync():
                   'syncing': 'Sincronização em andamento', 'error': 'Sincronização automática pendente',
                   'disabled': 'Sincronização automática desativada'}
         st.write(f'**Estado automático:** {labels.get(automatic["state"], automatic["state"])}')
-        if automatic.get('last_error'):
+        if automatic.get('last_error') and automatic['state'] != 'syncing':
             st.warning(automatic['last_error'])
         if automatic.get('last_success'):
             st.caption(f'Última sincronização concluída: {automatic["last_success"]}')
     job = st.session_state.get('sync_job')
+    auto_running = bool(automatic and automatic.get('state') == 'syncing')
+    if auto_running and automatic.get('job_id'):
+        try:
+            job = backups.job_status(automatic['job_id'])
+            st.session_state['sync_job'] = job
+        except ValueError as error:
+            st.warning(str(error))
     if job and job['status'] in ('queued', 'running'):
         try:
             job = backups.job_status(job['id'])
@@ -38,7 +45,7 @@ def render_sync():
             st.warning('Confira o estado da API antes de repetir a operação.')
             return
     running = bool(job and job['status'] in ('queued', 'running'))
-    if st.button('Sincronizar dados', type='primary', width='stretch', disabled=running, key='sync_start'):
+    if st.button('Sincronizar dados', type='primary', width='stretch', disabled=running or auto_running, key='sync_start'):
         try:
             st.session_state['sync_job'] = backups.synchronize()
             st.session_state.pop('sync_handled', None)

@@ -12,12 +12,25 @@ class SyncPageTests(unittest.TestCase):
         job = dict(id='sync', kind='sync', status='running', message='Comparando')
         with patch.object(backups, 'synchronize', return_value=job) as start, \
              patch.object(backups, 'job_status', return_value=job), \
-             patch.object(backups, 'auto_sync_status', return_value={'state': 'syncing', 'revision': None}):
+             patch.object(backups, 'auto_sync_status', return_value={'state': 'idle', 'revision': None}):
             app = AppTest.from_file(str(PAGE)).run()
             app.button(key='sync_start').click().run()
             self.assertFalse(app.exception)
             start.assert_called_once_with()
             self.assertTrue(app.button(key='sync_start').disabled)
+
+    def test_automatic_progress_disables_manual_and_hides_previous_error(self):
+        job = dict(id='automatic', kind='sync', status='running', message='Baixando análises')
+        with patch.object(backups, 'job_status', return_value=job), \
+             patch.object(backups, 'auto_sync_status', return_value={
+                 'state': 'syncing', 'job_id': 'automatic', 'last_error': 'Erro antigo', 'revision': None}), \
+             patch.object(backups, 'synchronize') as start:
+            app = AppTest.from_file(str(PAGE)).run()
+        self.assertFalse(app.exception)
+        self.assertTrue(app.button(key='sync_start').disabled)
+        self.assertEqual(app.info[0].value, 'Baixando análises')
+        self.assertFalse(any(w.value == 'Erro antigo' for w in app.warning))
+        start.assert_not_called()
 
     def test_completion_preserves_unsaved_analysis_and_failure_allows_retry(self):
         app = AppTest.from_file(str(PAGE))

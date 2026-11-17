@@ -97,7 +97,7 @@ def configure_logging(user):
 
 def ensure_database(state, *, initialize=False, privileged=False, progress=lambda value: None):
     from backend.mac_api.core.migrations import run_migrations
-    progress('Verificando o serviço do banco…')
+    progress('Verificando o serviço do banco...')
     verify_service(state)
     win.start_service()
     config = connection_config(state)

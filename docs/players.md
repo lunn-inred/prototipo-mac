@@ -12,6 +12,10 @@ o cadastro ou suas medições. Novos cadastros recebem `ativo` por padrão.
 O status é exibido no mural; jogadores inativos continuam disponíveis para
 consulta ao histórico. Não há mais endpoint de exclusão de jogadores.
 
+Sem atletas cadastrados, o gerenciador continua disponível e abre expandido para
+o primeiro cadastro. Editar e alterar status só ficam disponíveis após existir
+um jogador. O cadastro local não depende de já ter sincronizado com o Drive.
+
 O EVA exibido é o maior dos 16 valores regionais da última coleta térmica,
 calculado pela view. Não existe medida geral `EVA_DOR`. Uma última coleta sem
 avaliação regional exibe **Sem EVA**, sem herdar o valor de coletas anteriores.

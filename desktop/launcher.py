@@ -146,7 +146,8 @@ def run_local_api(port: int) -> None:
                 'filename':str(directory/'api.log'),'maxBytes':2_000_000,'backupCount':3,
                 'encoding':'utf-8','formatter':'standard'}},
             'loggers':{'uvicorn':{'handlers':['file'],'level':'WARNING','propagate':False},
-                       'uvicorn.error':{'handlers':['file'],'level':'WARNING','propagate':False}},
+                       'uvicorn.error':{'handlers':['file'],'level':'WARNING','propagate':False},
+                       'backend':{'handlers':['file'],'level':'INFO','propagate':False}},
         }
     uvicorn.run(
         app,

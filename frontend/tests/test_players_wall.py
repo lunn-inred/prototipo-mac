@@ -46,6 +46,31 @@ class PlayersWallTests(unittest.TestCase):
         self.assertEqual([header.value for header in self.app.subheader], ['Ativos', 'Inativos'])
         self.assertEqual(self.names(), ['ATIVO A', 'LEGADO C', 'INATIVO B'])
 
+    def test_empty_database_keeps_registration_visible(self):
+        self.athletes.clear()
+        st.cache_data.clear()
+        self.app.run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.expander[0].label, 'Gerenciar jogadores')
+        self.assertTrue(self.app.expander[0].proto.expanded)
+        self.assertEqual(self.app.text_input(key='create_athlete_name').value, '')
+        self.assertTrue(any(b.label == 'Cadastrar jogador' for b in self.app.button))
+        self.assertFalse(self.app.selectbox)
+
+    def test_first_registration_from_empty_database_refreshes_wall(self):
+        self.athletes.clear()
+        st.cache_data.clear()
+        self.app.run()
+        def create(**values):
+            self.athletes.append(dict(id_atleta=1, nome=values['name'], status='ativo'))
+            return 1
+        with patch('backend.mac_api.main.create_athlete', side_effect=create) as registered:
+            self.app.text_input(key='create_athlete_name').set_value('PRIMEIRO JOGADOR')
+            next(b for b in self.app.button if b.label == 'Cadastrar jogador').click().run()
+        self.assertFalse(self.app.exception)
+        registered.assert_called_once()
+        self.assertEqual(self.names(), ['PRIMEIRO JOGADOR'])
+
     def test_default_order_uses_display_name_in_each_status_group(self):
         self.athletes[:] = [
             dict(id_atleta=1, nome='A nome completo', apelido='Caio', status='ativo'),

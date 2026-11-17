@@ -37,6 +37,7 @@ def _run(identity, operation):
     def progress(message):
         with _lock:
             _jobs[identity].update(status='running', message=message)
+        logging.getLogger(__name__).info('Operação %s: %s', identity, message)
     try:
         result = operation(progress)
     except Exception as error:

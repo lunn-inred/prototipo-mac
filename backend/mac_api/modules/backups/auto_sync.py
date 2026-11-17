@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from threading import Event, Lock, Thread
 import time
+import traceback
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -171,15 +172,17 @@ def start_worker() -> tuple[Event, Thread] | None:
     if not enabled():
         return None
     stop = Event()
+    logging.getLogger(__name__).info('Sincronização automática iniciada.')
 
     def run():
         while not stop.is_set():
             try:
                 delay = _cycle(stop)
             except Exception as error:
-                logging.getLogger(__name__).error('Sincronização automática falhou: %s', type(error).__name__)
+                frames = ' > '.join(f'{f.name}:{f.lineno}' for f in traceback.extract_tb(error.__traceback__))
+                logging.getLogger(__name__).error('Consulta automática falhou: %s; origem=%s', type(error).__name__, frames)
                 try:
-                    _record_failure('Falha ao consultar o Drive. Confira o login e a conexão; a sincronização será tentada novamente.')
+                    _record_failure(jobs._failure_detail(error, 'sync', 'Consultando o índice do Google Drive.'))
                 except Exception:
                     logging.getLogger(__name__).exception('Não foi possível registrar a falha da sincronização automática.')
                 delay = POLL_SECONDS

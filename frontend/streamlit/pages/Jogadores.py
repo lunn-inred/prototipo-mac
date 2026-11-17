@@ -218,8 +218,7 @@ except Exception:
     st.stop()
 
 if not athletes:
-    st.warning("A tabela de jogadores não retornou registros.")
-    st.stop()
+    st.info("Nenhum jogador cadastrado. Utilize Gerenciar jogadores para cadastrar o primeiro.")
 
 def refresh_after_mutation(message: str) -> None:
     """Limpa dados cacheados após uma transação confirmada."""
@@ -234,7 +233,7 @@ def refresh_after_mutation(message: str) -> None:
     st.rerun()
 
 
-with st.expander("Gerenciar jogadores", expanded=False):
+with st.expander("Gerenciar jogadores", expanded=not athletes):
     create_tab, edit_tab, deactivate_tab = st.tabs(
         ["Cadastrar", "Editar", "Desativar/reativar jogador"]
     )
@@ -282,6 +281,13 @@ with st.expander("Gerenciar jogadores", expanded=False):
                 refresh_after_mutation(
                     f"Jogador cadastrado com sucesso (ID {athlete_id})."
                 )
+
+    if not athletes:
+        with edit_tab:
+            st.info("Cadastre um jogador antes de editar seus dados.")
+        with deactivate_tab:
+            st.info("Cadastre um jogador antes de alterar seu status.")
+        st.stop()
 
     with edit_tab:
         edit_id = st.selectbox(

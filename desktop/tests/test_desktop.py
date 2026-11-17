@@ -7,6 +7,19 @@ from unittest.mock import Mock, patch
 
 import desktop.launcher as desktop
 class DesktopLauncherTests(unittest.TestCase):
+    def test_managed_api_logging_includes_backend_without_http_request_logs(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('uvicorn.run') as run, \
+             patch.object(sys, 'platform', 'win32'), \
+             patch.dict(os.environ, MAC_DESKTOP_MANAGED='1'), \
+             patch('desktop.windows_os.known_directory', return_value=Path(directory)):
+            desktop.run_local_api(8123)
+            config = run.call_args.kwargs['log_config']
+            self.assertEqual(config['loggers']['backend']['handlers'], ['file'])
+            self.assertEqual(config['loggers']['backend']['level'], 'INFO')
+            self.assertFalse(run.call_args.kwargs['access_log'])
+            self.assertNotIn('httpx', config['loggers'])
+
     def test_resource_root_points_to_project_during_development(self):
         self.assertEqual(desktop.resource_root(), Path(desktop.__file__).resolve().parents[1])
 
@@ -128,15 +141,17 @@ class DesktopLauncherTests(unittest.TestCase):
         with patch.object(sys, "frozen", True, create=True), patch.object(
             sys, "executable", "/opt/mac/MAC Performance"
         ):
-            self.assertEqual(desktop.executable_root(), Path("/opt/mac"))
+            self.assertEqual(desktop.executable_root(), Path("/opt/mac/MAC Performance").resolve().parent)
 
     def test_frozen_credentials_are_stored_beside_executable(self):
         with tempfile.TemporaryDirectory() as directory:
             original_directory = Path.cwd()
+            (Path(directory) / '.env').write_text('', encoding='utf-8')
             try:
                 with patch.object(sys, "frozen", True, create=True), \
                      patch.object(sys, "executable", str(Path(directory) / "MAC Performance")), \
                      patch.object(desktop, "resource_root", return_value=Path(desktop.__file__).resolve().parents[1]), \
+                     patch('desktop.windows_runtime.installation_file', return_value=Path(directory)/'installation.json'), \
                      patch.dict(os.environ, {}, clear=True):
                     desktop.configure_runtime()
                     self.assertEqual(

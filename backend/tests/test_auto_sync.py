@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
 import unittest
+import httpx
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -12,6 +13,20 @@ from backend.mac_api.modules.backups import auto_sync
 
 
 class AutoSyncTests(unittest.TestCase):
+    def test_poll_failure_keeps_safe_reason_without_exposing_exception_payload(self):
+        def fail(stop):
+            stop.set()
+            raise httpx.ConnectError('private-token-must-not-be-logged')
+        with patch.object(auto_sync, '_cycle', side_effect=fail), \
+             patch.object(auto_sync, 'POLL_SECONDS', 0), \
+             self.assertLogs(auto_sync.__name__, level='INFO') as logs:
+            handle = auto_sync.start_worker()
+            handle[1].join(timeout=3)
+            self.assertFalse(handle[1].is_alive())
+        message = auto_sync._read()['last_error']
+        self.assertIn('conexão com o Google Drive', message)
+        self.assertNotIn('private-token', message + '\n'.join(logs.output))
+
     def setUp(self):
         directory = TemporaryDirectory(prefix='mac-auto-sync-test-')
         self.addCleanup(directory.cleanup)
