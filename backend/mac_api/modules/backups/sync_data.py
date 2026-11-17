@@ -123,6 +123,59 @@ def prefer_thermal_pairs(target, source, pairs):
     return {**target, 'tables': {**target['tables'], 'medida_valor': retained}}
 
 
+def prepare_thermal_merge(base, local, remote, local_pairs, drive_pairs):
+    """Equaliza coletas vencedoras sem reutilizar IDs de outras medidas.
+
+    A normalização inclui a base: trocar somente um lado faria a mesclagem
+    interpretar a remoção dos IDs antigos como uma edição concorrente.
+    Nenhum snapshot de entrada é modificado.
+    """
+    pairs = local_pairs | drive_pairs
+    if not pairs:
+        return base, local, remote
+    validate(remote, local)
+    if base:
+        validate(base, local)
+    if local['keys']['medida_valor'] != ['id_medida_valor']:
+        raise ValueError('Chave de medida_valor incompatível com a resolução térmica.')
+    # Não remapear IDs se outro registro depender deles.
+    if any(fk['parent'] == 'medida_valor' for fk in local['schema']['foreign_keys']):
+        raise ValueError('Medidas térmicas possuem referências externas; revise antes de sincronizar.')
+
+    groups = {r['id_grupo_medida'] for r in local['tables']['grupo_medida'].values()
+              if r['nome'].strip().lower() == 'termografia'}
+    measures = {r['id_medida'] for r in local['tables']['medida'].values()
+                if r['id_grupo_medida'] in groups}
+
+    def pair(row):
+        if row['id_medida'] in measures and row['id_atleta'] is not None and row['data'] is not None:
+            return int(row['id_atleta']), row['data'][:10]
+        return None
+
+    snapshots = [s for s in (base, local, remote) if s is not None]
+    retained = [{k: r for k, r in s['tables']['medida_valor'].items() if pair(r) not in pairs}
+                for s in snapshots]
+    reserved = set().union(*(set(rows) for rows in retained))
+    highest = max((int(r['id_medida_valor']) for s in snapshots
+                   for r in s['tables']['medida_valor'].values()), default=0)
+    winners = {}
+    for source, chosen in ((local, local_pairs), (remote, drive_pairs)):
+        for identity, row in sorted(source['tables']['medida_valor'].items()):
+            if pair(row) not in chosen:
+                continue
+            if identity in reserved or identity in winners:
+                highest += 1
+                row = {**row, 'id_medida_valor': str(highest)}
+                identity = canonical([str(highest)])
+            winners[identity] = row
+
+    normalized = [{**s, 'tables': {**s['tables'], 'medida_valor': {**rows, **winners}}}
+                  for s, rows in zip(snapshots, retained)]
+    if base is None:
+        return None, *normalized
+    return tuple(normalized)
+
+
 def apply(cursor, local, merged):
     """INSERT/UPDATE/DELETE somente dos registros alterados; sem TRUNCATE."""
     state = local['schema']

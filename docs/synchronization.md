@@ -102,8 +102,14 @@ banco ainda bloqueiam a operação. A comparação de SQL é por registro comple
 não por coluna. A escolha por horário vale apenas para os arquivos e medidas
 térmicas da coleta duplicada; GPS e saltos seguem a mesclagem normal.
 
-As tabelas precisam ter chave primária. **Não há remapeamento automático de IDs
-numéricos**: duas instalações que criarem registros diferentes com a mesma chave
+Para as coletas térmicas resolvidas pela regra acima, IDs de `medida_valor` que
+colidam com outras medidas são substituídos por IDs livres na mesclagem, sem
+alterar atleta, medida, data ou valor. A base da comparação é normalizada junto
+com os dois lados, evitando conflitos artificiais após a substituição. Essa
+exceção exige que nenhuma chave estrangeira referencie `medida_valor`.
+
+As tabelas precisam ter chave primária. **Fora dessa resolução térmica, não há
+remapeamento automático de IDs numéricos**: duas instalações que criarem registros diferentes com a mesma chave
 terão conflito, sem associação silenciosa a outro atleta. Prefira inicializar a
 equipe com a mesma base e sincronizar antes/depois de cadastrar/importar dados.
 Isso reduz, mas não elimina colisões offline. Identidades globais com UUID e
@@ -138,6 +144,18 @@ comum antigo não pode adotar automaticamente o novo índice: requer revisão da
 base e atualização coordenada. Não apague `sync-state.json` para contornar
 incompatibilidade, pois isso perde o histórico necessário às exclusões/conflitos.
 Os limites de estrutura suportada são os mesmos do [backup lógico](backups.md).
+
+Quando local e Drive já possuem exatamente o mesmo schema com as duas novas
+views térmicas, uma instalação com base anterior a essas migrações pode atualizar
+automaticamente apenas os metadados dessa base durante a comparação. Os registros
+e o histórico comum são preservados para detectar conflitos. Isso não aplica DDL,
+não aceita outras mudanças de schema e só persiste a base após sincronizar com sucesso.
+As 64 medidas regionais criadas por essas migrações são correlacionadas pelo nome
+exato e grupo termografia quando os dois catálogos estão completos. IDs diferentes
+são alinhados na comparação, incluindo os vínculos de `medida_valor`; os valores
+não são alterados. Definições divergentes, colisões com outras medidas e referências
+externas não suportadas bloqueiam a operação. Essa regra não se aplica a atletas,
+GPS, saltos ou medidas fora do catálogo regional conhecido.
 
 ## Segurança e recuperação
 

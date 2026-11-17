@@ -8,6 +8,72 @@ from backend.mac_api.modules.backups import sync_data as data, synchronization a
 
 
 class SyncMergeTests(unittest.TestCase):
+    def test_regional_catalog_alignment_updates_links_and_refuses_other_measure_collisions(self):
+        def snapshot(reverse=False):
+            regions = [f'{part}_{side}_{view}' for part in ('COXA', 'JOELHO', 'CANELA', 'PE')
+                       for side in ('DIREITA', 'ESQUERDA') for view in ('FRENTE', 'VERSO')]
+            names = [f'EVA_{r}' for r in regions] + [f'{r}_ZONA_{z}' for r in regions
+                                                        for z in ('FRIA', 'NEUTRA', 'QUENTE')]
+            if reverse:
+                names.reverse()
+            measures = {data.canonical([str(i)]): dict(id_medida=str(i), nome=name,
+                        id_grupo_medida='1') for i, name in enumerate(names, 1)}
+            return dict(keys={'medida': ['id_medida']}, schema={'foreign_keys': [
+                dict(child='medida_valor', parent='medida', columns=['id_medida'], references=['id_medida'])]},
+                tables={'grupo_medida': {'1': dict(id_grupo_medida='1', nome='termografia')},
+                        'medida': measures, 'medida_valor': {'v': dict(id_medida='1', valor='99')}})
+        local, remote = snapshot(), snapshot(True)
+        original = deepcopy(remote)
+        _, _, result = sync._align_regional_measure_ids(None, local, remote)
+        self.assertEqual(result['tables']['medida'], local['tables']['medida'])
+        self.assertEqual(result['tables']['medida_valor']['v'], dict(id_medida='64', valor='99'))
+        self.assertEqual(remote, original)
+        collision = deepcopy(remote)
+        collision['tables']['medida'].pop('["64"]')
+        collision['tables']['medida']['["100"]'] = dict(id_medida='100', nome='EVA_COXA_DIREITA_FRENTE', id_grupo_medida='1')
+        collision['tables']['medida']['["64"]'] = dict(id_medida='64', nome='GPS_OTHER', id_grupo_medida='2')
+        with self.assertRaisesRegex(ValueError, 'colide'):
+            sync._align_regional_measure_ids(None, local, collision)
+        unsupported = deepcopy(remote)
+        unsupported['schema']['foreign_keys'].append(dict(child='other', parent='medida',
+                                                          columns=['m'], references=['id_medida']))
+        with self.assertRaisesRegex(ValueError, 'referências'):
+            sync._align_regional_measure_ids(None, local, unsupported)
+
+    def test_thermal_id_collision_preserves_other_rows_and_converges(self):
+        def row(identity, athlete, measure='1', value='70'):
+            return dict(id_medida_valor=str(identity), id_atleta=str(athlete),
+                        id_medida=measure, data='2026-11-01 00:00:00', valor=value)
+
+        tables = {
+            'grupo_medida': {'["1"]': dict(id_grupo_medida='1', nome='termografia')},
+            'medida': {'["1"]': dict(id_medida='1', id_grupo_medida='1')},
+            'medida_valor': {'["1"]': row(1, 7)},
+        }
+        state = dict(tables=tables, keys={'grupo_medida': ['id_grupo_medida'],
+                                         'medida': ['id_medida'], 'medida_valor': ['id_medida_valor']},
+                     schema=dict(tables={name: [dict(name=k, generated='') for k in next(iter(rows.values()))]
+                                         for name, rows in tables.items()}, foreign_keys=[]),
+                     sequence_values={})
+        state['schema_version'] = data.fingerprint(state['schema'])
+        base = deepcopy(state)
+        local, remote = deepcopy(state), deepcopy(state)
+        # Local reused ID 2 for GPS; Drive reused it for the winning thermal row.
+        local['tables']['medida_valor']['["2"]'] = row(2, 8, '2', '999')
+        remote['tables']['medida_valor'] = {'["2"]': row(2, 7, value='80')}
+        before = deepcopy((base, local, remote))
+        for baseline in (base, None):
+            normalized = data.prepare_thermal_merge(baseline, local, remote, set(), {(7, '2026-11-01')})
+            merged = data.merge_database(*normalized)
+            self.assertEqual(merged['tables']['medida_valor'], {
+                '["2"]': row(2, 8, '2', '999'), '["3"]': row(3, 7, value='80')})
+            again = data.prepare_thermal_merge(merged, merged, merged, set(), {(7, '2026-11-01')})
+            self.assertEqual(data.merge_database(*again), merged)
+        self.assertEqual((base, local, remote), before)
+        # The same protection applies when the latest analysis is local.
+        normalized = data.prepare_thermal_merge(base, remote, local, {(7, '2026-11-01')}, set())
+        self.assertEqual(data.merge_database(*normalized)['tables'], merged['tables'])
+
     def test_drive_analysis_wins_when_saved_last_without_losing_other_local_files(self):
         first, second, other = [str(uuid4()) for _ in range(3)]
         earlier = datetime(2026, 11, 1, 10, tzinfo=timezone.utc)
@@ -166,6 +232,31 @@ class SyncMergeTests(unittest.TestCase):
         changed['schema']['tables']['unexpected'] = []
         with self.assertRaisesRegex(ValueError, 'views não correspondem'):
             sync._validate_schema_transition(baseline, remote, head, changed)
+
+    def test_migrated_peers_keep_old_records_as_three_way_base(self):
+        old = dict(schema={'views': [['vw_medida_termografia', 'old'], ['other', 'same']],
+                           'tables': {}}, schema_version='old', keys={}, tables={})
+        local = deepcopy(old)
+        local['schema']['views'] = [['vw_medida_termografia', 'new'], ['other', 'same'],
+                                    ['vw_termografia_zonas', 'zones'],
+                                    ['vw_termografia_eva_regional', 'eva']]
+        local['schema_version'] = 'new'
+        remote = deepcopy(local)
+        before = deepcopy(old)
+        result = sync._compatible_database_base(old, local, remote)
+        self.assertEqual(result['schema'], local['schema'])
+        self.assertIs(result['tables'], old['tables'])
+        self.assertEqual(old, before)
+        self.assertIs(sync._compatible_database_base(None, local, remote), None)
+        self.assertIs(sync._compatible_database_base(local, local, remote), local)
+        changed = deepcopy(remote)
+        changed['schema']['views'][0][1] = 'different'
+        with self.assertRaisesRegex(ValueError, 'Estrutura incompatível'):
+            sync._compatible_database_base(old, local, changed)
+        changed = deepcopy(old)
+        changed['schema']['views'][1][1] = 'unexpected'
+        with self.assertRaisesRegex(ValueError, 'base de sincronização incompatível'):
+            sync._compatible_database_base(changed, local, remote)
 
     def test_immutable_commit_chain_refuses_competing_heads_missing_parents_and_cycles(self):
         first, second, competing = [str(uuid4()) for _ in range(3)]

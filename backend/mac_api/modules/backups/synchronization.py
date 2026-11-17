@@ -82,6 +82,78 @@ def _scope(drive):
     return sync_data.fingerprint([drive.folder, {k: str(config.get(k, '')) for k in ('host', 'port', 'dbname', 'user')}])
 
 
+def _compatible_database_base(base, local, remote):
+    """Atualiza só os metadados da base após as migrações térmicas nos dois lados.
+
+    Mantém os registros antigos para a mesclagem em três vias: não adota o banco
+    remoto como base e não esconde edições/exclusões concorrentes.
+    """
+    if not base or base['schema'] == local['schema']:
+        return base
+    sync_data.validate(remote, local)
+    old, new = base['schema'], local['schema']
+    old_views = dict(old['views'])
+    new_views = dict(new['views'])
+    added = {'vw_termografia_zonas', 'vw_termografia_eva_regional'}
+    if (base['keys'] != local['keys'] or set(base['tables']) != set(local['tables'])
+            or set(old) != set(new)
+            or any(old[k] != new[k] for k in old if k != 'views')
+            or added & old_views.keys() or old_views.keys() | added != new_views.keys()
+            or any(definition != new_views[name] for name, definition in old_views.items()
+                   if name != 'vw_medida_termografia')):
+        raise ValueError('Estrutura da base de sincronização incompatível. Revise as migrações antes de sincronizar.')
+    normalized = {**base, 'schema': new, 'schema_version': local['schema_version']}
+    sync_data.validate(normalized, local)
+    return normalized
+
+
+def _align_regional_measure_ids(base, local, remote):
+    """Alinha o catálogo conhecido, recusando colisões e referências não suportadas."""
+    regions = [f'{part}_{side}_{view}' for part in ('COXA', 'JOELHO', 'CANELA', 'PE')
+               for side in ('DIREITA', 'ESQUERDA') for view in ('FRENTE', 'VERSO')]
+    names = {f'EVA_{r}' for r in regions} | {f'{r}_ZONA_{z}' for r in regions
+                                                    for z in ('FRIA', 'NEUTRA', 'QUENTE')}
+
+    def catalog(snapshot):
+        groups = {r['id_grupo_medida'] for r in snapshot['tables']['grupo_medida'].values()
+                  if r['nome'].strip().lower() == 'termografia'}
+        rows = [r for r in snapshot['tables']['medida'].values()
+                if r['id_grupo_medida'] in groups and r['nome'] in names]
+        if len({r['nome'] for r in rows}) != len(rows):
+            raise ValueError('Catálogo regional duplicado; revisão necessária.')
+        return {r['nome']: r for r in rows}
+
+    here, there = catalog(local), catalog(remote)
+    if set(here) != names or set(there) != names:
+        return base, local, remote
+
+    def normalize(snapshot):
+        if snapshot['keys']['medida'] != ['id_medida']:
+            raise ValueError('Chave do catálogo incompatível.')
+        for fk in snapshot['schema']['foreign_keys']:
+            if fk['parent'] == 'medida' and not (fk['child'] == 'medida_valor'
+                    and fk['columns'] == ['id_medida'] and fk['references'] == ['id_medida']):
+                raise ValueError('Catálogo possui referências não suportadas; revisão necessária.')
+        entries = catalog(snapshot)
+        for name, row in entries.items():
+            if {k: v for k, v in row.items() if k != 'id_medida'} != {
+                    k: v for k, v in here[name].items() if k != 'id_medida'}:
+                raise ValueError('Definições regionais diferentes; revisão necessária.')
+        mapping = {r['id_medida']: here[name]['id_medida'] for name, r in entries.items()}
+        measures = {}
+        for row in snapshot['tables']['medida'].values():
+            row = {**row, 'id_medida': mapping.get(row['id_medida'], row['id_medida'])}
+            key = sync_data.canonical([row['id_medida']])
+            if key in measures:
+                raise ValueError('Catálogo regional colide com outras medidas; revisão necessária.')
+            measures[key] = row
+        values = {key: {**row, 'id_medida': mapping.get(row['id_medida'], row['id_medida'])}
+                  for key, row in snapshot['tables']['medida_valor'].items()}
+        return {**snapshot, 'tables': {**snapshot['tables'], 'medida': measures, 'medida_valor': values}}
+
+    return normalize(base) if base else None, local, normalize(remote)
+
+
 def _baseline(path, scope):
     if not path.exists():
         return None
@@ -255,12 +327,17 @@ def synchronize(*, desktop=False, schema_transition=False, progress=lambda text:
                             _validate_schema_transition(baseline, remote, head, local)
                             merged = local
                         else:
-                            comparison = sync_data.prefer_thermal_pairs(
-                                local, remote['database'], drive_pairs) if remote else local
-                            remote_database = sync_data.prefer_thermal_pairs(
-                                remote['database'], local, local_pairs) if remote else None
-                            merged = sync_data.merge_database(baseline['database'] if baseline else None,
-                                comparison, remote_database) if remote else local
+                            if remote:
+                                database_base = _compatible_database_base(
+                                    baseline['database'] if baseline else None, local, remote['database'])
+                                database_base, comparison_local, comparison_remote = _align_regional_measure_ids(
+                                    database_base, local, remote['database'])
+                                base_database, comparison, remote_database = sync_data.prepare_thermal_merge(
+                                    database_base, comparison_local, comparison_remote,
+                                    local_pairs, drive_pairs)
+                                merged = sync_data.merge_database(base_database, comparison, remote_database)
+                            else:
+                                merged = local
                         winners = sync_data.merge(baseline['analyses'] if baseline else {}, here, comparison_remote_files,
                                                   scope='análises')
                         progress('Preparando somente as análises novas ou alteradas do Drive.')
