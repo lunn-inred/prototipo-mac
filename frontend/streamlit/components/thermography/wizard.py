@@ -22,7 +22,7 @@ from frontend.streamlit.components.thermography.editor import (
 )
 from frontend.streamlit.presentation.thermography_data import athlete_label
 from frontend.streamlit.presentation.thermal_zones import ZONE_BUTTONS, normalize_zone_selection, zone_caption
-from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
+from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits, editor_dialog, editor_widget_key
 from frontend.streamlit.components.thermography.draft_state import clear_analysis_draft, reset_after_saved_analysis, set_metadata_widgets
 
 STEPS = ('Dados da coleta', 'Imagens e rotação', 'Regiões das pernas e barra de cores',
@@ -84,7 +84,7 @@ def cuts_from_objects(objects, extent, foot_at_end, coordinate='x'):
     return percentages
 
 
-@st.dialog('Redefinir regiões', width='large')
+@editor_dialog('Redefinir regiões', width='large')
 def edit_parts(item_key, image, analysis):
     item = st.session_state['thermography_items'][item_key]
     side_label = st.radio('Perna', list(LEGS), horizontal=True,
@@ -130,7 +130,7 @@ def edit_parts(item_key, image, analysis):
                        height=background.height, drawing_mode='transform',
                        initial_drawing=drawing, display_toolbar=False,
                        transform_options={'allow_scale': False, 'allow_rotate': False, 'allow_delete': False},
-                       key=f'parts_canvas_{item_key}_{side}_vertical_{background.size}')
+                       key=editor_widget_key(f'parts_canvas_{item_key}_{side}_{bounds}_vertical_{background.size}'))
     if canvas.json_data:
         try:
             cuts = cuts_from_objects(canvas.json_data['objects'], extent, True, 'y')

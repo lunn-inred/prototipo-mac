@@ -181,6 +181,7 @@ render_wizard({1: {'id_atleta': 1, 'nome': 'Teste'}})
                         self.assertEqual(len(app.exception), 0, list(app.exception))
                         self.assertEqual(app.radio(key=f'parts_side_{key.removeprefix("wizard_parts_")}').options[0], 'Perna esquerda')
                         scene = canvas.call_args.kwargs['initial_drawing']
+                        first_parts_canvas_key = canvas.call_args.kwargs['key']
                         self.assertEqual(len(scene['objects']), 3)
                         self.assertEqual(next(button for button in app.button if button.label == 'Concluir').proto.type, 'primary')
                         self.assertTrue(all(obj['height'] >= 12 for obj in scene['objects']))
@@ -215,6 +216,33 @@ render_wizard({1: {'id_atleta': 1, 'nome': 'Teste'}})
                         self.assertEqual(next(button for button in app.button if button.label == 'Concluir').proto.type, 'primary')
                         self.assertEqual(next(button for button in app.button if button.label == 'Aplicar traços e recalcular').proto.type, 'secondary')
                         next(button for button in app.button if button.label == 'Concluir').click().run()
+                    # Voltar da máscara para as divisões deve abrir um canvas novo
+                    # com os limites já salvos, sem herdar o editor de segmentação.
+                    app.button(key='thermal_previous').click().run()
+                    parts_button = next(button.key for button in app.button
+                                        if button.key and button.key.startswith('wizard_parts_front:'))
+                    with patch('frontend.streamlit.components.thermography.wizard.st_canvas',
+                               return_value=SimpleNamespace(json_data=None)) as parts_canvas:
+                        app.button(key=parts_button).click().run()
+                        self.assertFalse(app.exception, list(app.exception))
+                        self.assertNotEqual(parts_canvas.call_args.kwargs['key'], first_parts_canvas_key)
+                        drawing = parts_canvas.call_args.kwargs['initial_drawing']
+                        extent = parts_canvas.call_args.kwargs['height']
+                        self.assertEqual([round(obj['y']/extent*100) for obj in drawing['objects']], [40, 60, 85])
+                        next(button for button in app.button if button.label == 'Concluir').click().run()
+                    app.button(key='thermal_previous').click().run()
+                    boxes_button = next(button.key for button in app.button
+                                        if button.key and button.key.startswith('wizard_boxes_front:'))
+                    with patch('frontend.streamlit.components.thermography.editor.st_canvas',
+                               return_value=SimpleNamespace(json_data=None, image_data=None)) as boxes_canvas:
+                        app.button(key=boxes_button).click().run()
+                        self.assertFalse(app.exception, list(app.exception))
+                        self.assertEqual(boxes_canvas.call_args.kwargs['drawing_mode'], 'rect_crop')
+                        self.assertIn('thermal_box_canvas_', boxes_canvas.call_args.kwargs['key'])
+                        next(button for button in app.button if button.label == 'Concluir').click().run()
+                    for _ in range(2):
+                        app.button(key='thermal_next').click().run()
+                    self.assertEqual(app.session_state['thermography_items'][item_key]['part_settings_v4']['left']['cuts'], [40, 60, 85])
                 if step == 5:
                     texts = [text.value for text in app.markdown]
                     left_index = next(index for index, text in enumerate(texts) if text.startswith('**Perna esquerda:**'))

@@ -1,5 +1,6 @@
 """Mural por status, exercitando a interface e a API sem banco real."""
 from pathlib import Path
+from datetime import date
 import re
 import unittest
 from unittest.mock import patch
@@ -56,6 +57,26 @@ class PlayersWallTests(unittest.TestCase):
         self.assertEqual(self.app.text_input(key='create_athlete_name').value, '')
         self.assertTrue(any(b.label == 'Cadastrar jogador' for b in self.app.button))
         self.assertFalse(self.app.selectbox)
+
+    def test_birth_date_calendar_accepts_older_dates_and_has_no_future_years(self):
+        for key in ('create_athlete_birth_date', 'edit_athlete_birth_date_1'):
+            widget = self.app.date_input(key=key)
+            self.assertEqual(date.fromisoformat(widget.proto.min.replace('/', '-')), date(1900, 1, 1))
+            self.assertEqual(date.fromisoformat(widget.proto.max.replace('/', '-')), date.today())
+        self.app.text_input(key='create_athlete_name').set_value('Teste')
+        self.app.date_input(key='create_athlete_birth_date').set_value(date(1980, 2, 29))
+        with patch('backend.mac_api.main.create_athlete', return_value=4) as create:
+            next(b for b in self.app.button if b.label == 'Cadastrar jogador').click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(create.call_args.kwargs['birth_date'], date(1980, 2, 29))
+
+    def test_edit_keeps_an_existing_older_birth_date(self):
+        self.athletes[0]['data_nascimento'] = date(1940, 5, 20)
+        st.cache_data.clear()
+        path = Path(__file__).resolve().parents[1] / 'streamlit/pages/Jogadores.py'
+        self.app = AppTest.from_file(str(path), default_timeout=30).run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.date_input(key='edit_athlete_birth_date_1').value, date(1940, 5, 20))
 
     def test_first_registration_from_empty_database_refreshes_wall(self):
         self.athletes.clear()

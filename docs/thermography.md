@@ -130,6 +130,12 @@ anatômica, os limites são definidos sobre as caixas derivadas das máscaras
 watershed (ou delimitadas manualmente) e mantêm suas coordenadas depois de
 exclusões pelo pincel. Os canvases
 dos pop-ups são centralizados.
+Cada abertura de editor cria uma identidade nova para o canvas e para o
+componente de medição da janela. Ao voltar entre regiões, divisão anatômica e
+segmentação, o popup é remontado com os ajustes atuais da análise, sem reutilizar
+o desenho da abertura anterior. Reruns dentro do mesmo popup mantêm a identidade
+para permitir continuar a edição; máscaras aplicadas e divisões salvas permanecem
+no rascunho.
 
 Os diálogos de edição ocupam até 96% da largura da janela, limitados a 1600 px,
 e seu conteúdo usa 100% dessa área. Um componente mede a altura útil da janela

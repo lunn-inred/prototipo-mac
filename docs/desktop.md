@@ -30,6 +30,12 @@ após o consentimento, a API local entrega a sessão à WebView e as páginas do
 abrem na janela desktop. A aba do navegador exibe apenas a confirmação de que
 o login terminou e pode ser fechada.
 
+Quando o login desktop falha, a tela apresenta o motivo retornado pela API
+(por exemplo, conta não autorizada ou configuração da pasta Drive), em vez de
+substituí-lo por uma mensagem genérica. Falhas sem resposta JSON válida mantêm
+a orientação para tentar novamente. Uma nova tentativa exige clicar em entrar;
+o callback anterior não deve ser reutilizado.
+
 Após o primeiro login, o aplicativo desktop lembra a sessão neste computador
 por até 12 horas. Ao reabrir, a API confirma se ela ainda é válida antes de
 mostrar as páginas internas. **Sair da conta Google** remove a sessão lembrada;

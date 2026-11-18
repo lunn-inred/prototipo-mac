@@ -179,7 +179,14 @@ def _wait_for_desktop_login() -> None:
         st.session_state["mac_google_login_error"] = "O login expirou. Clique em Entrar com Google para tentar novamente."
         st.rerun()
     else:
-        st.session_state["mac_google_login_error"] = "O login não foi concluído. Clique em Entrar com Google para tentar novamente."
+        message = "O login não foi concluído. Clique em Entrar com Google para tentar novamente."
+        try:
+            detail = response.json().get('detail')
+        except (ValueError, AttributeError):
+            detail = None
+        if isinstance(detail, str) and detail.strip():
+            message = detail.strip()
+        st.session_state["mac_google_login_error"] = message
         st.rerun()
 
 

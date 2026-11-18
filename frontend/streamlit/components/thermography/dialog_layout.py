@@ -1,6 +1,29 @@
 """Dimensões do canvas calculadas pela área útil real do diálogo."""
-from functools import lru_cache
+from functools import lru_cache, wraps
 import streamlit as st
+
+
+def editor_dialog(title, *, width='large'):
+    """Remonta os componentes a cada abertura, mantendo os reruns do fragmento.
+
+    O wrapper externo só roda ao clicar para abrir; reruns internos executam o
+    fragmento registrado pelo Streamlit sem alterar a identidade da abertura.
+    Os ajustes persistentes continuam no item da análise, não no canvas antigo.
+    """
+    def decorate(function):
+        dialog = st.dialog(title, width=width)(function)
+
+        @wraps(function)
+        def open_editor(*args, **kwargs):
+            st.session_state['thermal_editor_generation'] = st.session_state.get('thermal_editor_generation', 0) + 1
+            return dialog(*args, **kwargs)
+
+        return open_editor
+    return decorate
+
+
+def editor_widget_key(key):
+    return f'{key}_open_{st.session_state.get("thermal_editor_generation", 0)}'
 
 MEASURE_JS = '''
 export default function({parentElement, setStateValue, data}) {
@@ -54,7 +77,7 @@ def _measure_component():
 def dialog_canvas_limits(key, *, columns=1, toolbar=True):
     cache = st.session_state.setdefault('thermal_dialog_sizes', {})
     reported = cache.get(key)
-    result = _measure_component()(key=f'dialog_size_{key}', height=0,
+    result = _measure_component()(key=editor_widget_key(f'dialog_size_{key}'), height=0,
                                   data={'columns': columns, 'reserve': 172 + (80 if toolbar else 0), 'reported': reported},
                                   default={'size': None}, on_size_change=lambda: None)
     size = result.get('size') or reported

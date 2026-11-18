@@ -11,7 +11,7 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 from frontend.streamlit.components.image_fonts import image_font
 from streamlit_drawable_konva import crop_box_from_json, st_canvas
-from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
+from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits, editor_dialog, editor_widget_key
 
 from frontend.streamlit.api_client.contracts import (unique_matching_athlete_id)
 from frontend.streamlit.api_client.thermal_client import (annotate_boxes, compare_hot_masks, count_hot_pixels, detect_colorbar_box, detect_leg_boxes, hot_pixels_overlay, segmentation_overlay, segment_leg_mask, temperature_matrix, DEFAULT_PART_CUTS, LEG_PARTS, leg_part_metrics, scale_percentage_from_temperature, temperature_from_scale_percentage)
@@ -194,7 +194,7 @@ def _parts_preview(image: Image.Image, analysis: dict[str, Any],
     return preview
 
 
-@st.dialog("Ajustar regiões", width="large")
+@editor_dialog("Ajustar regiões", width="large")
 def edit_thermal_boxes(
     item_key: str,
     image: Image.Image,
@@ -233,7 +233,7 @@ def edit_thermal_boxes(
         height=background.height, width=background.width,
         drawing_mode="rect_crop", display_toolbar=False,
         enable_viewport_controls=True,
-        key=f"thermal_box_canvas_{item_key}_{'colorbar' if is_colorbar else side}_{background.size}",
+        key=editor_widget_key(f"thermal_box_canvas_{item_key}_{'colorbar' if is_colorbar else side}_{background.size}"),
     )
     crop = crop_box_from_json(canvas.json_data)
     apply_column, reset_column, finish_column = st.columns([2, 2, 1])
@@ -264,7 +264,7 @@ def edit_thermal_boxes(
         st.rerun()
 
 
-@st.dialog("Ajustar área perna", width="large")
+@editor_dialog("Ajustar área perna", width="large")
 def edit_thermal_mask(
     item_key: str, image: Image.Image, analysis: dict[str, Any]
 ) -> None:
@@ -306,7 +306,7 @@ def edit_thermal_mask(
             height=background.height, width=background.width,
             drawing_mode="freedraw", display_toolbar=False,
             enable_viewport_controls=True,
-            key=f"thermal_mask_canvas_{item_key}_{side}_{bounds}_{background.size}",
+            key=editor_widget_key(f"thermal_mask_canvas_{item_key}_{side}_{bounds}_{background.size}"),
         )
     with segmented_column:
         st.caption('Área segmentada')

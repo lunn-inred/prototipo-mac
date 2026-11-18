@@ -257,6 +257,8 @@ with st.expander("Gerenciar jogadores", expanded=not athletes):
                 create_birth_date = st.date_input(
                     "Data de nascimento",
                     value=None,
+                    min_value=date(1900, 1, 1),
+                    max_value=date.today(),
                     format="DD/MM/YYYY",
                     key="create_athlete_birth_date",
                 )
@@ -341,6 +343,8 @@ with st.expander("Gerenciar jogadores", expanded=not athletes):
                 edit_birth_date = st.date_input(
                     "Data de nascimento",
                     value=stored_birth_date,
+                    min_value=min(date(1900, 1, 1), stored_birth_date) if stored_birth_date else date(1900, 1, 1),
+                    max_value=date.today(),
                     format="DD/MM/YYYY",
                     key=f"edit_athlete_birth_date_{edit_id}",
                 )

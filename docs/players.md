@@ -9,6 +9,9 @@ recente. O gerenciador permite cadastrar, editar, desativar e reativar atletas. 
 nome é obrigatório; `nome_alternativo` não é exposto no CRUD e permanece
 inalterado nas edições. A desativação muda `public.atleta.status` de `ativo` para `inativo`, sem apagar
 o cadastro ou suas medições. Novos cadastros recebem `ativo` por padrão.
+O calendário de nascimento aceita de 01/01/1900 até hoje no cadastro e na edição,
+sem idade mínima; o preenchimento continua opcional. Uma data anterior a 1900
+já cadastrada permanece acessível na edição. O seletor não oferece datas futuras.
 O status é exibido no mural; jogadores inativos continuam disponíveis para
 consulta ao histórico. Não há mais endpoint de exclusão de jogadores.
 

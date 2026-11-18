@@ -213,3 +213,32 @@ class GoogleLoginNavigationTests(unittest.TestCase):
         self.assertNotIn('mac_desktop_poll_token', state)
         self.assertIn('mac_google_login_error', state)
         rerun.assert_called_once_with()
+
+    def test_desktop_failure_preserves_api_reason_and_clears_pending_attempt(self):
+        import httpx
+        messages = ('Esta conta Google não está autorizada no MAC.',
+                    'Configure MAC_GOOGLE_BACKUP_FOLDER_ID no .env com o ID da pasta de backup da equipe.')
+        for message in messages:
+            with self.subTest(message=message):
+                state = {'mac_desktop_poll_token': 'test-poll',
+                         'mac_desktop_authorization_url': 'https://accounts.google.com/test'}
+                with patch.object(google_login.st, 'session_state', state), \
+                     patch.object(google_login.httpx, 'post', return_value=httpx.Response(400, json={'detail': message})), \
+                     patch.object(google_login.st, 'rerun') as rerun:
+                    google_login._wait_for_desktop_login.__wrapped__()
+                self.assertEqual(state['mac_google_login_error'], message)
+                self.assertNotIn('mac_desktop_poll_token', state)
+                self.assertNotIn('mac_desktop_authorization_url', state)
+                self.assertNotIn('mac_google_session', state)
+                rerun.assert_called_once_with()
+
+    def test_desktop_failure_without_valid_json_keeps_retry_message(self):
+        import httpx
+        for response in (httpx.Response(500, text='bad gateway'),
+                         httpx.Response(400, json={'detail': []})):
+            state = {'mac_desktop_poll_token': 'test-poll'}
+            with patch.object(google_login.st, 'session_state', state), \
+                 patch.object(google_login.httpx, 'post', return_value=response), \
+                 patch.object(google_login.st, 'rerun'):
+                google_login._wait_for_desktop_login.__wrapped__()
+            self.assertIn('Clique em Entrar com Google', state['mac_google_login_error'])

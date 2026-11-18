@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
-from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits
+from frontend.streamlit.components.thermography.dialog_layout import dialog_canvas_limits, editor_dialog, editor_widget_key
+import streamlit as st
 
 
 class DialogLayoutTests(unittest.TestCase):
@@ -8,6 +9,35 @@ class DialogLayoutTests(unittest.TestCase):
         session = patch('frontend.streamlit.components.thermography.dialog_layout.st.session_state', {})
         session.start()
         self.addCleanup(session.stop)
+
+    def test_new_open_remounts_canvas_but_fragment_rerun_keeps_identity_and_draft(self):
+        st.session_state['thermography_items'] = {'front': {'cuts': [40, 60, 85]}}
+        keys = []
+        with patch('frontend.streamlit.components.thermography.dialog_layout.st.dialog',
+                   side_effect=lambda *args, **kwargs: lambda function: function):
+            @editor_dialog('Regiões')
+            def regions():
+                keys.append(editor_widget_key('regions'))
+            @editor_dialog('Máscara')
+            def mask():
+                keys.append(editor_widget_key('mask'))
+            regions()
+            regions.__wrapped__()  # Rerun interno do fragmento, sem nova abertura.
+            self.assertEqual(keys[0], keys[1])
+            mask()
+            regions()
+        self.assertNotEqual(keys[0], keys[-1])
+        self.assertEqual(st.session_state['thermography_items']['front']['cuts'], [40, 60, 85])
+
+    @patch('frontend.streamlit.components.thermography.dialog_layout._measure_component')
+    def test_new_open_refreshes_measurement_component_preserving_last_size(self, component):
+        render = Mock(side_effect=[{'size': {'width': 1100, 'height': 480}}, {'size': None}])
+        component.return_value = render
+        st.session_state['thermal_editor_generation'] = 1
+        self.assertEqual(dialog_canvas_limits('parts'), (1100, 480))
+        st.session_state['thermal_editor_generation'] = 3
+        self.assertEqual(dialog_canvas_limits('parts'), (1100, 480))
+        self.assertNotEqual(render.call_args_list[0].kwargs['key'], render.call_args_list[1].kwargs['key'])
 
     @patch('frontend.streamlit.components.thermography.dialog_layout._measure_component')
     def test_uses_browser_measurement_and_reserves_toolbar_space(self, component):
