@@ -60,6 +60,8 @@ Com a API em execução:
 | `POST /api/v1/thermography/analyze` | Detecta pernas e conta pixels em uma imagem | Não |
 | `POST /api/v1/thermography/segment` | Análise completa com caixas, paleta e correções manuais | Não |
 | `POST /api/v1/thermography/operations/{operation}` | Divisão anatômica, timeline e operações de edição | Não |
+| `GET /api/v1/thermography/baseline/{athlete_id}` | UUID da análise basal salva por atleta, ou `null` | Não |
+| `PUT /api/v1/thermography/baseline/{athlete_id}` | Salva `{ "analysis_id": "UUID" }` após conferir que a análise completa pertence ao atleta | Sim, local |
 | `POST /api/v1/thermography` | Registra uma coleta de frente e verso | Sim |
 | `POST /api/v1/thermography/legacy/extract` | Extrai documentos manuscritos | Não |
 | `POST /api/v1/thermography/legacy/validate-athletes` | Correlaciona nomes revisados | Não |

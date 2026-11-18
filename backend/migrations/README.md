@@ -1,5 +1,18 @@
 # Migrações
 
+`20261118_thermography_baseline.sql` cria `public.termografia_basal`, com uma
+referência UUID por atleta e data da última atualização. Não altera medidas nem
+arquivos de análises. Aplique no banco local antes de usar a nova API da timeline.
+O instalador aplica a migration automaticamente pelo gerenciador existente;
+a base histórica e seu manifesto permanecem intactos. Em desenvolvimento:
+
+```powershell
+Get-Content backend/migrations/20261118_thermography_baseline.sql -Raw -Encoding UTF8 | docker compose exec -T db-dev sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
+
+A nova tabela participa dos backups de `public`. A sincronização exige estruturas
+compatíveis em todas as instalações e não executa essa migration no Drive.
+
 Armazene aqui mudanças SQL versionadas do schema/views quando forem necessárias.
 `20261016_athlete_status.sql` adiciona `public.atleta.status` (`ativo`/`inativo`).
 Os cadastros existentes e os novos recebem `ativo` por padrão. Execute uma vez

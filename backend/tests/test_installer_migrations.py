@@ -14,7 +14,8 @@ class MigrationPackageTests(unittest.TestCase):
         manifest, scripts, baseline = migrations.package_plan()
         text = baseline.decode('utf-8')
         self.assertEqual(len(manifest['includes']), 3)
-        self.assertEqual(set(manifest['includes']), set(scripts))
+        self.assertTrue(set(manifest['includes']).issubset(scripts))
+        self.assertIn('20261118_thermography_baseline.sql', scripts)
         for table in ('atleta','usuario','partida','medida_valor'):
             self.assertNotIn(f'INSERT INTO public.{table}',text)
             self.assertNotIn(f'COPY public.{table}',text)
@@ -64,7 +65,7 @@ class InstallerPostgresTests(unittest.TestCase):
         self.assertEqual(self.execute("SELECT count(*) FROM public.medida WHERE nome LIKE 'EVA_%'"),[(16,)])
         self.assertEqual(self.execute("SELECT count(*) FROM public.medida WHERE nome LIKE '%ZONA_%'"),[(48,)])
         self.assertEqual(migrations.run_migrations(self.config,self.identity),[])
-        self.assertEqual(self.execute('SELECT count(*) FROM mac_internal.schema_migrations'),[(4,)])
+        self.assertEqual(self.execute('SELECT count(*) FROM mac_internal.schema_migrations'),[(len(migrations.package_plan()[1]) + 1,)])
 
     def test_existing_database_is_not_adopted_or_destroyed(self):
         self.execute('CREATE TABLE public.sentinel(value integer); INSERT INTO public.sentinel VALUES(42)')
@@ -113,7 +114,7 @@ class InstallerPostgresTests(unittest.TestCase):
                 migrations.run_migrations(self.config,self.identity,root=root,backup=lambda config:called.append(True))
             self.assertEqual(called,[True])
             self.assertEqual(self.execute("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND column_name='test_column'"),[(0,)])
-            self.assertEqual(self.execute('SELECT count(*) FROM mac_internal.schema_migrations'),[(4,)])
+            self.assertEqual(self.execute('SELECT count(*) FROM mac_internal.schema_migrations'),[(len(migrations.package_plan()[1]) + 1,)])
             script.write_text('BEGIN;\nALTER TABLE public.atleta ADD COLUMN test_column text;\nCOMMIT;\n')
             self.assertEqual(migrations.run_migrations(self.config,self.identity,root=root,backup=lambda config:called.append(True)),['20990101_test.sql'])
             self.assertEqual(migrations.run_migrations(self.config,self.identity,root=root),[])

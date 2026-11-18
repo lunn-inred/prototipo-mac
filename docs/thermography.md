@@ -178,10 +178,17 @@ imagens, matrizes de temperatura, caixas e segmentações anatômicas. A máscar
 pixels quentes e as métricas não são congeladas: elas são recalculadas em tempo
 real com a zona térmica (ou o limiar legado) salvo em cada vista da coleta,
 sem controles de ajuste na timeline.
-Ao escolher o jogador, a timeline
-seleciona automaticamente a data mais antiga como **Basal** e a mais recente como
-**Atual**. O botão **Mudar Basal**, abaixo da imagem basal, abre um pop-up com as análises desse jogador;
-selecionar uma análise atualiza o basal e fecha o pop-up. A coleta **Atual** é
+Ao escolher o jogador, a timeline recupera a **Basal** salva no banco (ou a data
+mais antiga quando não há escolha) e usa a mais recente como **Atual**.
+O botão **Mudar Basal**, abaixo da imagem basal, abre um pop-up com as análises desse jogador;
+selecionar uma análise grava no banco local a escolha por jogador, atualiza o basal
+e fecha o pop-up somente após sucesso. A referência usa o UUID da análise, não uma
+cópia da imagem: reabrir o programa recupera a mesma análise, mesmo que sua data
+seja editada. Sem escolha salva, permanece o padrão da coleta mais antiga.
+Se a basal salva estiver ausente nos arquivos locais, a tela avisa e usa uma
+referência temporária sem apagar a escolha do banco. Falhas de gravação mantêm a
+basal anterior. A escolha é compartilhada pelos usuários do mesmo banco, por atleta.
+A coleta **Atual** é
 escolhida por uma barra deslizante com apenas as datas disponíveis. Ao mudar a
 data, as imagens e o mapa são recalculados, mantendo o basal escolhido.
 Se houver múltiplas análises na mesma data, a barra usa a última registrada;

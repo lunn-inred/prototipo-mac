@@ -26,6 +26,7 @@ from frontend.streamlit.api_client.service_gateway import (
 )
 from frontend.streamlit.components.thermography.editor import LEGS, VIEW_LABELS
 from frontend.streamlit.api_client.local_analyses import save_local_analysis, list_local_analyses, load_local_analysis
+from frontend.streamlit.api_client.local_analyses import get_baseline, set_baseline
 from .analysis_cards import render_analysis_card_style, selectable_analysis_card
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -57,9 +58,15 @@ def _analyses_by_date(entries: list[dict[str, Any]]) -> dict[date, dict[str, Any
 
 def _select_baseline(entry_id: str, athlete_id: int) -> None:
     """Callback: atualiza o basal antes da renderização da comparação."""
+    st.session_state.pop('thermography_baseline_error', None)
     entry = _timeline_entry_by_id(entry_id)
     if entry is None or int(entry['athlete_id']) != athlete_id:
         st.session_state['thermography_timeline_message'] = 'A análise selecionada não está mais disponível.'
+        return
+    try:
+        set_baseline(athlete_id, entry['id'])
+    except Exception:
+        st.session_state['thermography_baseline_error'] = 'Não foi possível salvar a basal no banco. A escolha anterior foi mantida. Tente novamente.'
         return
     st.session_state[f'thermography_timeline_basal_{athlete_id}'] = str(entry['id'])
     st.session_state['thermography_timeline_t0'] = str(entry['id'])
@@ -79,7 +86,10 @@ def choose_baseline(athlete_id: int) -> None:
                 entry, key=f"timeline_basal_{entry['id']}", on_click=_select_baseline,
                 args=(str(entry['id']), athlete_id), details=f"Análise {entry['id'][:8]}",
             ):
-                st.rerun()
+                if error := st.session_state.get('thermography_baseline_error'):
+                    st.error(error)
+                else:
+                    st.rerun()
 
 
 def _timeline_view_at_threshold(source, threshold):
@@ -257,6 +267,16 @@ def render_timeline(athletes: list[dict[str, Any]]) -> None:
     by_date = _analyses_by_date(entries)
     dates = list(by_date)
     basal_key = f'thermography_timeline_basal_{selected_player_id}'
+    try:
+        saved_baseline = get_baseline(selected_player_id)
+    except Exception:
+        st.error('Não foi possível consultar a basal salva no banco. Confira a API e a migration de basal.')
+        return
+    if saved_baseline:
+        if str(saved_baseline['analysis_id']) in valid_ids:
+            st.session_state[basal_key] = str(saved_baseline['analysis_id'])
+        else:
+            st.warning('A basal salva não está disponível nos arquivos deste computador. Exibindo uma referência temporária; a escolha no banco foi preservada.')
     if st.session_state.get(basal_key) not in valid_ids:
         st.session_state[basal_key] = str(by_date[dates[0]]['id'])
     st.session_state['thermography_timeline_t0'] = st.session_state[basal_key]

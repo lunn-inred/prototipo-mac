@@ -9,11 +9,34 @@ from .analysis_registration import register_analysis, replace_analysis, Analysis
 from .thermography_service import DuplicateThermographyError, MissingThermographyMeasuresError
 from psycopg2 import Error as DatabaseError
 from . import drafts
+from . import baseline
 from .regional_eva import normalize_regional_eva
 from pydantic import field_validator
 import logging
 
 router = APIRouter()
+
+
+class BaselineInput(BaseModel):
+    analysis_id: UUID
+
+
+@router.get('/thermography/baseline/{athlete_id}', tags=['Termografia'])
+def get_baseline(athlete_id: int):
+    try:
+        return baseline.get_baseline(athlete_id)
+    except DatabaseError as error:
+        raise HTTPException(503, 'Não foi possível consultar a basal salva. Confira o banco e a migration de basal.') from error
+
+
+@router.put('/thermography/baseline/{athlete_id}', tags=['Termografia'])
+def set_baseline(athlete_id: int, payload: BaselineInput):
+    try:
+        return baseline.set_baseline(athlete_id, payload.analysis_id)
+    except FileNotFoundError as error:
+        raise HTTPException(404, 'A análise basal não está disponível para este jogador.') from error
+    except (DatabaseError, OSError, RuntimeError) as error:
+        raise HTTPException(503, 'Não foi possível salvar a basal. A escolha anterior foi preservada.') from error
 
 
 class LocalAnalysisInput(BaseModel):

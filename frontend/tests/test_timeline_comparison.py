@@ -37,6 +37,9 @@ def regional_rows(app):
 
 class TimelineComparisonTests(unittest.TestCase):
     def setUp(self):
+        baseline_read = patch.object(timeline, 'get_baseline', return_value=None)
+        baseline_read.start()
+        self.addCleanup(baseline_read.stop)
         st.cache_data.clear()
         self.addCleanup(st.cache_data.clear)
         self.entries = [dict(id=str(i), athlete_id=1, collected_at=date(2026, 10, i + 1),

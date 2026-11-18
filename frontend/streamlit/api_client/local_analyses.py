@@ -3,6 +3,15 @@ from frontend.streamlit.api_client.service_gateway import _request
 from frontend.streamlit.api_client.wire import encode, decode
 
 
+def get_baseline(athlete_id):
+    return _request('GET', f'/api/v1/thermography/baseline/{int(athlete_id)}')
+
+
+def set_baseline(athlete_id, analysis_id):
+    return _request('PUT', f'/api/v1/thermography/baseline/{int(athlete_id)}',
+                    json={'analysis_id': str(analysis_id)})
+
+
 def save_local_analysis(athlete_id, athlete_name, collected_at, views, *, mass=None, pain_score=None, regional_eva=None, observations=''):
     return decode(_request('POST', '/api/v1/thermography/analyses', json={
         'athlete_id': int(athlete_id), 'athlete_name': athlete_name,

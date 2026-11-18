@@ -5,6 +5,12 @@
 
 ## Suíte automatizada
 
+Basal persistente: `backend.tests.test_thermography_baseline` e
+`frontend.tests.test_persistent_timeline` verificam nova sessão, alteração da
+escolha, análise inexistente, isolamento por atleta e falha sem trocar a seleção.
+O teste PostgreSQL é optativo e exige `127.0.0.1:55432/mac_test` explicitamente;
+as imagens ficam em diretório temporário. Não usa `mac_dev` nem Google.
+
 O instalador Windows possui testes em `desktop.tests.test_windows_setup` e
 `backend.tests.test_installer_migrations`. Os primeiros simulam caminhos,
 serviço e ordem banco/API/janela no Linux; não executam SCM, ACLs ou Inno Setup.

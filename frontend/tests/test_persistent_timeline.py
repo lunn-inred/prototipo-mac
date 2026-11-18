@@ -18,6 +18,15 @@ class PersistentTimelineTests(unittest.TestCase):
         import streamlit as st
         st.cache_data.clear()
         self.addCleanup(st.cache_data.clear)
+        self.baselines = {}
+        read = patch('frontend.streamlit.components.thermography.timeline.get_baseline',
+                     side_effect=lambda athlete: self.baselines.get(athlete))
+        def save(athlete, analysis_id):
+            self.baselines[athlete] = {'analysis_id': str(analysis_id)}
+            return self.baselines[athlete]
+        write = patch('frontend.streamlit.components.thermography.timeline.set_baseline', side_effect=save)
+        read.start(); write.start()
+        self.addCleanup(read.stop); self.addCleanup(write.stop)
 
     def test_starting_another_analysis_keeps_timeline_player_and_selection(self):
         from frontend.streamlit.components.thermography import wizard
@@ -150,3 +159,47 @@ class PersistentTimelineTests(unittest.TestCase):
             self.assertEqual(len(app.exception), 0, list(app.exception))
             self.assertNotIn('thermography_timeline_t0', app.session_state)
             self.assertNotIn('thermography_timeline_ti', app.session_state)
+
+    def test_new_session_restores_saved_baseline_for_each_player(self):
+        from frontend.streamlit.components.thermography import timeline
+        entries = [dict(id=name, athlete_id=1, collected_at=date(2026, 10, day), sequence=day)
+                   for name, day in (('old', 1), ('chosen', 14))]
+        athletes = [dict(id_atleta=1, nome='Jogador')]
+        root = Path(__file__).resolve().parents[2]
+        path = str(root/'frontend/streamlit/pages/Timeline_Termo.py')
+        with patch('frontend.streamlit.presentation.thermography_data.load_thermography_athletes', return_value=athletes), \
+             patch.object(timeline, 'list_local_analyses', return_value=entries), \
+             patch.object(timeline, '_render_comparison') as compare:
+            self.baselines[1] = {'analysis_id': 'chosen'}
+            for _ in range(2):
+                app = AppTest.from_file(path).run()
+                app.selectbox(key='thermography_timeline_player').set_value(1).run()
+                self.assertFalse(app.exception)
+                compare.assert_called_with(entries[1], entries[1])
+
+    def test_failed_baseline_save_keeps_previous_choice(self):
+        from frontend.streamlit.components.thermography import timeline
+        state = {'thermography_timeline': [dict(id='new', athlete_id=1)],
+                 'thermography_timeline_basal_1': 'old', 'thermography_timeline_t0': 'old'}
+        with patch.object(timeline.st, 'session_state', state), \
+             patch.object(timeline, 'set_baseline', side_effect=ValueError('Falha simulada')):
+            timeline._select_baseline('new', 1)
+        self.assertEqual(state['thermography_timeline_basal_1'], 'old')
+        self.assertEqual(state['thermography_timeline_t0'], 'old')
+        self.assertIn('escolha anterior', state['thermography_baseline_error'])
+
+    def test_missing_local_baseline_warns_without_overwriting_database(self):
+        from frontend.streamlit.components.thermography import timeline
+        entries = [dict(id='available', athlete_id=1, collected_at=date(2026, 10, 1), sequence=1)]
+        self.baselines[1] = {'analysis_id': 'missing'}
+        root = Path(__file__).resolve().parents[2]
+        with patch('frontend.streamlit.presentation.thermography_data.load_thermography_athletes',
+                   return_value=[dict(id_atleta=1, nome='Teste')]), \
+             patch.object(timeline, 'list_local_analyses', return_value=entries), \
+             patch.object(timeline, '_render_comparison') as comparison:
+            app = AppTest.from_file(str(root/'frontend/streamlit/pages/Timeline_Termo.py')).run()
+            app.selectbox(key='thermography_timeline_player').set_value(1).run()
+        self.assertFalse(app.exception)
+        comparison.assert_called_with(entries[0], entries[0])
+        self.assertEqual(self.baselines[1]['analysis_id'], 'missing')
+        self.assertTrue(any('referência temporária' in item.value for item in app.warning))
