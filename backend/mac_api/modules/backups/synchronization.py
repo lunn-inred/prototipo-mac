@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
-from tempfile import TemporaryDirectory, mkdtemp
+from tempfile import TemporaryDirectory
 from uuid import UUID, uuid4
 
 from backend.mac_api.core.maintenance import exclusive_operation
@@ -290,14 +290,23 @@ def _publish(drive, head, merged, winners, local, remote, work, installation):
     return commit, uploaded
 
 
+def _create_stage():
+    # ProgramData/MAC Performance é protegido: só backups e thermography são
+    # graváveis pelo usuário. mkdir direto também evita o retry de PermissionError
+    # do tempfile.mkdtemp no Windows quando os.access não representa a ACL.
+    stage = service.backups_directory() / f'.mac-sync-{uuid4().hex}'
+    stage.mkdir(mode=0o700)
+    return stage
+
+
 def synchronize(*, desktop=False, schema_transition=False, progress=lambda text: None):
+    progress('Preparando arquivos locais da sincronização.')
     service._assert_ready()
     base_path = service.backups_directory() / 'sync-state.json'
     journal = service.backups_directory() / 'restore-pending.json'
     root = analyses_directory()
-    root.parent.mkdir(parents=True, exist_ok=True)
     publication = DirectoryPublication(root)
-    stage = Path(mkdtemp(prefix='.mac-sync-', dir=root.parent))
+    stage = _create_stage()
     commit_started = False
     connection = None
     try:

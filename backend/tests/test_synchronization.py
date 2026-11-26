@@ -3,11 +3,77 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import unittest
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from uuid import uuid4
 from backend.mac_api.modules.backups import sync_data as data, synchronization as sync
 
 
+class SyncStagingTests(unittest.TestCase):
+    def test_stage_uses_writable_backup_directory(self):
+        with TemporaryDirectory() as temporary:
+            backups = Path(temporary) / 'backups'
+            backups.mkdir()
+            with patch.object(sync.service, 'backups_directory', return_value=backups):
+                stage = sync._create_stage()
+            self.assertEqual(stage.parent, backups)
+            self.assertTrue(stage.is_dir())
+            self.assertTrue(stage.name.startswith('.mac-sync-'))
+
+    def test_acl_denial_fails_once_before_drive_or_database_and_updates_job(self):
+        from backend.mac_api.modules.backups import jobs
+        with TemporaryDirectory() as temporary, \
+             patch.object(sync.service, '_assert_ready'), \
+             patch.object(sync.service, 'backups_directory', return_value=Path(temporary)), \
+             patch.object(sync, 'analyses_directory', return_value=Path(temporary)/'analyses'), \
+             patch.object(sync, 'Drive') as drive, \
+             patch.object(sync.service, '_connection') as connection, \
+             patch.object(Path, 'mkdir', side_effect=PermissionError(13, 'private-token')) as mkdir, \
+             patch.dict(jobs._jobs, {'stage-test': dict(kind='sync', status='queued', message='Aguardando')}), \
+             self.assertLogs(jobs.__name__, level='ERROR') as logs:
+            jobs._run('stage-test', lambda progress: sync.synchronize(progress=progress))
+            result = jobs.status('stage-test')
+            self.assertEqual(result['status'], 'failed')
+            self.assertEqual(result['error_type'], 'PermissionError')
+            self.assertIn('Preparando arquivos locais', result['message'])
+            self.assertNotIn('private-token', result['message']+'\n'.join(logs.output))
+            mkdir.assert_called_once()
+            drive.assert_not_called()
+            connection.assert_not_called()
+
+
 class SyncMergeTests(unittest.TestCase):
+    def test_staging_uses_writable_backups_and_permission_failure_is_not_retried(self):
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with patch.object(sync.service, 'backups_directory', return_value=directory):
+                stage = sync._create_stage()
+                self.assertEqual(stage.parent, directory)
+                self.assertTrue(stage.is_dir())
+                self.assertTrue(stage.name.startswith('.mac-sync-'))
+                with patch.object(Path, 'mkdir', side_effect=PermissionError(13, 'private-path')) as mkdir:
+                    with self.assertRaises(PermissionError):
+                        sync._create_stage()
+                    mkdir.assert_called_once()
+
+    def test_staging_failure_is_reported_as_failed_job_before_drive_or_database(self):
+        from backend.mac_api.modules.backups import jobs
+        with TemporaryDirectory() as temporary, \
+             patch.object(sync.service, '_assert_ready'), \
+             patch.object(sync.service, 'backups_directory', return_value=Path(temporary)), \
+             patch.object(sync, '_create_stage', side_effect=PermissionError(13, 'private-path')), \
+             patch.object(sync, 'Drive') as drive, \
+             patch.dict(jobs._jobs, {'stage-test': dict(kind='sync', status='queued', message='Aguardando')}):
+            with self.assertLogs(jobs.__name__, level='ERROR') as logs:
+                jobs._run('stage-test', lambda progress: sync.synchronize(progress=progress))
+            result = jobs.status('stage-test')
+            self.assertEqual(result['status'], 'failed')
+            self.assertIn('Preparando arquivos locais', result['message'])
+            self.assertNotIn('private-path', result['message'] + '\n'.join(logs.output))
+            drive.assert_not_called()
+
     def test_regional_catalog_alignment_updates_links_and_refuses_other_measure_collisions(self):
         def snapshot(reverse=False):
             regions = [f'{part}_{side}_{view}' for part in ('COXA', 'JOELHO', 'CANELA', 'PE')

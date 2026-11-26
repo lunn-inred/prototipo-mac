@@ -29,6 +29,12 @@ da rede, do tamanho dos arquivos e da execução das duas APIs; não há garanti
 tempo real. Ao abrir ou interagir com outra página, consultas em cache podem
 demorar até 10 segundos para refletir os dados recebidos.
 
+No Windows instalado, o staging da sincronização fica em
+`MAC_BACKUPS_DIR/.mac-sync-<uuid>`, nunca na raiz protegida de ProgramData.
+A pasta é criada diretamente, sem retries de `tempfile.mkdtemp` que podem
+mascarar uma negação de ACL no Windows. Falta de permissão é reportada antes
+de acessar Drive/banco, sem ampliar as permissões da instalação.
+
 Use a mesma pasta e a mesma conta Google autorizada em todas as instalações.
 Mantenha `MAC_GOOGLE_BACKUP_FOLDER_ID` no `.env`: o nome da variável foi preservado
 para compatibilidade. Cada computador mantém sua própria autorização OAuth.
